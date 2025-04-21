@@ -29,8 +29,13 @@ if (loginForm) {
             console.log('4. Resultado JSON (login):', result);
 
             if (result && result.message === 'Inicio de sesión exitoso') {
+                localStorage.setItem('userEmail', data.email);
+                localStorage.setItem('userPassword', data.password);
+                localStorage.setItem('userId', result.user_id);  // ✅ El único ID que usas ahora
+                localStorage.setItem('userRol', result.rol);
+            
                 alert(result.message);
-
+                
                 // Redirige según el rol del usuario
                 const userRol = result.rol; // Obtener el rol de la respuesta
                 console.log('10. Rol del usuario (login):', userRol);

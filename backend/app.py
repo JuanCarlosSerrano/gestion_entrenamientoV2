@@ -78,15 +78,18 @@ def requires_roles(*roles):
 
 
 # --- Rutas para Usuarios (Registro e Inicio de Sesión) ---
-
-@app.route('/register', methods=['POST'])
+@app.route('/registro', methods=['POST'])
 def register_user():
     data = request.get_json()
     nombre = data.get('nombre')
     apellidos = data.get('apellidos')
     email = data.get('email')
     password = data.get('password')
-    rol = data.get('rol')  # Obtenemos el rol del usuario
+    rol = data.get('rol')
+    fecha_nacimiento = data.get('fecha_nacimiento')
+    telefono = data.get('telefono')
+    entrenador_id = data.get('entrenador_id')  # opcional
+    categoria = data.get('categoria')  # solo atletas
 
     if not nombre or not apellidos or not email or not password or not rol:
         return jsonify({'error': 'Todos los campos son obligatorios'}), 400
@@ -101,14 +104,29 @@ def register_user():
     password_hash = generate_password_hash(password)
 
     try:
-        execute_db(
-            'INSERT INTO usuarios (nombre, apellidos, email, password_hash, rol) VALUES (?, ?, ?, ?, ?)',
-            (nombre, apellidos, email, password_hash, rol)
-        )
-        return jsonify({'message': 'Usuario registrado exitosamente'}), 201
-    except sqlite3.IntegrityError:
-        return jsonify({'error': 'Error al registrar el usuario (problema de integridad)'}), 500
+        conn = get_db()
+        cursor = conn.cursor()
 
+        cursor.execute(
+            '''INSERT INTO usuarios (
+                nombre, apellidos, email, password_hash, rol,
+                fecha_nacimiento, telefono, entrenador_id, categoria
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (
+                nombre, apellidos, email, password_hash, rol,
+                fecha_nacimiento if rol == 'atleta' else None,
+                telefono if rol == 'atleta' else None,
+                entrenador_id if rol == 'atleta' else None,
+                categoria if rol == 'atleta' else None
+            )
+        )
+
+        conn.commit()
+        return jsonify({'message': 'Usuario registrado exitosamente'}), 201
+
+    except sqlite3.IntegrityError as e:
+        print("Error al registrar:", e)
+        return jsonify({'error': 'Error al registrar el usuario (problema de integridad)'}), 500
 
 @app.route('/login', methods=['POST'])
 def login_user():
@@ -131,12 +149,22 @@ def login_user():
         print(f'Inicio de sesión exitoso. Rol: {user["rol"]}')
         session["user_id"] = user["id"]
         session["user_rol"] = user["rol"]
-        session["user_email"] = user["email"]  # Almacena el email en la sesión (opcional, pero útil)
-        return jsonify({'message': 'Inicio de sesión exitoso', 'rol': user['rol']}), 200
-    else:
-        print('Credenciales inválidas')
-        return jsonify({'error': 'Credenciales inválidas'}), 401
+        session["user_email"] = user["email"]
 
+        response = {
+            'message': 'Inicio de sesión exitoso',
+            'rol': user['rol'],
+            'user_id': user['id']
+        }
+
+        if user['rol'] == 'atleta':
+            # Ya no hay tabla atletas, así que usamos el mismo id
+            response['atleta_id'] = user['id']
+
+        return jsonify(response), 200
+
+    print("Credenciales inválidas")
+    return jsonify({'error': 'Credenciales inválidas'}), 401
 
 # --- Rutas para Usuarios (Gestión - Solo para Admin) ---
 
@@ -223,18 +251,18 @@ def delete_user(current_user, id):
 @requires_roles('admin', 'entrenador', 'atleta')
 def get_atletas(current_user):
     if session.get("user_rol") == 'admin':
-        atletas = query_db('SELECT * FROM atletas')
+        atletas = query_db('SELECT * FROM usuarios')
     elif session.get("user_rol") == 'entrenador':
         # Obtener los IDs de los atletas que entrena el entrenador actual
         atletas_ids = [row['id'] for row in
-                       query_db('SELECT id FROM atletas WHERE entrenador_id = ?', (session.get("user_id"),))]
+                       query_db('SELECT id FROM usuarios WHERE rol = "atleta" AND entrenador_id = ?', (session.get("user_id"),))]
         if atletas_ids:
-            atletas = query_db('SELECT * FROM atletas WHERE id IN ({})'.format(','.join('?' * len(atletas_ids))),
+            atletas = query_db('SELECT * FROM usuarios WHERE id IN ({})'.format(','.join('?' * len(atletas_ids))),
                             atletas_ids)
         else:
             atletas = []  # No hay atletas, no hay entrenamientos
     else:  # 'atleta'
-        atletas = query_db('SELECT * FROM atletas WHERE id = ?', (session.get("user_id"),))
+        atletas = query_db('SELECT * FROM usuarios WHERE id = ?', (session.get("user_id"),))
     return jsonify([dict(atleta) for atleta in atletas])
 
 
@@ -242,11 +270,11 @@ def get_atletas(current_user):
 @requires_roles('admin', 'entrenador', 'atleta')
 def get_atleta(current_user, id):
     if session.get("user_rol") == 'admin' or session.get("user_rol") == 'entrenador':
-        atleta = query_db('SELECT * FROM atletas WHERE id = ?', (id,), one=True)
+        atleta = query_db('SELECT * FROM usuarios WHERE id = ?', (id,), one=True)
     else:  # 'atleta'
         if session.get("user_id") != id:
             return jsonify({'error': 'Acceso no autorizado'}), 403
-        atleta = query_db('SELECT * FROM atletas WHERE id = ?', (id,), one=True)
+        atleta = query_db('SELECT * FROM usuarios WHERE id = ?', (id,), one=True)
     if atleta is None:
         return jsonify({'error': 'Atleta no encontrado'}), 404
     return jsonify(dict(atleta))
@@ -275,7 +303,7 @@ def create_atleta(current_user):
     conn.close()
 
     conn_read = get_db()
-    atleta = query_db('SELECT * FROM atletas WHERE id = ?', (atleta_id,), one=True)
+    atleta = query_db('SELECT * FROM usuarios WHERE id = ?', (atleta_id,), one=True)
     conn_read.close()
 
     if atleta:
@@ -295,7 +323,7 @@ def update_atleta(current_user, id):
     telefono = data.get('telefono')
     entrenador_id = data.get('entrenador_id')
 
-    atleta = query_db('SELECT * FROM atletas WHERE id = ?', (id,), one=True)
+    atleta = query_db('SELECT * FROM usuarios WHERE id = ?', (id,), one=True)
     if atleta is None:
         return jsonify({'error': 'Atleta no encontrado'}), 404
 
@@ -303,14 +331,14 @@ def update_atleta(current_user, id):
         'UPDATE atletas SET nombre = ?, apellidos = ?, fecha_nacimiento = ?, email = ?, telefono = ?, entrenador_id = ? WHERE id = ?',
         (nombre, apellidos, fecha_nacimiento, email, telefono, entrenador_id, id)
     )
-    atleta_actualizado = query_db('SELECT * FROM atletas WHERE id = ?', (id,), one=True)
+    atleta_actualizado = query_db('SELECT * FROM usuarios WHERE id = ?', (id,), one=True)
     return jsonify(dict(atleta_actualizado))
 
 
 @app.route('/atletas/<int:id>', methods=['DELETE'])
 @requires_roles('admin')  # Solo admin puede eliminar atletas
 def delete_atleta(current_user, id):
-    execute_db('DELETE FROM atletas WHERE id = ?', (id,))
+    execute_db('DELETE FROM usuarios WHERE id = ?', (id,))
     return jsonify({'message': 'Atleta eliminado correctamente'}), 200
 
 
@@ -421,7 +449,7 @@ def create_feedback(current_user):
 def get_feedback_for_entrenamiento(current_user, entrenamiento_id):
     # Obtener los IDs de los atletas que entrena el entrenador actual
     atletas_ids = [row['id'] for row in
-                   query_db('SELECT id FROM atletas WHERE entrenador_id = ?', (session.get("user_id"),))]
+                   query_db('SELECT id FROM usuarios WHERE entrenador_id = ?', (session.get("user_id"),))]
     if atletas_ids:
         feedback = query_db(
             'SELECT u.nombre, u.apellidos, f.comentario FROM feedback f JOIN usuarios u ON f.atleta_id = u.id WHERE f.entrenamiento_id = ? AND f.atleta_id IN ({})',
@@ -550,6 +578,57 @@ def editar_entrenamiento_asignado(current_user, id):
 def eliminar_entrenamiento_asignado(current_user, id):
     execute_db('DELETE FROM entrenamientos_asignados WHERE id = ?', (id,))
     return jsonify({'message': 'Entrenamiento asignado eliminado correctamente'}), 200
+
+@app.route('/asignar_grupo_entrenamiento', methods=['POST'])
+@requires_roles('admin', 'entrenador')
+def asignar_grupo_entrenamiento(current_user):
+    data = request.get_json()
+    categoria = data.get('categoria')
+    fecha = data.get('fecha')
+
+    if not categoria or not fecha:
+        return jsonify({'error': 'Categoría y fecha son obligatorios'}), 400
+
+    # Copiar los campos del entrenamiento
+    entrenamiento_datos = {
+        'nombre': data.get('nombre'),
+        'duracion_valor': data.get('duracion_valor'),
+        'duracion_tipo': data.get('duracion_tipo'),
+        'calentamiento_tipo': data.get('calentamiento_tipo'),
+        'calentamiento_valor': data.get('calentamiento_valor'),
+        'bloque_activacion': data.get('bloque_activacion'),
+        'bloque_principal': data.get('bloque_principal'),
+        'enfriamiento_tipo': data.get('enfriamiento_tipo'),
+        'enfriamiento_valor': data.get('enfriamiento_valor'),
+        'fecha': fecha
+    }
+
+    try:
+        atletas = query_db('SELECT id FROM usuarios WHERE categoria = ?', (categoria,))
+        if not atletas:
+            return jsonify({'error': 'No hay atletas en esa categoría'}), 404
+
+        for atleta in atletas:
+            execute_db('''
+                INSERT INTO entrenamientos_asignados (
+                    atleta_id, fecha, nombre, duracion_valor, duracion_tipo,
+                    calentamiento_tipo, calentamiento_valor, bloque_activacion,
+                    bloque_principal, enfriamiento_tipo, enfriamiento_valor
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                atleta['id'], fecha, entrenamiento_datos['nombre'],
+                entrenamiento_datos['duracion_valor'], entrenamiento_datos['duracion_tipo'],
+                entrenamiento_datos['calentamiento_tipo'], entrenamiento_datos['calentamiento_valor'],
+                entrenamiento_datos['bloque_activacion'], entrenamiento_datos['bloque_principal'],
+                entrenamiento_datos['enfriamiento_tipo'], entrenamiento_datos['enfriamiento_valor']
+            ))
+
+        return jsonify({'message': 'Entrenamiento asignado correctamente a todos los atletas del grupo'}), 201
+
+    except Exception as e:
+        print(e)
+        return jsonify({'error': 'Error al asignar entrenamiento al grupo'}), 500
+
 
 @app.route('/')
 def index():

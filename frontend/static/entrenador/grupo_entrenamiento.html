@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Asignar Entrenamiento por Grupo</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet" />
+</head>
+<body>
+  <div class="container mt-5">
+    <h2>Asignar entrenamiento a un grupo</h2>
+
+    <form id="form-asignar-grupo">
+      <div class="mb-3">
+        <label for="categoria" class="form-label">Categoría:</label>
+        <select class="form-select" id="categoria" required>
+          <option value="">Selecciona una categoría</option>
+          <option value="sub-16">Sub-16</option>
+          <option value="sub-18">Sub-18</option>
+          <option value="sub-20">Sub-20</option>
+          <option value="sub-23">Sub-23</option>
+          <option value="absoluto">Absoluto</option>
+        </select>
+      </div>
+
+      <div class="mb-3">
+        <label for="fecha" class="form-label">Fecha:</label>
+        <input type="date" class="form-control" id="fecha" required />
+      </div>
+
+      <div class="mb-3">
+        <label for="select-entrenamiento" class="form-label">Entrenamiento tipo:</label>
+        <select class="form-select" id="select-entrenamiento" required></select>
+      </div>
+
+      <div class="mb-3">
+        <label for="nombre" class="form-label">Nombre del entrenamiento:</label>
+        <input type="text" class="form-control" id="nombre" required />
+      </div>
+
+      <div class="mb-3">
+        <label for="duracion_valor" class="form-label">Duración (valor):</label>
+        <input type="number" class="form-control" id="duracion_valor" />
+      </div>
+
+      <div class="mb-3">
+        <label for="duracion_tipo" class="form-label">Tipo de duración:</label>
+        <input type="text" class="form-control" id="duracion_tipo" />
+      </div>
+
+      <div class="mb-3">
+        <label for="calentamiento_tipo" class="form-label">Calentamiento (tipo):</label>
+        <input type="text" class="form-control" id="calentamiento_tipo" />
+      </div>
+
+      <div class="mb-3">
+        <label for="calentamiento_valor" class="form-label">Calentamiento (valor):</label>
+        <input type="number" class="form-control" id="calentamiento_valor" />
+      </div>
+
+      <div class="mb-3">
+        <label for="bloque_activacion" class="form-label">Bloque de activación:</label>
+        <textarea class="form-control" id="bloque_activacion" rows="2"></textarea>
+      </div>
+
+      <div class="mb-3">
+        <label for="bloque_principal" class="form-label">Bloque principal:</label>
+        <textarea class="form-control" id="bloque_principal" rows="3" required></textarea>
+      </div>
+
+      <div class="mb-3">
+        <label for="enfriamiento_tipo" class="form-label">Enfriamiento (tipo):</label>
+        <input type="text" class="form-control" id="enfriamiento_tipo" />
+      </div>
+
+      <div class="mb-3">
+        <label for="enfriamiento_valor" class="form-label">Enfriamiento (valor):</label>
+        <input type="number" class="form-control" id="enfriamiento_valor" />
+      </div>
+
+      <button type="submit" class="btn btn-primary w-100">Asignar a grupo</button>
+    </form>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="../js/entrenador/grupo_entrenamiento.js"></script>
+</body>
+</html>

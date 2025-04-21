@@ -32,6 +32,7 @@ function displayAtletas(atletas) {
             <td>${atleta.fecha_nacimiento || '---'}</td>
             <td>${atleta.email || '---'}</td>
             <td>${atleta.telefono || '---'}</td>
+            <td>${atleta.categoria || 'Sin categoría'}</td>
             <td>
                 <a href="calendario.html?atletaId=${atleta.id}" class="btn btn-sm btn-info">Ver Calendario</a>
             </td>

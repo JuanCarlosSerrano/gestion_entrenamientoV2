@@ -1,26 +1,46 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vista de Atleta</title>
-    <link rel="stylesheet" href="../css/style.css">
-    <script src="../js/script.js"></script>
-    <script src="../js/atleta.js"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mis Entrenamientos</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
 </head>
 <body>
-    <div class="container">
-        <h1>Vista de Atleta</h1>
-        <nav>
-            <ul>
-                <li><a href="#">Mi Calendario</a></li>
-                <li><a href="#">Mis Datos</a></li>
-            </ul>
-        </nav>
-        <div id="content">
-            <h2>Bienvenido, Atleta</h2>
-            <p>Selecciona una opción del menú para comenzar.</p>
+  <div class="container mt-4">
+    <h1 class="mb-4">Mis Entrenamientos</h1>
+
+    <!-- Contenedor de entrenamientos -->
+    <div id="entrenamientos-container" class="accordion"></div>
+  </div>
+
+  <!-- Modal de Feedback -->
+  <div class="modal fade" id="modalFeedback" tabindex="-1" aria-labelledby="modalFeedbackLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <form id="form-feedback" class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalFeedbackLabel">Enviar Feedback</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
         </div>
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="comentario" class="form-label">¿Cómo fue el entrenamiento?</label>
+            <textarea class="form-control" id="comentario" rows="4" required></textarea>
+          </div>
+          <!-- Puedes añadir más campos como tiempo realizado, percepción, etc. -->
+        </div>
+        <div class="modal-footer">
+          <input type="hidden" id="feedback-entrenamiento-id">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Enviar</button>
+        </div>
+      </form>
     </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="../js/atleta/index.js"></script>
 </body>
 </html>
