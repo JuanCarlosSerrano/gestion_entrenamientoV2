@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bandeja de Feedback</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
+</head>
+<body>
+  <div class="container mt-4">
+    <h1 class="mb-4">Bandeja de Feedback</h1>
+
+    <!-- Botón volver -->
+    <div class="mb-3">
+      <a href="index.html" class="btn btn-secondary">Volver al inicio</a>
+    </div>
+
+    <!-- Navegación por pestañas -->
+    <ul class="nav nav-tabs" id="feedbackTabs" role="tablist">
+      <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="no-leidos-tab" data-bs-toggle="tab" data-bs-target="#no-leidos" type="button" role="tab">No leídos</button>
+      </li>
+      <li class="nav-item" role="presentation">
+        <button class="nav-link" id="leidos-tab" data-bs-toggle="tab" data-bs-target="#leidos" type="button" role="tab">Leídos</button>
+      </li>
+    </ul>
+
+    <div class="tab-content mt-3" id="feedbackTabsContent">
+      <div class="tab-pane fade show active" id="no-leidos" role="tabpanel">
+        <ul class="list-group" id="lista-no-leidos"></ul>
+      </div>
+      <div class="tab-pane fade" id="leidos" role="tabpanel">
+        <ul class="list-group" id="lista-leidos"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div class="modal fade" id="modalFeedback" tabindex="-1" aria-labelledby="modalFeedbackLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalFeedbackLabel">Detalle del Feedback</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body" id="modal-feedback-body"></div>
+        <div class="modal-footer">
+          <button type="button" id="btn-marcar-leido" class="btn btn-success">Marcar como leído</button>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="../js/entrenador/feedback.js" type="module"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

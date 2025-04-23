@@ -2,19 +2,30 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Asignar Entrenamiento por Grupo</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Gestión de Grupos - Asignar Entrenamientos</title>
+  <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
+  <!-- Bootstrap CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet"/>
+
+  <!-- DataTables Bootstrap 5 CSS -->
+  <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet"/>
 </head>
 <body>
   <div class="container mt-5">
-    <h2>Asignar entrenamiento a un grupo</h2>
+    <h2>Gestión de grupos - Asignación de entrenamiento</h2>
 
-    <form id="form-asignar-grupo">
-      <div class="mb-3">
-        <label for="categoria" class="form-label">Categoría:</label>
-        <select class="form-select" id="categoria" required>
-          <option value="">Selecciona una categoría</option>
+    <!-- Filtros -->
+    <form id="form-filtros" class="row g-3 mt-3 mb-4">
+      <div class="col-md-3">
+        <input type="text" id="grupo" class="form-control" placeholder="Grupo" />
+      </div>
+      <div class="col-md-3">
+        <input type="text" id="subgrupo" class="form-control" placeholder="Subgrupo" />
+      </div>
+      <div class="col-md-3">
+        <select id="categoria" class="form-select">
+          <option value="">Categoría</option>
           <option value="sub-16">Sub-16</option>
           <option value="sub-18">Sub-18</option>
           <option value="sub-20">Sub-20</option>
@@ -22,67 +33,73 @@
           <option value="absoluto">Absoluto</option>
         </select>
       </div>
-
-      <div class="mb-3">
-        <label for="fecha" class="form-label">Fecha:</label>
-        <input type="date" class="form-control" id="fecha" required />
+      <div class="col-md-3 d-grid">
+        <button type="submit" class="btn btn-primary">Aplicar Filtro</button>
       </div>
-
-      <div class="mb-3">
-        <label for="select-entrenamiento" class="form-label">Entrenamiento tipo:</label>
-        <select class="form-select" id="select-entrenamiento" required></select>
-      </div>
-
-      <div class="mb-3">
-        <label for="nombre" class="form-label">Nombre del entrenamiento:</label>
-        <input type="text" class="form-control" id="nombre" required />
-      </div>
-
-      <div class="mb-3">
-        <label for="duracion_valor" class="form-label">Duración (valor):</label>
-        <input type="number" class="form-control" id="duracion_valor" />
-      </div>
-
-      <div class="mb-3">
-        <label for="duracion_tipo" class="form-label">Tipo de duración:</label>
-        <input type="text" class="form-control" id="duracion_tipo" />
-      </div>
-
-      <div class="mb-3">
-        <label for="calentamiento_tipo" class="form-label">Calentamiento (tipo):</label>
-        <input type="text" class="form-control" id="calentamiento_tipo" />
-      </div>
-
-      <div class="mb-3">
-        <label for="calentamiento_valor" class="form-label">Calentamiento (valor):</label>
-        <input type="number" class="form-control" id="calentamiento_valor" />
-      </div>
-
-      <div class="mb-3">
-        <label for="bloque_activacion" class="form-label">Bloque de activación:</label>
-        <textarea class="form-control" id="bloque_activacion" rows="2"></textarea>
-      </div>
-
-      <div class="mb-3">
-        <label for="bloque_principal" class="form-label">Bloque principal:</label>
-        <textarea class="form-control" id="bloque_principal" rows="3" required></textarea>
-      </div>
-
-      <div class="mb-3">
-        <label for="enfriamiento_tipo" class="form-label">Enfriamiento (tipo):</label>
-        <input type="text" class="form-control" id="enfriamiento_tipo" />
-      </div>
-
-      <div class="mb-3">
-        <label for="enfriamiento_valor" class="form-label">Enfriamiento (valor):</label>
-        <input type="number" class="form-control" id="enfriamiento_valor" />
-      </div>
-
-      <button type="submit" class="btn btn-primary w-100">Asignar a grupo</button>
     </form>
+
+    <!-- Tabla de atletas -->
+    <div class="table-responsive">
+      <table id="tabla-atletas" class="table table-striped table-bordered">
+        <thead>
+          <tr>
+            <th><input type="checkbox" id="check-todos" /></th>
+            <th>Nombre</th>
+            <th>Apellidos</th>
+            <th>Email</th>
+            <th>Grupo</th>
+            <th>Subgrupo</th>
+            <th>Categoría</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <!-- Formulario de asignación -->
+    <form id="form-asignar-entrenamiento" class="mt-4">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-3">
+          <label for="fecha" class="form-label">Fecha:</label>
+          <input type="date" id="fecha" class="form-control" required />
+        </div>
+        <div class="col-md-6">
+          <label for="select-entrenamiento" class="form-label">Entrenamiento tipo:</label>
+          <select id="select-entrenamiento" class="form-select" required></select>
+        </div>
+        <div class="col-md-3 d-grid">
+          <button type="submit" class="btn btn-success">Asignar entrenamiento</button>
+        </div>
+      </div>
+    </form>
+
+    <!-- Resumen -->
+    <div id="resumen-asignacion" class="mt-3"></div>
+
+    <!-- Botón Volver -->
+    <div class="mt-4">
+      <button id="btn-volver" class="btn btn-secondary">Volver al panel</button>
+    </div>
   </div>
 
+  <!-- jQuery -->
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+
+  <!-- Bootstrap JS -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- DataTables core + Bootstrap 5 integration -->
+  <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+
+  <!-- Tu script personalizado -->
   <script src="../js/entrenador/grupo_entrenamiento.js"></script>
+
+  <!-- Activar DataTables -->
+  <script>
+    $(document).ready(function () {
+      $('#tabla-atletas').DataTable();
+    });
+  </script>
 </body>
 </html>

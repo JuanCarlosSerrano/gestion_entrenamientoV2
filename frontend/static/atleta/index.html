@@ -1,21 +1,59 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mis Entrenamientos</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Panel del Atleta</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon"/>
 </head>
 <body>
   <div class="container mt-4">
-    <h1 class="mb-4">Mis Entrenamientos</h1>
+    <!-- Cabecera -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <div class="d-flex align-items-center">
+        <img id="foto-perfil" src="../img/default-avatar.jpg" alt="Foto de perfil" class="rounded-circle me-3" width="60" height="60" />
+        <h2 id="nombre-atleta" class="mb-0">Bienvenid@, Atleta</h2>
+      </div>
+    </div>
 
-    <!-- Contenedor de entrenamientos -->
-    <div id="entrenamientos-container" class="accordion"></div>
+    <!-- Menú de navegación -->
+    <ul class="nav nav-tabs mb-4" id="menu-navegacion">
+      <li class="nav-item">
+        <a class="nav-link active" data-section="entrenamientos-asignados" href="#">Entrenamientos</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" data-section="entrenamientos-historial" href="#">Historial</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" data-section="perfil" href="#">Mi Perfil</a>
+      </li>
+    </ul>
+
+    <!-- Secciones -->
+    <div id="entrenamientos-asignados" class="seccion-activa mb-5"></div>
+    <div id="entrenamientos-historial" class="d-none mb-5"></div>
+    <div id="perfil" class="d-none">
+      <h4>Editar perfil</h4>
+      <form id="form-perfil" class="mt-3">
+        <div class="mb-3">
+          <label for="input-nombre" class="form-label">Nombre</label>
+          <input type="text" id="input-nombre" class="form-control" required>
+        </div>
+        <div class="mb-3">
+          <label for="input-apellidos" class="form-label">Apellidos</label>
+          <input type="text" id="input-apellidos" class="form-control" required>
+        </div>
+        <div class="mb-3">
+          <label for="input-foto" class="form-label">Foto de perfil</label>
+          <input type="file" id="input-foto" class="form-control">
+        </div>
+        <button type="submit" class="btn btn-primary">Guardar cambios</button>
+      </form>
+    </div>
   </div>
 
-  <!-- Modal de Feedback -->
+  <!-- Modal Feedback -->
   <div class="modal fade" id="modalFeedback" tabindex="-1" aria-labelledby="modalFeedbackLabel" aria-hidden="true">
     <div class="modal-dialog">
       <form id="form-feedback" class="modal-content">
@@ -25,13 +63,27 @@
         </div>
         <div class="modal-body">
           <div class="mb-3">
-            <label for="comentario" class="form-label">¿Cómo fue el entrenamiento?</label>
+            <label for="tiempo_realizado" class="form-label">Tiempo realizado (minutos):</label>
+            <input type="number" class="form-control" id="tiempo_realizado" min="0" />
+          </div>
+          <div class="mb-3">
+            <label for="percepcion" class="form-label">Percepción del esfuerzo:</label>
+            <select class="form-select" id="percepcion">
+              <option value="">Selecciona una opción</option>
+              <option value="muy fácil">Muy fácil</option>
+              <option value="fácil">Fácil</option>
+              <option value="moderado">Moderado</option>
+              <option value="duro">Duro</option>
+              <option value="muy duro">Muy duro</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label for="comentario" class="form-label">Comentarios:</label>
             <textarea class="form-control" id="comentario" rows="4" required></textarea>
           </div>
-          <!-- Puedes añadir más campos como tiempo realizado, percepción, etc. -->
         </div>
         <div class="modal-footer">
-          <input type="hidden" id="feedback-entrenamiento-id">
+          <input type="hidden" id="feedback-entrenamiento-id" />
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
           <button type="submit" class="btn btn-primary">Enviar</button>
         </div>
@@ -41,6 +93,27 @@
 
   <!-- Scripts -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="../js/atleta/index.js"></script>
+  <script src="../js/atleta/index.js" type="module"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      document.querySelectorAll('#menu-navegacion .nav-link').forEach(link => {
+        link.addEventListener("click", (e) => {
+          e.preventDefault();
+          document.querySelectorAll('#menu-navegacion .nav-link').forEach(l => l.classList.remove("active"));
+          link.classList.add("active");
+
+          document.querySelectorAll('.seccion-activa, .d-none').forEach(seccion => {
+            seccion.classList.add("d-none");
+            seccion.classList.remove("seccion-activa");
+          });
+
+          const id = link.dataset.section;
+          const seccionActiva = document.getElementById(id);
+          seccionActiva.classList.remove("d-none");
+          seccionActiva.classList.add("seccion-activa");
+        });
+      });
+    });
+  </script>
 </body>
 </html>

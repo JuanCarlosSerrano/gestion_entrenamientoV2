@@ -6,6 +6,8 @@ import sqlite3
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
+import os
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__, static_folder='../frontend/static')  # Configuración correcta de static_folder
 CORS(app)
@@ -341,6 +343,70 @@ def delete_atleta(current_user, id):
     execute_db('DELETE FROM usuarios WHERE id = ?', (id,))
     return jsonify({'message': 'Atleta eliminado correctamente'}), 200
 
+@app.route('/perfil_atleta/<int:atleta_id>', methods=['GET'])
+@requires_roles('atleta')
+def obtener_perfil_atleta(current_user, atleta_id):
+    try:
+        query = '''
+            SELECT u.nombre, u.apellidos, u.email, u.foto_url
+            FROM usuarios u
+            WHERE u.id = ?
+        '''
+        resultado = query_db(query, (atleta_id,), one=True)
+        if resultado:
+            return jsonify(dict(resultado)), 200
+        else:
+            return jsonify({'error': 'Atleta no encontrado'}), 404
+    except Exception as e:
+        print("Error al obtener perfil del atleta:", e)
+        return jsonify({'error': 'No se pudo obtener el perfil'}), 500
+
+@app.route('/actualizar_perfil', methods=['POST'])
+@requires_roles('atleta')
+def actualizar_perfil(current_user):
+    try:
+        usuario_id = current_user['id']
+        nombre = request.form.get('nombre')
+        apellidos = request.form.get('apellidos')
+        foto = request.files.get('foto')
+        foto_url = None
+
+        if foto:
+            # Carpeta de destino
+            print("Nombre del archivo recibido:", foto.filename)
+            carpeta_destino = os.path.join('..', 'frontend','static', 'img', 'perfiles')
+            os.makedirs(carpeta_destino, exist_ok=True)
+
+            # Guardar imagen con nombre único
+            extension = os.path.splitext(foto.filename)[1]
+            nombre_archivo = f"perfil_{usuario_id}{extension}"
+            ruta_archivo = os.path.join(carpeta_destino, secure_filename(nombre_archivo))
+            foto.save(ruta_archivo)
+            print(f"Imagen guardada en: {ruta_archivo}")
+
+
+            foto_url = f"/static/img/perfiles/{nombre_archivo}"
+
+            # Actualizar con imagen
+            execute_db(
+                "UPDATE usuarios SET nombre = ?, apellidos = ?, foto_url = ? WHERE id = ?",
+                (nombre, apellidos, foto_url, usuario_id)
+            )
+        else:
+            # Actualizar sin imagen
+            execute_db(
+                "UPDATE usuarios SET nombre = ?, apellidos = ? WHERE id = ?",
+                (nombre, apellidos, usuario_id)
+            )
+
+        return jsonify({
+            "message": "Perfil actualizado correctamente",
+            "foto_url": foto_url
+        }), 200
+
+    except Exception as e:
+        print("Error al actualizar perfil:", e)
+        return jsonify({"error": "No se pudo actualizar el perfil"}), 500
 
 # --- Rutas para Entrenamientos ---
 
@@ -436,7 +502,7 @@ def create_feedback(current_user):
 
     try:
         execute_db(
-            'INSERT INTO feedback (entrenamiento_id, atleta_id, comentario) VALUES (?, ?, ?)',
+            'INSERT INTO feedbacks (entrenamiento_asignado_id, atleta_id, comentario) VALUES (?, ?, ?)',
             (entrenamiento_id, session.get("user_id"), comentario)
         )
         return jsonify({'message': 'Feedback enviado exitosamente'}), 201
@@ -452,7 +518,7 @@ def get_feedback_for_entrenamiento(current_user, entrenamiento_id):
                    query_db('SELECT id FROM usuarios WHERE entrenador_id = ?', (session.get("user_id"),))]
     if atletas_ids:
         feedback = query_db(
-            'SELECT u.nombre, u.apellidos, f.comentario FROM feedback f JOIN usuarios u ON f.atleta_id = u.id WHERE f.entrenamiento_id = ? AND f.atleta_id IN ({})',
+            'SELECT u.nombre, u.apellidos, f.comentario FROM feedbacks f JOIN usuarios u ON f.atleta_id = u.id WHERE f.entrenamiento_id = ? AND f.atleta_id IN ({})',
             (entrenamiento_id, ','.join('?' * len(atletas_ids))), atletas_ids
         )
     else:
@@ -629,6 +695,249 @@ def asignar_grupo_entrenamiento(current_user):
         print(e)
         return jsonify({'error': 'Error al asignar entrenamiento al grupo'}), 500
 
+# --- Obtener atletas pendientes de aprobación ---
+@app.route('/atletas_pendientes', methods=['GET'])
+@requires_roles('entrenador')
+def obtener_atletas_pendientes(current_user):
+    try:
+        atletas = query_db(
+            '''SELECT * FROM usuarios 
+               WHERE rol = 'atleta' AND entrenador_id = ? AND aprobado = 0''',
+            (current_user['id'],)
+        )
+        return jsonify([dict(a) for a in atletas]), 200
+    except Exception as e:
+        print("Error al obtener atletas pendientes:", e)
+        return jsonify({'error': 'Error al obtener atletas pendientes'}), 500
+
+# --- Aprobar atleta y asignar grupo/subgrupo ---
+@app.route('/atletas/aprobar/<int:atleta_id>', methods=['PUT'])
+@requires_roles('entrenador')
+def aprobar_atleta(current_user, atleta_id):
+    data = request.get_json()
+    grupo = data.get('grupo')
+    subgrupo = data.get('subgrupo')
+
+    try:
+        execute_db(
+            '''UPDATE usuarios SET aprobado = 1, grupo = ?, subgrupo = ? 
+               WHERE id = ? AND entrenador_id = ? AND rol = 'atleta' ''',
+            (grupo, subgrupo, atleta_id, current_user['id'])
+        )
+        return jsonify({'message': 'Atleta aprobado correctamente'}), 200
+    except Exception as e:
+        print("Error al aprobar atleta:", e)
+        return jsonify({'error': 'Error al aprobar atleta'}), 500
+        
+@app.route('/atletas_filtrados', methods=['GET'])
+@requires_roles('entrenador')
+def atletas_filtrados(current_user):
+    grupo = request.args.get('grupo')
+    subgrupo = request.args.get('subgrupo')
+    categoria = request.args.get('categoria')
+
+    query = 'SELECT * FROM usuarios WHERE rol = "atleta" AND aprobado = 1 AND entrenador_id = ?'
+    params = [current_user['id']]
+
+    if grupo:
+        query += ' AND grupo = ?'
+        params.append(grupo)
+    if subgrupo:
+        query += ' AND subgrupo = ?'
+        params.append(subgrupo)
+    if categoria:
+        query += ' AND categoria = ?'
+        params.append(categoria)
+
+    atletas = query_db(query, tuple(params))
+    return jsonify([dict(a) for a in atletas]), 200
+
+@app.route('/asignar_entrenamiento_lote', methods=['POST'])
+@requires_roles('entrenador')
+def asignar_entrenamiento_lote(current_user):
+    data = request.get_json()
+    fecha = data.get("fecha")
+    entrenamiento_id = data.get("entrenamiento_id")
+    atletas_ids = data.get("atletas_ids", [])
+
+    if not fecha or not entrenamiento_id or not atletas_ids:
+        return jsonify({"error": "Faltan datos requeridos"}), 400
+
+    try:
+        # Obtener el entrenamiento tipo a copiar
+        entrenamiento_base = query_db(
+            "SELECT * FROM entrenamientos WHERE id = ?", (entrenamiento_id,), one=True
+        )
+        if not entrenamiento_base:
+            return jsonify({"error": "Entrenamiento no encontrado"}), 404
+
+        # Insertar para cada atleta
+        for atleta_id in atletas_ids:
+            execute_db(
+                '''
+                INSERT INTO entrenamientos_asignados (
+                    atleta_id, fecha, nombre, duracion_valor, duracion_tipo,
+                    calentamiento_tipo, calentamiento_valor, bloque_activacion,
+                    bloque_principal, enfriamiento_tipo, enfriamiento_valor
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    atleta_id,
+                    fecha,
+                    entrenamiento_base["nombre"],
+                    entrenamiento_base["duracion_valor"],
+                    entrenamiento_base["duracion_tipo"],
+                    entrenamiento_base["calentamiento_tipo"],
+                    entrenamiento_base["calentamiento_valor"],
+                    entrenamiento_base["bloque_activacion"],
+                    entrenamiento_base["bloque_principal"],
+                    entrenamiento_base["enfriamiento_tipo"],
+                    entrenamiento_base["enfriamiento_valor"],
+                ),
+            )
+
+        return jsonify({"message": "Entrenamiento asignado correctamente"}), 200
+
+    except Exception as e:
+        print("Error al asignar entrenamiento por lote:", e)
+        return jsonify({"error": "Error interno al asignar entrenamiento"}), 500
+
+@app.route('/feedback', methods=['POST'])
+@requires_roles('atleta')
+def enviar_feedback(current_user):
+    data = request.get_json()
+    entrenamiento_id = data.get("entrenamiento_id")
+    comentario = data.get("comentario")
+    atleta_id = current_user['id']
+
+    if not entrenamiento_id or not comentario:
+        return jsonify({"error": "Entrenamiento y comentario requeridos"}), 400
+
+    try:
+        execute_db(
+            '''INSERT INTO feedbacks (entrenamiento_asignado_id, atleta_id, comentario) 
+               VALUES (?, ?, ?)''',
+            (entrenamiento_id, atleta_id, comentario)
+        )
+        return jsonify({"message": "Feedback enviado correctamente"}), 200
+    except Exception as e:
+        print("Error al enviar feedback:", e)
+        return jsonify({"error": "No se pudo enviar el feedback"}), 500
+
+@app.route('/feedbacks_pendientes', methods=['GET'])
+@requires_roles('entrenador')
+def feedbacks_no_leidos(current_user):
+    try:
+        query = '''
+            SELECT f.id, f.comentario, f.fecha, u.nombre || ' ' || u.apellidos AS atleta, ea.fecha AS fecha_entreno
+            FROM feedbacks f
+            JOIN usuarios u ON f.atleta_id = u.id
+            JOIN entrenamientos_asignados ea ON f.entrenamiento_asignado_id = ea.id
+            WHERE f.leido = 0 AND u.entrenador_id = ?
+            ORDER BY f.fecha DESC
+        '''
+        resultados = query_db(query, (current_user["id"],))
+        return jsonify([dict(r) for r in resultados]), 200
+    except Exception as e:
+        print("Error al obtener feedbacks no leídos:", e)
+        return jsonify({'error': 'No se pudieron obtener los feedbacks'}), 500
+
+@app.route('/feedbacks/<int:feedback_id>/leer', methods=['PUT'])
+@requires_roles('entrenador')
+def marcar_feedback_leido(current_user, feedback_id):
+    try:
+        data = request.get_json(silent=True) or {}
+        nuevo_estado = data.get('leido', 1)  # Por defecto marcar como leído
+
+        execute_db(
+            'UPDATE feedbacks SET leido = ? WHERE id = ?',
+            (nuevo_estado, feedback_id)
+        )
+        return jsonify({'message': f'Feedback marcado como {"leído" if nuevo_estado else "no leído"}'}), 200
+    except Exception as e:
+        print("Error al marcar feedback como leído/no leído:", e)
+        return jsonify({'error': 'No se pudo actualizar el estado'}), 500
+
+
+@app.route('/feedbacks/<int:feedback_id>', methods=['GET'])
+@requires_roles('entrenador')
+def ver_feedback(current_user, feedback_id):
+    try:
+        query = '''
+            SELECT f.id, f.comentario, f.fecha, f.leido, f.respuesta,
+                   u.nombre || ' ' || u.apellidos AS atleta,
+                   ea.fecha AS fecha_entreno
+            FROM feedbacks f
+            JOIN usuarios u ON f.atleta_id = u.id
+            JOIN entrenamientos_asignados ea ON f.entrenamiento_asignado_id = ea.id
+            WHERE f.id = ? AND u.entrenador_id = ?
+        '''
+        resultado = query_db(query, (feedback_id, current_user['id']), one=True)
+        if resultado:
+            return jsonify(dict(resultado)), 200
+        return jsonify({'error': 'Feedback no encontrado'}), 404
+    except Exception as e:
+        print("Error al obtener el detalle del feedback:", e)
+        return jsonify({'error': 'No se pudo obtener el feedback'}), 500
+@app.route('/feedbacks', methods=['GET'])
+@requires_roles('entrenador')
+def obtener_todos_los_feedbacks(current_user):
+    try:
+        query = '''
+            SELECT f.id, f.comentario, f.fecha, f.leido, f.respuesta,
+                   u.nombre || ' ' || u.apellidos AS atleta,
+                   ea.fecha AS fecha_entreno
+            FROM feedbacks f
+            JOIN usuarios u ON f.atleta_id = u.id
+            JOIN entrenamientos_asignados ea ON f.entrenamiento_asignado_id = ea.id
+            WHERE u.entrenador_id = ?
+            ORDER BY f.fecha DESC
+        '''
+        resultados = query_db(query, (current_user['id'],))
+        return jsonify([dict(r) for r in resultados]), 200
+    except Exception as e:
+        print("Error al obtener todos los feedbacks:", e)
+        return jsonify({'error': 'No se pudieron obtener los feedbacks'}), 500
+
+@app.route('/feedbacks/<int:feedback_id>/responder', methods=['POST'])
+@requires_roles('entrenador')
+def responder_feedback(current_user, feedback_id):
+    data = request.get_json()
+    respuesta = data.get('respuesta')
+
+    if not respuesta:
+        return jsonify({'error': 'Respuesta vacía'}), 400
+
+    try:
+        execute_db(
+            'UPDATE feedbacks SET respuesta = ? WHERE id = ?',
+            (respuesta, feedback_id)
+        )
+        return jsonify({'message': 'Respuesta guardada'}), 200
+    except Exception as e:
+        print("Error al guardar respuesta:", e)
+        return jsonify({'error': 'Error al guardar respuesta'}), 500
+
+# En el backend, podrías añadir una ruta como:
+@app.route('/entrenamientos_proximos', methods=['GET'])
+@requires_roles('entrenador')
+def entrenamientos_proximos(current_user):
+    try:
+        query = '''
+            SELECT ea.id, ea.fecha, t.nombre, COUNT(u.id) as num_atletas
+            FROM entrenamientos_asignados ea
+            JOIN entrenamientos t ON ea.id = t.id
+            JOIN usuarios u ON ea.atleta_id = u.id
+            WHERE u.entrenador_id = ? AND ea.fecha >= DATE('now')
+            GROUP BY ea.id
+            ORDER BY ea.fecha ASC
+            LIMIT 10
+        '''
+        resultados = query_db(query, (current_user['id'],))
+        return jsonify([dict(r) for r in resultados]), 200
+    except Exception as e:
+        print("Error al obtener próximos entrenamientos:", e)
+        return jsonify({'error': 'No se pudieron obtener los entrenamientos'}), 500
 
 @app.route('/')
 def index():
