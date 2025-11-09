@@ -1,10 +1,23 @@
-document.addEventListener('DOMContentLoaded', async () => {
+const API = window.API_BASE || "http://127.0.0.1:5000";
+window.API_BASE = API;
+
+const getCsrfToken = () =>
+  (window.CSRF && typeof window.CSRF.getToken === "function"
+    ? window.CSRF.getToken()
+    : localStorage.getItem("csrfToken"));
+
+const authHeader = () =>
+  "Basic " +
+  btoa(`${localStorage.getItem("userEmail")}:${localStorage.getItem("userPassword")}`);
+
+document.addEventListener("DOMContentLoaded", async () => {
   async function cargarFeedbacks() {
     try {
-      const res = await fetch('http://127.0.0.1:5000/feedbacks', {
+      const res = await fetch(`${API}/feedbacks`, {
+        credentials: "include",
         headers: {
-          Authorization: "Basic " + btoa(`${localStorage.getItem("userEmail")}:${localStorage.getItem("userPassword")}`)
-        }
+          Authorization: authHeader(),
+        },
       });
 
       const datos = await res.json();
@@ -22,11 +35,16 @@ document.addEventListener('DOMContentLoaded', async () => {
           <div class="d-flex justify-content-between align-items-start">
             <div>
               <strong>${fb.atleta} ${fb.respuesta ? '<span class="badge bg-success">Respondido</span>' : ''}</strong><br>
+              ${fb.entrenamiento_nombre ? `<small class="text-muted">${fb.entrenamiento_nombre}</small><br>` : ''}
               ${fb.comentario}<br>
+              ${fb.resultado ? `<small><strong>Resultado:</strong> ${fb.resultado}</small><br>` : ""}
+              ${fb.tiempo_realizado ? `<small><strong>Tiempo:</strong> ${fb.tiempo_realizado}</small><br>` : ""}
+              ${fb.percepcion ? `<small><strong>Percepción:</strong> ${fb.percepcion}</small><br>` : ""}
+              ${fb.enlace ? `<a href="${fb.enlace}" target="_blank" rel="noopener" class="link-primary">Ver registro</a><br>` : ""}
               <small class="text-muted">${new Date(fb.fecha).toLocaleString()}</small>
               ${fb.respuesta ? `
                 <div class="mt-3 p-3 rounded border border-success bg-light">
-                  <strong class="text-success">Respuesta del entrenador:</strong>
+                  <strong class="text-success">Respuesta enviada:</strong>
                   <p class="mb-0">${fb.respuesta}</p>
                 </div>
               ` : ''}       
@@ -51,7 +69,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
     } catch (err) {
-      console.error("Error al cargar los feedbacks:", err);
+        console.error("Error al cargar los feedbacks:", err);
+        alert("No se pudieron cargar los feedbacks");
     }
   }
 
@@ -61,9 +80,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 window.abrirModalFeedback = async function (feedbackId) {
   try {
-    const res = await fetch(`http://127.0.0.1:5000/feedbacks/${feedbackId}`, {
+    const res = await fetch(`${API}/feedbacks/${feedbackId}`, {
+      credentials: "include",
       headers: {
-        Authorization: "Basic " + btoa(`${localStorage.getItem("userEmail")}:${localStorage.getItem("userPassword")}`)
+        Authorization: authHeader()
       }
     });
     const fb = await res.json();
@@ -71,8 +91,13 @@ window.abrirModalFeedback = async function (feedbackId) {
     if (res.ok) {
       document.getElementById('modal-feedback-body').innerHTML = `
         <p><strong>Atleta:</strong> ${fb.atleta}</p>
+        <p><strong>Entrenamiento:</strong> ${fb.entrenamiento_nombre || '-'}</p>
         <p><strong>Fecha del entrenamiento:</strong> ${new Date(fb.fecha_entreno).toLocaleDateString()}</p>
         <p><strong>Comentario:</strong> ${fb.comentario}</p>
+        ${fb.resultado ? `<p><strong>Resultado:</strong> ${fb.resultado}</p>` : ''}
+        ${fb.tiempo_realizado ? `<p><strong>Tiempo:</strong> ${fb.tiempo_realizado}</p>` : ''}
+        ${fb.percepcion ? `<p><strong>Percepción del esfuerzo:</strong> ${fb.percepcion}</p>` : ''}
+        ${fb.enlace ? `<p><strong>Enlace:</strong> <a href="${fb.enlace}" target="_blank" rel="noopener">${fb.enlace}</a></p>` : ''}
         <p><strong>Fecha del feedback:</strong> ${new Date(fb.fecha).toLocaleString()}</p>
         <p><strong>Estado:</strong> ${fb.leido ? 'Leído' : 'No leído'}</p>
         ${fb.respuesta ? `<div class="mt-3 p-3 bg-success-subtle border-start border-success border-3"><strong>Respuesta enviada:</strong><br>${fb.respuesta}</div>` : `
@@ -102,11 +127,13 @@ async function enviarRespuesta(feedbackId) {
   if (!respuesta) return alert("Escribe una respuesta");
 
   try {
-    const res = await fetch(`http://127.0.0.1:5000/feedbacks/${feedbackId}/responder`, {
+    const res = await fetch(`${API}/feedbacks/${feedbackId}/responder`, {
       method: 'POST',
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        Authorization: "Basic " + btoa(`${localStorage.getItem("userEmail")}:${localStorage.getItem("userPassword")}`)
+        Authorization: authHeader(),
+        "X-CSRF-Token": getCsrfToken(),
       },
       body: JSON.stringify({ respuesta })
     });
@@ -130,10 +157,12 @@ async function enviarRespuesta(feedbackId) {
 
 async function marcarComoLeido(feedbackId) {
   try {
-    const res = await fetch(`http://127.0.0.1:5000/feedbacks/${feedbackId}/leer`, {
+    const res = await fetch(`${API}/feedbacks/${feedbackId}/leer`, {
       method: 'PUT',
+      credentials: "include",
       headers: {
-        Authorization: "Basic " + btoa(`${localStorage.getItem("userEmail")}:${localStorage.getItem("userPassword")}`)
+        Authorization: authHeader(),
+        "X-CSRF-Token": getCsrfToken(),
       }
     });
 
@@ -153,11 +182,13 @@ async function marcarComoLeido(feedbackId) {
 window.toggleLeido = async function(feedbackId, estadoActual) {
   try {
     const nuevoEstado = estadoActual ? 0 : 1;
-    const res = await fetch(`http://127.0.0.1:5000/feedbacks/${feedbackId}/leer`, {
+    const res = await fetch(`${API}/feedbacks/${feedbackId}/leer`, {
       method: 'PUT',
+      credentials: "include",
       headers: {
         'Content-Type': 'application/json',
-        Authorization: "Basic " + btoa(`${localStorage.getItem("userEmail")}:${localStorage.getItem("userPassword")}`)
+        Authorization: authHeader(),
+        "X-CSRF-Token": getCsrfToken(),
       },
       body: JSON.stringify({ leido: nuevoEstado })
     });
@@ -171,4 +202,3 @@ window.toggleLeido = async function(feedbackId, estadoActual) {
     console.error("Error al cambiar estado de leído:", err);
   }
 };
-

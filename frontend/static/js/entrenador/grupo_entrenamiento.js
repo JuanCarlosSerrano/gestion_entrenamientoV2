@@ -1,3 +1,11 @@
+const API = window.API_BASE || "http://127.0.0.1:5000";
+window.API_BASE = API;
+
+const getCsrfToken = () =>
+  (window.CSRF && typeof window.CSRF.getToken === "function"
+    ? window.CSRF.getToken()
+    : localStorage.getItem("csrfToken"));
+
 document.addEventListener("DOMContentLoaded", async function () {
   const formFiltros = document.getElementById("form-filtros");
   const formAsignar = document.getElementById("form-asignar-entrenamiento");
@@ -7,12 +15,23 @@ document.addEventListener("DOMContentLoaded", async function () {
   const fechaInput = document.getElementById("fecha");
   const contenedorResumen = document.getElementById("resumen-asignacion");
   const btnVolver = document.getElementById("btn-volver");
+  const formAsignarCiclo = document.getElementById("form-asignar-ciclo");
+  const selectCicloTipo = document.getElementById("select-ciclo-tipo");
+  const selectCicloId = document.getElementById("select-ciclo-id");
+  const fechaCicloInput = document.getElementById("fecha-ciclo");
+  const ayudaCiclo = document.getElementById("ayuda-ciclo-grupo");
 
   let entrenamientos = [];
+  const ciclosCache = {
+    macro: null,
+    meso: null,
+    micro: null,
+  };
 
   async function cargarAtletasIniciales() {
     try {
-      const res = await fetch("http://127.0.0.1:5000/atletas_filtrados", {
+      const res = await fetch(`${API}/atletas_filtrados`, {
+        credentials: "include",
         headers: {
           Authorization:
             "Basic " +
@@ -21,6 +40,7 @@ document.addEventListener("DOMContentLoaded", async function () {
             ),
         },
       });
+      if (!res.ok) throw new Error("No se pudieron cargar los atletas");
       const atletas = await res.json();
       renderTabla(atletas);
     } catch (err) {
@@ -29,7 +49,8 @@ document.addEventListener("DOMContentLoaded", async function () {
   }
 
   try {
-    const res = await fetch("http://127.0.0.1:5000/entrenamientos", {
+    const res = await fetch(`${API}/entrenamientos`, {
+      credentials: "include",
       headers: {
         Authorization:
           "Basic " +
@@ -38,6 +59,7 @@ document.addEventListener("DOMContentLoaded", async function () {
           ),
       },
     });
+    if (!res.ok) throw new Error("No se pudieron cargar los entrenamientos");
     entrenamientos = await res.json();
     selectEntrenamiento.innerHTML = entrenamientos
       .map((e) => `<option value="${e.id}">${e.nombre}</option>`) 
@@ -55,13 +77,14 @@ document.addEventListener("DOMContentLoaded", async function () {
     const subgrupo = document.getElementById("subgrupo").value;
     const categoria = document.getElementById("categoria").value;
 
-    let url = new URL("http://127.0.0.1:5000/atletas_filtrados");
+    let url = new URL(`${API}/atletas_filtrados`);
     if (grupo) url.searchParams.append("grupo", grupo);
     if (subgrupo) url.searchParams.append("subgrupo", subgrupo);
     if (categoria) url.searchParams.append("categoria", categoria);
 
     try {
       const res = await fetch(url, {
+        credentials: "include",
         headers: {
           Authorization:
             "Basic " +
@@ -70,6 +93,7 @@ document.addEventListener("DOMContentLoaded", async function () {
             ),
         },
       });
+      if (!res.ok) throw new Error("No se pudieron cargar los atletas");
       const atletas = await res.json();
       renderTabla(atletas);
     } catch (err) {
@@ -136,10 +160,12 @@ document.addEventListener("DOMContentLoaded", async function () {
     }
 
     try {
-      const res = await fetch("http://127.0.0.1:5000/asignar_entrenamiento_lote", {
+      const res = await fetch(`${API}/asignar_entrenamiento_lote`, {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
+          "X-CSRF-Token": getCsrfToken(),
           Authorization:
             "Basic " +
             btoa(
@@ -149,7 +175,10 @@ document.addEventListener("DOMContentLoaded", async function () {
         body: JSON.stringify({ fecha, entrenamiento_id, atletas_ids: atletasSeleccionados, nombre })
       });
 
-      const resultado = await res.json();
+      const resultado = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(resultado.error || "No se pudo asignar el entrenamiento");
+      }
       contenedorResumen.innerHTML = `<div class="alert alert-success">${resultado.message || "Entrenamiento asignado correctamente"}</div>`;
     } catch (err) {
       console.error("Error al asignar entrenamiento:", err);
@@ -159,5 +188,127 @@ document.addEventListener("DOMContentLoaded", async function () {
 
   btnVolver.addEventListener("click", () => {
     window.location.href = "index.html";
+  });
+
+  async function fetchCiclos(tipo) {
+    if (ciclosCache[tipo]) return ciclosCache[tipo];
+    const endpoint =
+      tipo === "macro"
+        ? "/macrociclos"
+        : tipo === "meso"
+        ? "/mesociclos"
+        : "/microciclos";
+    try {
+      const res = await fetch(`${API}${endpoint}`, {
+        credentials: "include",
+        headers: {
+          Authorization:
+            "Basic " +
+            btoa(
+              `${localStorage.getItem("userEmail")}:${localStorage.getItem("userPassword")}`
+            ),
+        },
+      });
+      if (!res.ok) throw new Error("No se pudieron cargar los ciclos");
+      const data = await res.json();
+      ciclosCache[tipo] = Array.isArray(data) ? data : [];
+      return ciclosCache[tipo];
+    } catch (err) {
+      console.error("Error al cargar ciclos:", err);
+      alert(err.message || "No se pudieron cargar los ciclos");
+      return [];
+    }
+  }
+
+  async function actualizarSelectCiclo(tipo) {
+    if (!selectCicloId) return;
+    selectCicloId.innerHTML = '<option value="">Cargando...</option>';
+    const ciclos = await fetchCiclos(tipo);
+    if (!ciclos.length) {
+      selectCicloId.innerHTML =
+        '<option value="">No hay ciclos disponibles</option>';
+      if (ayudaCiclo) {
+        ayudaCiclo.textContent =
+          "Crea ciclos desde la sección Planificación antes de asignarlos.";
+      }
+      return;
+    }
+    selectCicloId.innerHTML =
+      '<option value="">Selecciona un ciclo</option>' +
+      ciclos
+        .map(
+          (c) =>
+            `<option value="${c.id}">${c.nombre} (${c.fecha_inicio} → ${c.fecha_fin})</option>`
+        )
+        .join("");
+    if (ayudaCiclo) {
+      ayudaCiclo.textContent =
+        "El ciclo se desplegará desde la fecha real que indiques.";
+    }
+  }
+
+  selectCicloTipo?.addEventListener("change", () =>
+    actualizarSelectCiclo(selectCicloTipo.value)
+  );
+  if (selectCicloTipo) {
+    actualizarSelectCiclo(selectCicloTipo.value);
+  }
+
+  formAsignarCiclo?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const tipo = selectCicloTipo.value;
+    const cicloId = selectCicloId.value;
+    const fecha = fechaCicloInput.value;
+    const atletasSeleccionados = Array.from(
+      document.querySelectorAll(".check-atleta:checked")
+    ).map((cb) => cb.value);
+
+    if (!tipo || !cicloId || !fecha) {
+      alert("Completa todos los campos del ciclo.");
+      return;
+    }
+    if (!atletasSeleccionados.length) {
+      alert("Debes seleccionar al menos un atleta");
+      return;
+    }
+
+    if (
+      !confirm(
+        `¿Asignar el ${tipo} ${cicloId} a ${atletasSeleccionados.length} atletas desde ${fecha}?`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `${API}/ciclos/${tipo}/${cicloId}/asignaciones`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": getCsrfToken(),
+            Authorization:
+              "Basic " +
+              btoa(
+                `${localStorage.getItem("userEmail")}:${localStorage.getItem("userPassword")}`
+              ),
+          },
+          body: JSON.stringify({
+            fecha_inicio_real: fecha,
+            atleta_ids: atletasSeleccionados,
+          }),
+        }
+      );
+      const resultado = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(resultado.error || "No se pudo asignar el ciclo");
+      }
+      contenedorResumen.innerHTML = `<div class="alert alert-info">${resultado.message || "Ciclo desplegado correctamente. Revisa el calendario de los atletas."}</div>`;
+    } catch (err) {
+      console.error("Error al asignar ciclo:", err);
+      alert(err.message || "No se pudo asignar el ciclo");
+    }
   });
 });

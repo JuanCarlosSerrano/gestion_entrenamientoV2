@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Planificación por Ciclos</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link rel="stylesheet" href="../css/style.css"/>
+  <script src="../js/utils/csrf.js"></script>
+  <script src="../js/script.js"></script>
+  <script src="../js/entrenador/main.js" type="module"></script>
+  <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
+</head>
+<body class="app-bg">
+  <div class="container app-container">
+    <header class="page-heading">
+      <div class="page-heading__brand">
+        <img src="../img/logo.png" alt="PeakPace" class="brand-logo">
+        <div class="page-heading__text">
+          <p class="eyebrow">Panel de entrenador</p>
+          <h1>Gestión de entrenamiento</h1>
+        </div>
+      </div>
+      <div class="page-heading__actions">
+        <a href="index.html" class="btn btn-outline-brand">Volver</a>
+        <button class="btn btn-brand" id="btn-logout">Salir</button>
+      </div>
+    </header>
+
+    <div class="app-card">
+      <ul class="nav nav-tabs nav-fill flex-column flex-md-row" id="ciclos-tabs">
+        <li class="nav-item">
+          <button type="button" class="nav-link active" data-tab-btn="entrenamientos">Entrenamientos</button>
+        </li>
+        <li class="nav-item">
+          <button type="button" class="nav-link" data-tab-btn="micro">Microciclos</button>
+        </li>
+        <li class="nav-item">
+          <button type="button" class="nav-link" data-tab-btn="meso">Mesociclos</button>
+        </li>
+        <li class="nav-item">
+          <button type="button" class="nav-link" data-tab-btn="macro">Macrociclos</button>
+        </li>
+      </ul>
+
+      <div class="tab-content mt-4">
+        <div class="tab-pane active" data-tab-panel="entrenamientos">
+          <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div>
+              <h4 class="mb-0">Entrenamientos tipo</h4>
+              <p class="text-muted small mb-0">Biblioteca reutilizable para construir los ciclos.</p>
+            </div>
+            <button class="btn btn-brand" id="btn-nuevo-entrenamiento">Crear entrenamiento</button>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-striped align-middle" id="tabla-entrenamientos">
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Duración</th>
+                  <th>Categoría</th>
+                  <th>Intensidad</th>
+                  <th class="text-end">Acciones</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="tab-pane" data-tab-panel="micro">
+          <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div>
+              <h4 class="mb-0">Microciclos</h4>
+              <p class="text-muted small mb-0">Semanas tipo con sus sesiones diarias.</p>
+            </div>
+            <button class="btn btn-brand" id="btn-nuevo-micro">Crear microciclo</button>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-striped align-middle" id="tabla-microciclos">
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Tipo</th>
+                  <th>Sesiones</th>
+                  <th class="text-end">Acciones</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="tab-pane" data-tab-panel="meso">
+          <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div>
+              <h4 class="mb-0">Mesociclos</h4>
+              <p class="text-muted small mb-0">Bloques de 3-4 semanas basados en microciclos.</p>
+            </div>
+            <button class="btn btn-brand" id="btn-nuevo-meso">Crear mesociclo</button>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-striped align-middle" id="tabla-mesociclos">
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Tipo de bloque</th>
+                  <th>Semanas</th>
+                  <th class="text-end">Acciones</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="tab-pane" data-tab-panel="macro">
+          <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div>
+              <h4 class="mb-0">Macrociclos</h4>
+              <p class="text-muted small mb-0">Planificaciones completas formadas por mesociclos.</p>
+            </div>
+            <button class="btn btn-brand" id="btn-nuevo-macro">Crear macrociclo</button>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-striped align-middle" id="tabla-macrociclos">
+              <thead>
+                <tr>
+                  <th>Nombre</th>
+                  <th>Objetivo</th>
+                  <th>Bloques</th>
+                  <th class="text-end">Acciones</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal entrenamiento -->
+  <div class="modal fade" id="modalEntrenamiento" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <form class="modal-content" id="form-plantilla-entrenamiento">
+        <div class="modal-header">
+          <h5 class="modal-title" id="titulo-modal-entrenamiento">Entrenamiento</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="entrenamiento-id">
+          <div class="mb-3">
+            <label class="form-label">Nombre</label>
+            <input type="text" class="form-control" id="entrenamiento-nombre" required>
+          </div>
+          <div class="row">
+            <div class="col">
+              <label class="form-label">Duración</label>
+              <input type="number" class="form-control" id="entrenamiento-duracion">
+            </div>
+            <div class="col">
+              <label class="form-label">Tipo de duración</label>
+              <select class="form-select" id="entrenamiento-tipo-duracion">
+                <option value="">--</option>
+                <option value="min">Minutos</option>
+                <option value="km">Kilómetros</option>
+              </select>
+            </div>
+          </div>
+          <div class="row mt-3">
+            <div class="col">
+              <label class="form-label">Categoría</label>
+              <input type="text" class="form-control" id="entrenamiento-categoria">
+            </div>
+            <div class="col">
+              <label class="form-label">Intensidad</label>
+              <input type="text" class="form-control" id="entrenamiento-intensidad">
+            </div>
+          </div>
+          <div class="mt-3">
+            <label class="form-label">Descripción / notas</label>
+            <textarea class="form-control" id="entrenamiento-descripcion" rows="4"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-brand">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal microciclo -->
+  <div class="modal fade" id="modalMicrociclo" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <form class="modal-content" id="form-plantilla-micro">
+        <div class="modal-header">
+          <h5 class="modal-title" id="titulo-modal-micro">Microciclo</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="micro-id">
+          <div class="row g-3">
+            <div class="col-lg-6">
+              <label class="form-label">Nombre</label>
+              <input type="text" class="form-control" id="micro-nombre" required>
+            </div>
+            <div class="col-lg-6">
+              <label class="form-label">Tipo de semana</label>
+              <input type="text" class="form-control" id="micro-tipo">
+            </div>
+          </div>
+          <div class="mt-3">
+            <label class="form-label">Descripción</label>
+            <textarea class="form-control" id="micro-descripcion" rows="3"></textarea>
+          </div>
+          <hr>
+          <h6>Entrenamientos por día</h6>
+          <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+              <label class="form-label">Día</label>
+              <select class="form-select" id="micro-detalle-dia">
+                <option value="1">Lunes</option>
+                <option value="2">Martes</option>
+                <option value="3">Miércoles</option>
+                <option value="4">Jueves</option>
+                <option value="5">Viernes</option>
+                <option value="6">Sábado</option>
+                <option value="7">Domingo</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Sesión</label>
+              <select class="form-select" id="micro-detalle-sesion">
+                <option value="1">Sesión 1</option>
+                <option value="2">Sesión 2</option>
+                <option value="3">Sesión 3</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Entrenamiento</label>
+              <select class="form-select" id="micro-detalle-entrenamiento"></select>
+            </div>
+            <div class="col-md-2 d-grid">
+              <button class="btn btn-outline-brand" id="btn-agregar-detalle" type="button">Añadir</button>
+            </div>
+          </div>
+          <div class="table-responsive mt-3">
+            <table class="table table-sm table-bordered" id="tabla-detalles-micro">
+              <thead>
+                <tr>
+                  <th>Día</th>
+                  <th>Sesión</th>
+                  <th>Entrenamiento</th>
+                  <th class="text-end">Acciones</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-brand">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal mesociclo -->
+  <div class="modal fade" id="modalMesociclo" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <form class="modal-content" id="form-plantilla-meso">
+        <div class="modal-header">
+          <h5 class="modal-title" id="titulo-modal-meso">Mesociclo</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="meso-id">
+          <div class="mb-3">
+            <label class="form-label">Nombre</label>
+            <input type="text" class="form-control" id="meso-nombre" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Tipo de bloque</label>
+            <input type="text" class="form-control" id="meso-tipo">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Descripción</label>
+            <textarea class="form-control" id="meso-descripcion" rows="3"></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Microciclos (ordenados)</label>
+            <select class="form-select" id="meso-micro-select" multiple size="6"></select>
+            <small class="text-muted">Selecciona en el orden en que quieres que aparezcan.</small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-brand">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal macrociclo -->
+  <div class="modal fade" id="modalMacrociclo" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+      <form class="modal-content" id="form-plantilla-macro">
+        <div class="modal-header">
+          <h5 class="modal-title" id="titulo-modal-macro">Macrociclo</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="macro-id">
+          <div class="mb-3">
+            <label class="form-label">Nombre</label>
+            <input type="text" class="form-control" id="macro-nombre" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Objetivo principal</label>
+            <input type="text" class="form-control" id="macro-objetivo">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Duración (semanas)</label>
+            <input type="number" class="form-control" id="macro-duracion">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Descripción</label>
+            <textarea class="form-control" id="macro-descripcion" rows="3"></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Mesociclos (ordenados)</label>
+            <select class="form-select" id="macro-meso-select" multiple size="6"></select>
+            <small class="text-muted">Selecciona en el orden deseado.</small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-brand">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="../js/entrenador/gestion_plantillas.js" type="module"></script>
+</body>
+</html>

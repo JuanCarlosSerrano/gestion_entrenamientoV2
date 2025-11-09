@@ -1,29 +1,10 @@
-const API_BASE = 'http://127.0.0.1:5000';
+const API_BASE = window.API_BASE || 'http://127.0.0.1:5000';
+window.API_BASE = API_BASE;
 
-async function fetchCsrfToken() {
-    try {
-        const resp = await fetch(`${API_BASE}/csrf-token`, {
-            method: 'GET',
-            credentials: 'include', // usa la cookie de sesión recién creada
-        });
-
-        if (!resp.ok) {
-            console.warn('No se pudo obtener CSRF token. Status:', resp.status);
-            return null;
-        }
-
-        const data = await resp.json();
-        if (data && data.csrf_token) {
-            localStorage.setItem('csrfToken', data.csrf_token);
-            return data.csrf_token;
-        } else {
-            console.warn('Respuesta CSRF sin token:', data);
-            return null;
-        }
-    } catch (err) {
-        console.error('Error al pedir CSRF token:', err);
-        return null;
-    }
+if (window.CSRF?.ensureToken) {
+    window.CSRF.ensureToken().catch((err) =>
+        console.warn('No se pudo renovar CSRF al cargar la página:', err)
+    );
 }
 
 const loginForm = document.getElementById('loginForm');
@@ -66,7 +47,13 @@ if (loginForm) {
                 localStorage.setItem('userRol', userRol);
 
                 // 3️⃣ Pedir y guardar CSRF token (para futuros POST/PUT/DELETE)
-                await fetchCsrfToken();
+                if (window.CSRF?.ensureToken) {
+                    try {
+                        await window.CSRF.ensureToken(true);
+                    } catch (err) {
+                        console.error('Error renovando CSRF token:', err);
+                    }
+                }
 
                 alert(result.message);
 
@@ -91,4 +78,45 @@ if (loginForm) {
             alert('Error al iniciar sesión. Inténtalo de nuevo.');
         }
     });
+}
+
+async function handleLogout() {
+    const loginUrl = `${window.location.origin}/static/login.html`;
+    try {
+        let token = null;
+        if (window.CSRF?.ensureToken) {
+            token = await window.CSRF.ensureToken(true);
+        } else {
+            token = localStorage.getItem('csrfToken');
+        }
+
+        await fetch(`${API_BASE}/logout`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+                ...(token ? { 'X-CSRF-Token': token } : {})
+            }
+        });
+    } catch (err) {
+        console.error('Error durante el logout:', err);
+    } finally {
+        ['userId', 'userRol', 'userEmail', 'userPassword', 'csrfToken'].forEach(key => localStorage.removeItem(key));
+        window.location.href = loginUrl;
+    }
+}
+
+function attachLogoutHandler() {
+    const logoutButton = document.getElementById('btn-logout');
+    if (!logoutButton) return;
+
+    logoutButton.addEventListener('click', (event) => {
+        event.preventDefault();
+        handleLogout();
+    });
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', attachLogoutHandler);
+} else {
+    attachLogoutHandler();
 }

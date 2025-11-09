@@ -7,16 +7,29 @@
   <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
   <!-- Bootstrap CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link rel="stylesheet" href="../css/style.css"/>
 
   <!-- DataTables Bootstrap 5 CSS -->
   <link href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css" rel="stylesheet"/>
 </head>
-<body>
-  <div class="container mt-5">
-    <h2>Gestión de grupos - Asignación de entrenamiento</h2>
+<body class="app-bg">
+  <div class="container app-container">
+    <header class="page-heading">
+      <div class="page-heading__brand">
+        <img src="../img/logo.png" alt="PeakPace" class="brand-logo">
+        <div class="page-heading__text">
+          <p class="eyebrow">Panel de entrenador</p>
+          <h1>Gestión de grupos</h1>
+        </div>
+      </div>
+      <div class="page-heading__actions">
+        <a href="index.html" class="btn btn-outline-brand">Volver</a>
+        <button class="btn btn-brand" id="btn-logout">Salir</button>
+      </div>
+    </header>
 
     <!-- Filtros -->
-    <form id="form-filtros" class="row g-3 mt-3 mb-4">
+    <form id="form-filtros" class="row g-3 mt-4 mb-4 app-card">
       <div class="col-md-3">
         <input type="text" id="grupo" class="form-control" placeholder="Grupo" />
       </div>
@@ -39,8 +52,8 @@
     </form>
 
     <!-- Tabla de atletas -->
-    <div class="table-responsive">
-      <table id="tabla-atletas" class="table table-striped table-bordered">
+    <div class="table-responsive app-card">
+      <table id="tabla-atletas" class="table table-striped table-bordered table-theme">
         <thead>
           <tr>
             <th><input type="checkbox" id="check-todos" /></th>
@@ -56,8 +69,8 @@
       </table>
     </div>
 
-    <!-- Formulario de asignación -->
-    <form id="form-asignar-entrenamiento" class="mt-4">
+    <!-- Formulario de asignación individual -->
+    <form id="form-asignar-entrenamiento" class="mt-4 app-card">
       <div class="row g-3 align-items-end">
         <div class="col-md-3">
           <label for="fecha" class="form-label">Fecha:</label>
@@ -73,12 +86,40 @@
       </div>
     </form>
 
+    <!-- Formulario asignar ciclo -->
+    <form id="form-asignar-ciclo" class="mt-4 app-card">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-3">
+          <label for="select-ciclo-tipo" class="form-label">Tipo de ciclo</label>
+          <select id="select-ciclo-tipo" class="form-select" required>
+            <option value="micro" selected>Microciclo</option>
+            <option value="meso">Mesociclo</option>
+            <option value="macro">Macrociclo</option>
+          </select>
+        </div>
+        <div class="col-md-5">
+          <label for="select-ciclo-id" class="form-label">Ciclo disponible</label>
+          <select id="select-ciclo-id" class="form-select" required>
+            <option value="">Selecciona un ciclo</option>
+          </select>
+          <small class="text-muted" id="ayuda-ciclo-grupo">Elige primero el tipo.</small>
+        </div>
+        <div class="col-md-2">
+          <label for="fecha-ciclo" class="form-label">Inicio real</label>
+          <input type="date" id="fecha-ciclo" class="form-control" required />
+        </div>
+        <div class="col-md-2 d-grid">
+          <button type="submit" class="btn btn-outline-brand">Asignar ciclo</button>
+        </div>
+      </div>
+    </form>
+
     <!-- Resumen -->
     <div id="resumen-asignacion" class="mt-3"></div>
 
     <!-- Botón Volver -->
-    <div class="mt-4">
-      <button id="btn-volver" class="btn btn-secondary">Volver al panel</button>
+    <div class="mt-4 d-flex justify-content-end">
+      <button id="btn-volver" class="btn btn-outline-brand">Volver al panel</button>
     </div>
   </div>
 
@@ -93,6 +134,8 @@
   <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
 
   <!-- Tu script personalizado -->
+  <script src="../js/utils/csrf.js"></script>
+  <script src="../js/script.js"></script>
   <script src="../js/entrenador/grupo_entrenamiento.js"></script>
 
   <!-- Activar DataTables -->

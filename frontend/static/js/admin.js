@@ -7,7 +7,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const cancelBtn = document.getElementById('cancel-btn');
 
     let editingUserId = null;
-    let csrfToken = null;
+    const API_BASE = window.API_BASE || 'http://127.0.0.1:5000';
+    window.API_BASE = API_BASE;
 
     // --------------------------------------------------
     // Helpers
@@ -19,22 +20,15 @@ document.addEventListener('DOMContentLoaded', () => {
         return 'Basic ' + btoa(`${email}:${password}`);
     }
 
-    async function loadCsrfToken() {
-        if (csrfToken) return csrfToken;
-
-        const response = await fetch('/csrf-token', {
-            method: 'GET',
-            credentials: 'include'
-        });
-
-        if (!response.ok) {
-            console.error('No se pudo obtener el CSRF token:', response.status);
-            throw new Error('No se pudo obtener el CSRF token');
+    async function ensureCsrfToken() {
+        if (window.CSRF?.ensureToken) {
+            return window.CSRF.ensureToken();
         }
-
-        const data = await response.json();
-        csrfToken = data.csrf_token;
-        return csrfToken;
+        const token = localStorage.getItem('csrfToken');
+        if (!token) {
+            throw new Error('No hay token CSRF disponible');
+        }
+        return token;
     }
 
     // --------------------------------------------------
@@ -82,7 +76,6 @@ document.addEventListener('DOMContentLoaded', () => {
             userTableBody.appendChild(row);
         });
 
-        // Editar
         document.querySelectorAll('.edit-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const userId = parseInt(btn.dataset.id, 10);
@@ -90,7 +83,6 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
 
-        // Eliminar
         document.querySelectorAll('.delete-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const userId = parseInt(btn.dataset.id, 10);
@@ -104,7 +96,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --------------------------------------------------
 
     function showUserForm() {
-        userListContainer.style.display = 'block'; // si quieres ocultar la lista, pon 'none'
+        userListContainer.style.display = 'none';
         userFormContainer.style.display = 'block';
     }
 
@@ -171,15 +163,14 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const method = editingUserId ? 'PUT' : 'POST';
             const url = editingUserId ? `/usuarios/${editingUserId}` : '/usuarios';
-
-            const token = await loadCsrfToken();
+            const token = await ensureCsrfToken();
 
             const response = await fetch(url, {
                 method,
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': getAuthHeader(),
-                    'X-CSRFToken': token
+                    'X-CSRF-Token': token      // 👈 nombre EXACTO que espera el backend
                 },
                 credentials: 'include',
                 body: JSON.stringify(userData)
@@ -217,14 +208,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!confirm('¿Estás seguro de que quieres eliminar este usuario?')) return;
 
         try {
-            const token = await loadCsrfToken();
+            const token = await ensureCsrfToken();
 
             const response = await fetch(`/usuarios/${userId}`, {
                 method: 'DELETE',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': getAuthHeader(),
-                    'X-CSRFToken': token
+                    'X-CSRF-Token': token      // 👈 igual aquí
                 },
                 credentials: 'include'
             });
@@ -258,9 +249,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // --------------------------------------------------
 
     // Solo para desarrollo: credenciales del admin
-    // Asegúrate de que coinciden con tu admin real
     localStorage.setItem('userEmail', 'admin@example.com');
-    localStorage.setItem('userPassword', 'admin1234'); // pon aquí la que le pusiste
+    localStorage.setItem('userPassword', 'admin1234');
 
     fetchUsers();
 });

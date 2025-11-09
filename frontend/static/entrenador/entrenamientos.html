@@ -6,17 +6,29 @@
   <title>Entrenamientos</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet"/>
   <link rel="stylesheet" href="../css/style.css" />
+  <script src="../js/utils/csrf.js"></script>
   <script src="../js/script.js"></script>
   <script src="../js/entrenador/main.js" type="module"></script>
   <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
 </head>
-<body>
-  <div class="container mt-4">
-    <h1 class="mb-4">Entrenamientos</h1>
-    <a href="index.html" class="btn btn-secondary mb-3">Volver al Panel de Entrenador</a>
+<body class="app-bg">
+  <div class="container app-container">
+    <header class="page-heading">
+      <div class="page-heading__brand">
+        <img src="../img/logo.png" alt="PeakPace" class="brand-logo">
+        <div class="page-heading__text">
+          <p class="eyebrow">Panel de entrenador</p>
+          <h1>Entrenamientos</h1>
+        </div>
+      </div>
+      <div class="page-heading__actions">
+        <a href="index.html" class="btn btn-outline-brand">Volver</a>
+        <button class="btn btn-brand" id="btn-logout">Salir</button>
+      </div>
+    </header>
 
     <!-- Lista de entrenamientos renderizada en tarjetas -->
-    <div id="entrenamientos-list-container">
+    <div id="entrenamientos-list-container" class="app-card">
       <h2 class="mb-3">Entrenamientos Tipo</h2>
       <div id="entrenamientos-grid" class="entrenamiento-grid"></div>
       <!-- Aquí se inyectan dinámicamente las tarjetas -->
@@ -26,7 +38,7 @@
     <button id="create-entrenamiento-btn" class="btn btn-primary mt-3">Crear Nuevo Entrenamiento</button>
 
     <!-- Formulario oculto de crear/editar entrenamiento -->
-    <div id="entrenamiento-form-container" style="display: none;" class="mt-5">
+    <div id="entrenamiento-form-container" style="display: none;" class="mt-5 app-card">
       <h2>Crear/Editar Entrenamiento</h2>
       <form id="entrenamiento-form-element">
         <div class="mb-3">

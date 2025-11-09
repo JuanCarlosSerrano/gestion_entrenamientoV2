@@ -5,21 +5,35 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel de Entrenador</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+    <link rel="stylesheet" href="../css/style.css">
+    <script src="../js/utils/csrf.js"></script>
     <script src="../js/script.js"></script>
     <script src="../js/entrenador/main.js" type="module"></script>
     <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
 </head>
-<body>
-    <div class="container mt-4">
-        <h1 class="mb-4">Panel de Entrenador</h1>
+<body class="app-bg">
+    <div class="container app-container">
+        <header class="page-heading">
+            <div class="page-heading__brand">
+                <img src="../img/logo.png" alt="PeakPace" class="brand-logo">
+                <div class="page-heading__text">
+                    <p class="eyebrow">Panel de entrenador</p>
+                    <h1>PeakPace</h1>
+                </div>
+            </div>
+            <div class="page-heading__actions">
+                <button class="btn btn-outline-brand" id="btn-logout">Salir</button>
+            </div>
+        </header>
 
-        <nav class="navbar navbar-expand-lg navbar-dark bg-success rounded mb-4">
-            <div class="container-fluid">
-                <a class="navbar-brand" href="#">Entrenador</a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
-                <div class="collapse navbar-collapse" id="navbarNav">
+        <div class="app-card">
+            <nav class="navbar navbar-expand-lg navbar-dark app-nav">
+                <div class="container-fluid px-0">
+                    <a class="navbar-brand" href="#">Inicio</a>
+                    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                        <span class="navbar-toggler-icon"></span>
+                    </button>
+                    <div class="collapse navbar-collapse" id="navbarNav">
                     <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                         <li class="nav-item">
                             <a class="nav-link active" aria-current="page" href="#">Inicio</a>
@@ -34,10 +48,10 @@
                             </ul>
                           </li>                      
                         <li class="nav-item">
-                            <a class="nav-link" href="entrenamientos.html">Entrenamientos</a>
+                            <a class="nav-link" href="grupo_entrenamiento.html">Gestion Grupos</a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" href="grupo_entrenamiento.html">Gestion Grupos</a>
+                            <a class="nav-link" href="ciclos.html">Gestión de entrenamiento</a>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link" href="feedback.html">Bandeja de Feedback</a>
@@ -45,8 +59,10 @@
                     </ul>
                 </div>
             </div>
-        </nav>
-        <div class="bg-light p-5 rounded">
+            </nav>
+        </div>
+
+        <div class="app-card">
             <h2 class="display-4">Bienvenido, Entrenador</h2>
             <p class="lead">Aquí podrás gestionar a tus atletas y sus entrenamientos.</p>
             <hr class="my-4">

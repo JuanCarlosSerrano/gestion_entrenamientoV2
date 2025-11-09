@@ -1,9 +1,11 @@
 document.addEventListener("DOMContentLoaded", function () {
-  const API_BASE = "http://127.0.0.1:5000";
+  const API_BASE = window.API_BASE || "http://127.0.0.1:5000";
+  window.API_BASE = API_BASE;
 
-  function getCsrfToken() {
-    return localStorage.getItem("csrfToken");
-  }
+  const getCsrfToken = () =>
+    (window.CSRF && typeof window.CSRF.getToken === "function"
+      ? window.CSRF.getToken()
+      : localStorage.getItem("csrfToken"));
 
   // --- 💬 Mensaje flotante bonito ---
   function mostrarMensaje(texto, tipo = "success") {
@@ -71,6 +73,34 @@ document.addEventListener("DOMContentLoaded", function () {
   const form = document.getElementById("form-asignar-entrenamiento");
   const selectEntrenamiento = document.getElementById("select-entrenamiento");
   const btnEliminar = document.getElementById("btn-eliminar-entrenamiento");
+  const btnAsignarCiclo = document.getElementById("btn-asignar-ciclo");
+  const modalCicloEl = document.getElementById("modalAsignarCiclo");
+  const modalCiclo = modalCicloEl ? new bootstrap.Modal(modalCicloEl) : null;
+  const formCiclo = document.getElementById("form-asignar-ciclo");
+  const selectCicloTipo = document.getElementById("select-ciclo-tipo");
+  const selectCicloId = document.getElementById("select-ciclo-id");
+  const inputCicloFecha = document.getElementById("input-ciclo-fecha");
+  const ayudaCiclo = document.getElementById("ayuda-ciclo");
+  const selectCicloAnclaje = document.getElementById("select-ciclo-anclaje");
+  const labelCicloFecha = document.getElementById("label-ciclo-fecha");
+
+  const ciclosCache = {
+    micro: null,
+    meso: null,
+    macro: null,
+  };
+
+  const legacyEndpoints = {
+    micro: "/microciclos",
+    meso: "/mesociclos",
+    macro: "/macrociclos",
+  };
+
+  const plantillaEndpoints = {
+    micro: "/plantillas/microciclos",
+    meso: "/plantillas/mesociclos",
+    macro: "/plantillas/macrociclos",
+  };
 
   const campos = {
     nombre: document.getElementById("nombre"),
@@ -90,6 +120,7 @@ document.addEventListener("DOMContentLoaded", function () {
   // --- 🗓️ FullCalendar ---
   const calendar = new FullCalendar.Calendar(calendarEl, {
     initialView: "dayGridMonth",
+    firstDay: 1,
     headerToolbar: {
       left: "prev,next today",
       center: "title",
@@ -222,6 +253,141 @@ document.addEventListener("DOMContentLoaded", function () {
         );
       }
     },
+  });
+
+  async function fetchListado(url) {
+    const res = await fetch(`${API_BASE}${url}`, {
+      method: "GET",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("No se pudieron cargar los ciclos");
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  }
+
+  async function fetchCiclos(tipo) {
+    if (ciclosCache[tipo]) return ciclosCache[tipo];
+    try {
+      const [plantillas, legacy] = await Promise.all([
+        fetchListado(plantillaEndpoints[tipo]),
+        fetchListado(legacyEndpoints[tipo]),
+      ]);
+      ciclosCache[tipo] = { plantillas, legacy };
+      return ciclosCache[tipo];
+    } catch (err) {
+      console.error("Error cargando ciclos:", err);
+      mostrarMensaje(err.message || "Error al cargar ciclos", "danger");
+      ciclosCache[tipo] = { plantillas: [], legacy: [] };
+      return ciclosCache[tipo];
+    }
+  }
+
+  async function actualizarSelectCiclo(tipo) {
+    if (!selectCicloId) return;
+    selectCicloId.innerHTML = '<option value="">Cargando...</option>';
+    const { plantillas, legacy } = await fetchCiclos(tipo);
+    if (!plantillas.length && !legacy.length) {
+      selectCicloId.innerHTML =
+        '<option value="">No hay ciclos disponibles</option>';
+      if (ayudaCiclo)
+        ayudaCiclo.textContent =
+          "Crea plantillas desde Gestión de entrenamiento antes de asignarlas.";
+      return;
+    }
+    let options = '<option value="">Selecciona un ciclo</option>';
+    if (plantillas.length) {
+      options += '<optgroup label="Plantillas">';
+      options += plantillas
+        .map(
+          (c) =>
+            `<option value="plantilla|${c.id}">${c.nombre}</option>`
+        )
+        .join("");
+      options += "</optgroup>";
+    }
+    if (legacy.length) {
+      options += '<optgroup label="Ciclos programados">';
+      options += legacy
+        .map(
+          (c) =>
+            `<option value="legacy|${c.id}">${c.nombre} (${c.fecha_inicio} → ${c.fecha_fin})</option>`
+        )
+        .join("");
+      options += "</optgroup>";
+    }
+    selectCicloId.innerHTML = options;
+    if (ayudaCiclo)
+      ayudaCiclo.textContent =
+        "Los ciclos seleccionados se desplegarán en el calendario tomando esta fecha como referencia.";
+  }
+
+  btnAsignarCiclo?.addEventListener("click", async () => {
+    if (!modalCiclo) return;
+    inputCicloFecha.value = "";
+    selectCicloAnclaje.value = "inicio";
+    labelCicloFecha.textContent = "Fecha de inicio real";
+    ciclosCache.micro = null;
+    ciclosCache.meso = null;
+    ciclosCache.macro = null;
+    await actualizarSelectCiclo(selectCicloTipo.value);
+    modalCiclo.show();
+  });
+
+  selectCicloAnclaje?.addEventListener("change", () => {
+    labelCicloFecha.textContent =
+      selectCicloAnclaje.value === "fin"
+        ? "Fecha final (el ciclo se rellenará hacia atrás)"
+        : "Fecha de inicio real";
+  });
+
+  selectCicloTipo?.addEventListener("change", async () => {
+    await actualizarSelectCiclo(selectCicloTipo.value);
+  });
+
+  formCiclo?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const tipo = selectCicloTipo.value;
+    const optionValue = selectCicloId.value;
+    const fecha = inputCicloFecha.value;
+    const anclaje = selectCicloAnclaje?.value || "inicio";
+    if (!tipo || !optionValue || !fecha) {
+      mostrarMensaje("Completa todos los campos del ciclo.", "warning");
+      return;
+    }
+    const [fuente, cicloId] = optionValue.split("|");
+    const payload = {
+      fecha_inicio_real: fecha,
+      atleta_ids: [atletaId],
+      anclar_en: anclaje,
+    };
+    try {
+      let endpoint;
+      if (fuente === "plantilla") {
+        endpoint = `/plantillas/ciclos/${tipo}/${cicloId}/asignaciones`;
+      } else {
+        endpoint = `/ciclos/${tipo}/${cicloId}/asignaciones`;
+        delete payload.anclar_en;
+      }
+      const res = await fetch(`${API_BASE}${endpoint}`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": getCsrfToken(),
+          },
+          body: JSON.stringify(payload),
+        });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "No se pudo asignar el ciclo");
+      }
+      mostrarMensaje("Ciclo asignado correctamente");
+      modalCiclo?.hide();
+      calendar.refetchEvents();
+    } catch (err) {
+      console.error("Error asignando ciclo:", err);
+      mostrarMensaje(err.message || "No se pudo asignar el ciclo", "danger");
+    }
   });
 
   // --- 💾 Crear o actualizar entrenamiento asignado ---

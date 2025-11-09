@@ -5,20 +5,36 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel de Administración</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-SgOJa3DmI69IUzQ2PVdRZhwQ+dy64/BUtbMJw1MZ8t5HZApcHrRKUc4W0kG879m7" crossorigin="anonymous">
+    <script src="../js/utils/csrf.js"></script>
     <script src="../js/script.js"></script>
+    <link rel="stylesheet" href="../css/style.css">
 </head>
-<body>
-    <div class="container mt-4">
-        <h1 class="mb-4">Panel de Administración</h1>
+<body class="app-bg">
+    <div class="container app-container">
+        <header class="page-heading">
+            <div class="page-heading__brand">
+                <img src="../img/logo.png" alt="PeakPace" class="brand-logo">
+                <div class="page-heading__text">
+                    <p class="eyebrow">Panel de administración</p>
+                    <h1>PeakPace</h1>
+                </div>
+            </div>
+            <div class="page-heading__actions">
+                <button class="btn btn-outline-brand" id="btn-logout">Salir</button>
+            </div>
+        </header>
 
-        <nav class="navbar navbar-expand-lg navbar-dark bg-primary rounded mb-4">
-            <div class="container-fluid">
-                <a class="navbar-brand" href="#">Administración</a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
-                <div class="collapse navbar-collapse" id="navbarNav">
-                    <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+        <div class="app-card">
+            <nav class="navbar navbar-expand-lg navbar-dark app-nav">
+                <div class="container-fluid px-0">
+                    <a class="navbar-brand d-flex align-items-center gap-2" href="#">
+                        <span class="fw-bold">Panel</span>
+                    </a>
+                    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                        <span class="navbar-toggler-icon"></span>
+                    </button>
+                    <div class="collapse navbar-collapse" id="navbarNav">
+                        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
                         <li class="nav-item">
                             <a class="nav-link active" aria-current="page" href="usuarios.html">Gestión de Usuarios</a>
                         </li>
@@ -26,20 +42,21 @@
                             <a class="nav-link" href="#">Otras Funciones</a>
                         </li>
                     </ul>
-                    <form class="d-flex">
+                    <form class="d-flex" role="search">
                         <input class="form-control me-2" type="search" placeholder="Buscar" aria-label="Buscar">
                         <button class="btn btn-outline-light" type="submit">Buscar</button>
                     </form>
                 </div>
             </div>
-        </nav>
+            </nav>
+        </div>
 
-        <div class="bg-light p-5 rounded">
+        <div class="app-card">
             <h2 class="display-4">Bienvenido, Administrador</h2>
             <p class="lead">Selecciona una opción del menú de navegación para comenzar.</p>
             <hr class="my-4">
             <p>Aquí podrás administrar los usuarios y otras funciones de la aplicación.</p>
-            </div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js" integrity="sha384-fbbvQ7Y714vahVy9x969njihX4GnvJ1owtkXhxw729m3qP2rs5uqaeX-jvcwU0AJc" crossorigin="anonymous"></script>

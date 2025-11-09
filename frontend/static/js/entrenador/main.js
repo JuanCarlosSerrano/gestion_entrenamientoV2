@@ -23,6 +23,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }).catch(error => {
             console.error("Error cargando entrenamientos.js", error);
         });
+    } else if (ruta.endsWith('ciclos.html')) {
+        import('./ciclos.js').catch(error => {
+            console.error("Error cargando ciclos.js", error);
+        });
     } else if (ruta.endsWith('calendario.html')) {
         import('./calendario.js').then(module => {
             Calendario = module;

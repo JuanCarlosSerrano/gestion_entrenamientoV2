@@ -1,10 +1,12 @@
 // frontend/js/entrenador/atletas.js
 
-const API_BASE = "http://127.0.0.1:5000";
+const API_BASE = window.API_BASE || "http://127.0.0.1:5000";
+window.API_BASE = API_BASE;
 
-function getCsrfToken() {
-  return localStorage.getItem("csrfToken");
-}
+const getCsrfToken = () =>
+  (window.CSRF && typeof window.CSRF.getToken === "function"
+    ? window.CSRF.getToken()
+    : localStorage.getItem("csrfToken"));
 
 // 💬 Mensaje flotante reutilizable
 function mostrarMensaje(texto, tipo = "success") {
@@ -140,7 +142,7 @@ document.addEventListener("DOMContentLoaded", () => {
               a.categoria || "-"
             }</p>
             <div class="d-flex flex-wrap gap-2 mt-2">
-              <a href="calendario_atleta.html?atletaId=${a.id}" class="btn btn-sm btn-success">
+              <a href="calendario.html?atletaId=${a.id}" class="btn btn-sm btn-success">
                 Ver Calendario
               </a>
               <button class="btn btn-sm btn-primary btn-editar-atleta" data-id="${
