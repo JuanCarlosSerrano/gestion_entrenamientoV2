@@ -6,21 +6,56 @@ document.addEventListener('DOMContentLoaded', () => {
     const createUserBtn = document.getElementById('create-user-btn');
     const cancelBtn = document.getElementById('cancel-btn');
 
-    let editingUserId = null; // Variable para rastrear el ID del usuario que se está editando
+    let editingUserId = null;
+    let csrfToken = null;
 
-    // Función para obtener la lista de usuarios del backend
+    // --------------------------------------------------
+    // Helpers
+    // --------------------------------------------------
+
+    function getAuthHeader() {
+        const email = localStorage.getItem('userEmail') || '';
+        const password = localStorage.getItem('userPassword') || '';
+        return 'Basic ' + btoa(`${email}:${password}`);
+    }
+
+    async function loadCsrfToken() {
+        if (csrfToken) return csrfToken;
+
+        const response = await fetch('/csrf-token', {
+            method: 'GET',
+            credentials: 'include'
+        });
+
+        if (!response.ok) {
+            console.error('No se pudo obtener el CSRF token:', response.status);
+            throw new Error('No se pudo obtener el CSRF token');
+        }
+
+        const data = await response.json();
+        csrfToken = data.csrf_token;
+        return csrfToken;
+    }
+
+    // --------------------------------------------------
+    // Listar usuarios
+    // --------------------------------------------------
+
     async function fetchUsers() {
         try {
-            const response = await fetch('http://127.0.0.1:5000/usuarios', {
+            const response = await fetch('/usuarios', {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': 'Basic ' + btoa(`${localStorage.getItem('userEmail')}:${localStorage.getItem('userPassword')}`)
-                }
+                    'Authorization': getAuthHeader()
+                },
+                credentials: 'include'
             });
+
             if (!response.ok) {
                 throw new Error('Error al obtener la lista de usuarios');
             }
+
             const users = await response.json();
             displayUsers(users);
         } catch (error) {
@@ -29,9 +64,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Función para mostrar la lista de usuarios en la tabla
     function displayUsers(users) {
-        userTableBody.innerHTML = ''; // Limpiar la tabla antes de mostrar los usuarios
+        userTableBody.innerHTML = '';
+
         users.forEach(user => {
             const row = document.createElement('tr');
             row.innerHTML = `
@@ -47,72 +82,83 @@ document.addEventListener('DOMContentLoaded', () => {
             userTableBody.appendChild(row);
         });
 
-        // Agregar event listeners a los botones de editar y eliminar
-        const editButtons = document.querySelectorAll('.edit-btn');
-        editButtons.forEach(btn => {
+        // Editar
+        document.querySelectorAll('.edit-btn').forEach(btn => {
             btn.addEventListener('click', () => {
-                const userId = parseInt(btn.dataset.id);
+                const userId = parseInt(btn.dataset.id, 10);
                 populateUserForm(userId);
             });
         });
 
-        const deleteButtons = document.querySelectorAll('.delete-btn');
-        deleteButtons.forEach(btn => {
+        // Eliminar
+        document.querySelectorAll('.delete-btn').forEach(btn => {
             btn.addEventListener('click', () => {
-                const userId = parseInt(btn.dataset.id);
+                const userId = parseInt(btn.dataset.id, 10);
                 deleteUser(userId);
             });
         });
     }
 
-    // Función para mostrar el formulario y ocultar la lista de usuarios
+    // --------------------------------------------------
+    // Mostrar / ocultar formulario
+    // --------------------------------------------------
+
     function showUserForm() {
-        userListContainer.style.display = 'none';
+        userListContainer.style.display = 'block'; // si quieres ocultar la lista, pon 'none'
         userFormContainer.style.display = 'block';
     }
 
-    // Función para ocultar el formulario y mostrar la lista de usuarios
     function hideUserForm() {
         userListContainer.style.display = 'block';
         userFormContainer.style.display = 'none';
-        userForm.reset(); // Limpiar el formulario
-        editingUserId = null; // Restablecer el ID de edición
+        userForm.reset();
+        editingUserId = null;
     }
 
-    // Función para llenar el formulario con los datos de un usuario para editar
+    // --------------------------------------------------
+    // Rellenar formulario al editar
+    // --------------------------------------------------
+
     async function populateUserForm(userId) {
         showUserForm();
         try {
-            const response = await fetch(`http://127.0.0.1:5000/usuarios/${userId}`, {
+            const response = await fetch(`/usuarios/${userId}`, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': 'Basic ' + btoa(`${localStorage.getItem('userEmail')}:${localStorage.getItem('userPassword')}`)
-                }
+                    'Authorization': getAuthHeader()
+                },
+                credentials: 'include'
             });
+
             if (!response.ok) {
                 throw new Error('Error al obtener los datos del usuario');
             }
+
             const user = await response.json();
             document.getElementById('nombre').value = user.nombre;
             document.getElementById('apellidos').value = user.apellidos;
             document.getElementById('email').value = user.email;
             document.getElementById('rol').value = user.rol;
-            editingUserId = userId; // Establecer el ID del usuario que se está editando
+
+            editingUserId = userId;
         } catch (error) {
             console.error('Error:', error);
             alert('Error al obtener los datos del usuario. Consulta la consola.');
         }
     }
 
-    // Función para crear o actualizar un usuario
+    // --------------------------------------------------
+    // Crear / actualizar usuario
+    // --------------------------------------------------
+
     async function saveUser(event) {
         event.preventDefault();
 
-        const nombre = document.getElementById('nombre').value;
-        const apellidos = document.getElementById('apellidos').value;
-        const email = document.getElementById('email').value;
-        const password = document.getElementById('password').value; // Puede estar vacío
+        const nombre = document.getElementById('nombre').value.trim();
+        const apellidos = document.getElementById('apellidos').value.trim();
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value;
         const rol = document.getElementById('rol').value;
 
         const userData = { nombre, apellidos, email, rol };
@@ -120,72 +166,101 @@ document.addEventListener('DOMContentLoaded', () => {
             userData.password = password;
         }
 
+        console.log('Datos que se envían:', userData, 'editingUserId:', editingUserId);
+
         try {
             const method = editingUserId ? 'PUT' : 'POST';
-            const url = editingUserId ? `http://127.0.0.1:5000/usuarios/${editingUserId}` : 'http://127.0.0.1:5000/usuarios';
+            const url = editingUserId ? `/usuarios/${editingUserId}` : '/usuarios';
+
+            const token = await loadCsrfToken();
 
             const response = await fetch(url, {
-                method: method,
+                method,
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': 'Basic ' + btoa(`${localStorage.getItem('userEmail')}:${localStorage.getItem('userPassword')}`)
+                    'Authorization': getAuthHeader(),
+                    'X-CSRFToken': token
                 },
-                body: JSON.stringify(userData),
+                credentials: 'include',
+                body: JSON.stringify(userData)
             });
 
+            const result = await response.json().catch(() => ({}));
+
             if (!response.ok) {
-                throw new Error(editingUserId ? 'Error al actualizar el usuario' : 'Error al crear el usuario');
+                console.error('Error en respuesta:', response.status, result);
+                throw new Error(result.error || (editingUserId
+                    ? 'Error al actualizar el usuario'
+                    : 'Error al crear el usuario'));
             }
 
-            const result = await response.json();
-            alert(result.message);
-            fetchUsers(); // Recargar la lista de usuarios
-            hideUserForm(); // Ocultar el formulario
+            alert(result.message || (editingUserId
+                ? 'Usuario actualizado correctamente'
+                : 'Usuario creado correctamente'));
+
+            fetchUsers();
+            hideUserForm();
+
         } catch (error) {
-            console.error('Error:', error);
-            alert(editingUserId ? 'Error al actualizar el usuario. Consulta la consola.' : 'Error al crear el usuario. Consulta la consola.');
+            console.error('Error en saveUser:', error);
+            alert(error.message || (editingUserId
+                ? 'Error al actualizar el usuario. Consulta la consola.'
+                : 'Error al crear el usuario. Consulta la consola.'));
         }
     }
 
-    // Función para eliminar un usuario
+    // --------------------------------------------------
+    // Eliminar usuario
+    // --------------------------------------------------
+
     async function deleteUser(userId) {
-        if (confirm('¿Estás seguro de que quieres eliminar este usuario?')) {
-            try {
-                const response = await fetch(`http://127.0.0.1:5000/usuarios/${userId}`, {
-                    method: 'DELETE',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': 'Basic ' + btoa(`${localStorage.getItem('userEmail')}:${localStorage.getItem('userPassword')}`)
-                    }
-                });
-                if (!response.ok) {
-                    throw new Error('Error al eliminar el usuario');
-                }
-                const result = await response.json();
-                alert(result.message);
-                fetchUsers(); // Recargar la lista de usuarios
-            } catch (error) {
-                console.error('Error:', error);
-                alert('Error al eliminar el usuario. Consulta la consola.');
+        if (!confirm('¿Estás seguro de que quieres eliminar este usuario?')) return;
+
+        try {
+            const token = await loadCsrfToken();
+
+            const response = await fetch(`/usuarios/${userId}`, {
+                method: 'DELETE',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': getAuthHeader(),
+                    'X-CSRFToken': token
+                },
+                credentials: 'include'
+            });
+
+            const result = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                console.error('Error en respuesta (delete):', response.status, result);
+                throw new Error(result.error || 'Error al eliminar el usuario');
             }
+
+            alert(result.message || 'Usuario eliminado correctamente');
+            fetchUsers();
+
+        } catch (error) {
+            console.error('Error en deleteUser:', error);
+            alert(error.message || 'Error al eliminar el usuario. Consulta la consola.');
         }
     }
 
-    // Event listeners
-    createUserBtn.addEventListener('click', () => {
-        showUserForm();
-    });
+    // --------------------------------------------------
+    // Eventos
+    // --------------------------------------------------
 
-    cancelBtn.addEventListener('click', () => {
-        hideUserForm();
-    });
-
+    createUserBtn.addEventListener('click', showUserForm);
+    cancelBtn.addEventListener('click', hideUserForm);
     userForm.addEventListener('submit', saveUser);
 
-    // Obtener la lista de usuarios al cargar la página
-    fetchUsers();
+    // --------------------------------------------------
+    // Init
+    // --------------------------------------------------
 
-    // Guardar email y password en localStorage para autenticación (solo para desarrollo, ¡no en producción!)
-    localStorage.setItem('userEmail', 'admin@example.com'); // Cambiar por el email real
-    localStorage.setItem('userPassword', 'admin_password'); // Cambiar por la contraseña real
+    // Solo para desarrollo: credenciales del admin
+    // Asegúrate de que coinciden con tu admin real
+    localStorage.setItem('userEmail', 'admin@example.com');
+    localStorage.setItem('userPassword', 'admin1234'); // pon aquí la que le pusiste
+
+    fetchUsers();
 });

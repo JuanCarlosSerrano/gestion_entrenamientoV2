@@ -1,4 +1,33 @@
+const API_BASE = 'http://127.0.0.1:5000';
+
+async function fetchCsrfToken() {
+    try {
+        const resp = await fetch(`${API_BASE}/csrf-token`, {
+            method: 'GET',
+            credentials: 'include', // usa la cookie de sesión recién creada
+        });
+
+        if (!resp.ok) {
+            console.warn('No se pudo obtener CSRF token. Status:', resp.status);
+            return null;
+        }
+
+        const data = await resp.json();
+        if (data && data.csrf_token) {
+            localStorage.setItem('csrfToken', data.csrf_token);
+            return data.csrf_token;
+        } else {
+            console.warn('Respuesta CSRF sin token:', data);
+            return null;
+        }
+    } catch (err) {
+        console.error('Error al pedir CSRF token:', err);
+        return null;
+    }
+}
+
 const loginForm = document.getElementById('loginForm');
+
 if (loginForm) {
     loginForm.addEventListener('submit', async (event) => {
         event.preventDefault();
@@ -6,58 +35,59 @@ if (loginForm) {
         const formData = new FormData(loginForm);
         const data = Object.fromEntries(formData.entries());
 
-        console.log('1. Datos del formulario (login):', data);
-
         try {
-            const response = await fetch('http://127.0.0.1:5000/login', {
+            // 1️⃣ Login contra el backend usando sesión (cookie)
+            const response = await fetch(`${API_BASE}/login`, {
                 method: 'POST',
+                credentials: 'include', // 🔴 envía/recibe la cookie de sesión
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify(data),
             });
 
-            console.log('2. Respuesta del servidor (login):', response);
-
+            // Si falla el login, mostramos el motivo
             if (!response.ok) {
-                console.error('3. Error en la respuesta del servidor (login):', response.status, response.statusText);
-                throw new Error(`Error en el inicio de sesión. Código de estado: ${response.status}`);
+                const err = await response.json().catch(() => ({}));
+                const msg = err.error || `Error en el inicio de sesión (${response.status})`;
+                alert(msg);
+                return;
             }
 
             const result = await response.json();
-
-            console.log('4. Resultado JSON (login):', result);
+            console.log('Login OK:', result);
 
             if (result && result.message === 'Inicio de sesión exitoso') {
-                localStorage.setItem('userEmail', data.email);
-                localStorage.setItem('userPassword', data.password);
-                localStorage.setItem('userId', result.user_id);  // ✅ El único ID que usas ahora
-                localStorage.setItem('userRol', result.rol);
-            
-                alert(result.message);
-                
-                // Redirige según el rol del usuario
-                const userRol = result.rol; // Obtener el rol de la respuesta
-                console.log('10. Rol del usuario (login):', userRol);
+                const userRol = result.rol;
+                const userId = result.user_id;
 
+                // 2️⃣ Guardar sólo lo necesario (nada de password)
+                localStorage.setItem('userId', userId);
+                localStorage.setItem('userRol', userRol);
+
+                // 3️⃣ Pedir y guardar CSRF token (para futuros POST/PUT/DELETE)
+                await fetchCsrfToken();
+
+                alert(result.message);
+
+                // 4️⃣ Redirigir según rol
+                // Ojo: como login.html está en /static/, estas rutas son relativas a /static/
                 if (userRol === 'admin') {
-                    window.location.href = 'admin/index.html';
+                    window.location.href = 'admin/index.html';        // /static/admin/index.html
                 } else if (userRol === 'entrenador') {
-                    window.location.href = 'entrenador/index.html';
+                    window.location.href = 'entrenador/index.html';   // /static/entrenador/index.html
                 } else if (userRol === 'atleta') {
-                    window.location.href = 'atleta/index.html';
+                    window.location.href = 'atleta/index.html';       // /static/atleta/index.html
                 } else {
-                    // Rol desconocido (manejar el error)
-                    alert('Rol de usuario desconocido. Redirigiendo a la página principal.');
-                    window.location.href = 'index.html';
+                    alert('Rol desconocido. Redirigiendo al inicio.');
+                    window.location.href = 'login.html';
                 }
 
             } else {
-                console.error('11. Error en el resultado JSON (login):', result);
-                alert(result.error);
+                alert(result.error || 'Error desconocido en el inicio de sesión');
             }
         } catch (error) {
-            console.error('12. Error al iniciar sesión:', error);
+            console.error('Error al iniciar sesión:', error);
             alert('Error al iniciar sesión. Inténtalo de nuevo.');
         }
     });

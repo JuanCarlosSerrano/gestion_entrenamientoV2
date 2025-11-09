@@ -1,40 +1,129 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mis Atletas</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-SgOJa3DmI69IUzQ2PVdRZhwQ+dy64/BUtbMJw1MZ8t5HZApcHrRKUc4W0kG879m7" crossorigin="anonymous">
-    <script src="../js/script.js"></script>
-    <script src="../js/entrenador/main.js" type="module"></script>
-    <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mis Atletas</title>
+
+  <!-- Bootstrap / Iconos -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+
+  <!-- Estilos propios -->
+  <link rel="stylesheet" href="../css/atletas.css">
+  <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
 </head>
 <body>
-    <div class="container mt-4">
-        <h1 class="mb-4">Mis Atletas</h1>
-        <a href="index.html" class="btn btn-secondary mb-3">Volver al Panel de Entrenador</a>
+  <div class="container py-4">
+    <h1 class="mb-4 d-flex align-items-center gap-2">
+      <i class="bi bi-people-fill"></i> Mis Atletas
+    </h1>
 
-        <div id="atletas-list-container">
-            <h2>Lista de Atletas</h2>
-            <div class="table-responsive">
-                <table id="atletas-table" class="table table-striped table-bordered">
-                    <thead>
-                        <tr>
-                            <th>Nombre</th>
-                            <th>Apellidos</th>
-                            <th>Fecha de Nacimiento</th>
-                            <th>Email</th>
-                            <th>Teléfono</th>
-                            <th>Categoría</th>
-                            <th>Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        </tbody>
-                </table>
-            </div>
-        </div>
+    <a href="index.html" class="btn btn-secondary mb-3">
+      <i class="bi bi-arrow-left-circle"></i> Volver al Panel de Entrenador
+    </a>
+
+    <!-- Contenedor de tarjetas de atletas -->
+    <div id="atletas-list-container">
+      <div class="row" id="atletas-cards">
+        <!-- Las tarjetas de atletas se inyectarán aquí con JS -->
+      </div>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"  crossorigin="anonymous"></script>
+  </div>
+
+  <!-- Modal: Editar / Eliminar Atleta -->
+  <div class="modal fade" id="modalEditarAtleta" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Editar Atleta</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <form id="form-editar-atleta">
+            <input type="hidden" id="edit-atleta-id">
+
+            <div class="mb-2">
+              <label class="form-label">Nombre</label>
+              <input type="text" id="edit-nombre" class="form-control" required>
+            </div>
+
+            <div class="mb-2">
+              <label class="form-label">Apellidos</label>
+              <input type="text" id="edit-apellidos" class="form-control" required>
+            </div>
+
+            <div class="mb-2">
+              <label class="form-label">Email</label>
+              <input type="email" id="edit-email" class="form-control" required>
+            </div>
+
+            <div class="mb-2">
+              <label class="form-label">Teléfono</label>
+              <input type="text" id="edit-telefono" class="form-control">
+            </div>
+
+            <div class="mb-2">
+              <label class="form-label">Fecha de nacimiento</label>
+              <input type="date" id="edit-fecha-nacimiento" class="form-control">
+            </div>
+
+            <div class="mb-2">
+              <label class="form-label">Categoría</label>
+              <input type="text" id="edit-categoria" class="form-control">
+            </div>
+
+            <div class="mb-2">
+              <label class="form-label">Grupo</label>
+              <input type="text" id="edit-grupo" class="form-control">
+            </div>
+
+            <div class="mb-3">
+              <label class="form-label">Subgrupo</label>
+              <input type="text" id="edit-subgrupo" class="form-control">
+            </div>
+
+            <div class="d-flex justify-content-between">
+              <button type="submit" class="btn btn-primary">
+                Guardar cambios
+              </button>
+              <button type="button" id="btn-eliminar-atleta" class="btn btn-danger">
+                Eliminar atleta
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal genérico de confirmación (para borrar atleta, etc.) -->
+  <div class="modal fade" id="modalConfirmacion" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Confirmar acción</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body" id="modal-confirmacion-mensaje">
+          ¿Estás seguro de que deseas continuar?
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-danger" id="modal-confirmacion-aceptar">Aceptar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- Scripts existentes -->
+  <script src="../js/script.js"></script>
+  <script type="module" src="../js/entrenador/main.js"></script>
+
+  <!-- JS específico de esta vista (lo conectamos en el siguiente paso) -->
+  <script type="module" src="../js/entrenador/atletas.js"></script>
 </body>
 </html>

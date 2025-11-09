@@ -1,72 +1,77 @@
+/* Estilos generales */
 body {
-    font-family: sans-serif;
-    background-color: #f4f4f4;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 100vh;
-    margin: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f8f9fa;
+  margin: 0;
+  padding: 0;
 }
 
 .container {
-    background-color: #fff;
-    padding: 20px;
-    border-radius: 8px;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-    width: 400px;
-    text-align: center;
+  max-width: 960px;
+  margin: 2rem auto;
+  padding: 0 1rem;
 }
 
-h1 {
-    color: #333;
-    margin-bottom: 20px;
+h1, h2 {
+  font-weight: 700;
+  color: #212529;
 }
 
-.form-group {
-    margin-bottom: 15px;
-    text-align: left;
+.btn-secondary {
+  margin-bottom: 1rem;
 }
 
-label {
-    display: block;
-    margin-bottom: 5px;
-    color: #555;
+/* Estilo compartido para tarjetas */
+.tarjeta {
+  background: #ffffff;
+  border: 1px solid #dee2e6;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
 }
 
-input[type="text"],
-input[type="email"],
-input[type="password"] {
-    width: calc(100% - 12px);
-    padding: 8px;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    box-sizing: border-box;
+.tarjeta h5, .tarjeta .tarjeta-titulo {
+  margin-bottom: 0.5rem;
+  font-size: 1.25rem;
+  color: #0d6efd;
+  font-weight: 600;
 }
 
-button[type="submit"] {
-    background-color: #007bff;
-    color: white;
-    padding: 10px 15px;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 16px;
+.tarjeta p, .tarjeta .tarjeta-info {
+  margin: 0.25rem 0;
+  color: #495057;
 }
 
-button[type="submit"]:hover {
-    background-color: #0056b3;
+.tarjeta .tarjeta-acciones {
+  margin-top: 0.75rem;
 }
 
-p {
-    margin-top: 20px;
-    color: #777;
+.tarjeta .btn {
+  margin-right: 0.5rem;
+  margin-bottom: 0.25rem;
 }
 
-a {
-    color: #007bff;
-    text-decoration: none;
+/* Grid responsivo para tarjetas */
+.tarjeta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
 }
 
-a:hover {
-    text-decoration: underline;
+@media (max-width: 576px) {
+  .tarjeta .tarjeta-acciones {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .tarjeta .btn {
+    margin: 0 !important;
+    width: 100%;
+  }
+}
+
+/* Formularios */
+form .form-label {
+  font-weight: 500;
 }

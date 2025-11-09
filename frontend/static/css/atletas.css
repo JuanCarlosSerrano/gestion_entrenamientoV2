@@ -1,0 +1,60 @@
+/* Estilos generales */
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f8f9fa;
+    margin: 0;
+    padding: 0;
+  }
+  
+  .container {
+    max-width: 960px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+  }
+  
+  h1, h2 {
+    font-weight: 700;
+    color: #212529;
+  }
+  
+  .btn-secondary {
+    margin-bottom: 1rem;
+  }
+  
+  /* Estilo para tarjetas de atletas */
+  .atleta-card {
+    background: #ffffff;
+    border: 1px solid #dee2e6;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+  }
+  
+  .atleta-card h5 {
+    margin-bottom: 0.5rem;
+    font-size: 1.25rem;
+  }
+  
+  .atleta-card p {
+    margin: 0.25rem 0;
+    color: #495057;
+  }
+  
+  .atleta-card .acciones {
+    margin-top: 0.5rem;
+  }
+  
+  .acciones .btn {
+    margin-right: 0.5rem;
+    margin-bottom: 0.25rem;
+  }
+  
+  /* Diseño responsive para desktop */
+  @media (min-width: 768px) {
+    .atleta-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1rem;
+    }
+  }

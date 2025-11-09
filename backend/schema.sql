@@ -63,3 +63,16 @@ CREATE TABLE IF NOT EXISTS feedbacks (
     FOREIGN KEY (entrenamiento_asignado_id) REFERENCES entrenamientos_asignados(id),
     FOREIGN KEY (atleta_id) REFERENCES usuarios(id)
 );
+CREATE TABLE zonas_entrenamiento (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    atleta_id INTEGER NOT NULL,
+    vam REAL NOT NULL,
+    z1 REAL,
+    z2 REAL,
+    z3 REAL,
+    z4 REAL,
+    z5 REAL,
+    z6 REAL,
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (atleta_id) REFERENCES usuarios(id)
+);
