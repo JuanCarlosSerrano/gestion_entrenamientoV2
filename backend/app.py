@@ -553,40 +553,257 @@ def obtener_entrenamientos(current_user):
     entrenamientos = query_db('SELECT * FROM entrenamientos')
     return jsonify([dict(entrenamiento) for entrenamiento in entrenamientos])
 
+def get_entrenamiento_con_pasos(entrenamiento_id: int):
+    conn = get_db()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    # 1) Datos básicos del entrenamiento
+    cur.execute("""
+        SELECT id, nombre, objetivo, notas, bloque_principal
+        FROM entrenamientos
+        WHERE id = ?
+    """, (entrenamiento_id,))
+    row = cur.fetchone()
+
+    if not row:
+        cur.close()
+        conn.close()
+        return None
+
+    entrenamiento = {
+        "id": row["id"],
+        "nombre": row["nombre"],
+        "objetivo": row["objetivo"],
+        "notas": row["notas"],
+        "bloque_principal": row["bloque_principal"],
+    }
+
+    # 2) Detalles (pasos) del entrenamiento
+    # AJUSTA los nombres de columna a tu tabla entrenamiento_detalle
+    cur.execute("""
+        SELECT
+            id,
+            tipo_paso,
+            repeticiones,
+            objetivo_tipo,
+            objetivo_valor,
+            unidad,
+            zona,
+            recuperacion_valor,
+            recuperacion_unidad,
+            intensidad,
+            descripcion,
+            parent_id,      -- si no tienes jerarquía, elimina este campo
+            orden
+        FROM entrenamientos_detalle
+        WHERE entrenamiento_id = ?
+        ORDER BY orden, id
+    """, (entrenamiento_id,))
+    detalles = cur.fetchall()
+
+    # 3) Construimos los pasos en el formato que espera el frontend
+    pasos_por_id = {}
+    pasos_root = []
+
+    for d in detalles:
+        paso = {
+            "id_detalle": d["id"],
+            "tipo_paso": d["tipo_paso"] or "custom",
+            "repeticiones": d["repeticiones"],
+            "objetivo_tipo": d["objetivo_tipo"],
+            "objetivo_valor": d["objetivo_valor"],
+            "unidad": d["unidad"],
+            "zona": d["zona"],
+            "recuperacion_valor": d["recuperacion_valor"],
+            "recuperacion_unidad": d["recuperacion_unidad"],
+            "intensidad": d["intensidad"],
+            "descripcion": d["descripcion"],
+            "subpasos": []
+        }
+        pasos_por_id[d["id"]] = paso
+
+    # Si tienes jerarquía (repeat con subpasos) usando parent_id:
+    try:
+        for d in detalles:
+            parent_id = d["parent_id"]
+            paso = pasos_por_id[d["id"]]
+            if parent_id:
+                parent = pasos_por_id.get(parent_id)
+                if parent:
+                    parent["subpasos"].append(paso)
+            else:
+                pasos_root.append(paso)
+    except KeyError:
+        # Si tu tabla NO tiene parent_id, todos los pasos son root
+        pasos_root = list(pasos_por_id.values())
+
+    entrenamiento["pasos"] = pasos_root
+
+    cur.close()
+    conn.close()
+    return entrenamiento
 
 @app.route('/entrenamientos/<int:id>', methods=['GET'])
-@requires_roles('admin', 'entrenador', 'atleta')
+@requires_roles('admin', 'entrenador')
 def obtener_entrenamiento(current_user, id):
-    entrenamiento = query_db('SELECT * FROM entrenamientos WHERE id = ?', (id,), one=True)
-    if entrenamiento is None:
-        return jsonify({'error': 'Entrenamiento no encontrado'}), 404
-    return jsonify(dict(entrenamiento))
+    try:
+        entrenamiento = get_entrenamiento_con_pasos(id)
+        if not entrenamiento:
+            return jsonify({"error": "Entrenamiento no encontrado"}), 404
+        return jsonify(entrenamiento), 200
+    except Exception as e:
+        print("Error al obtener entrenamiento:", e)
+        return jsonify({"error": "Error al obtener el entrenamiento"}), 500
 
+@app.route('/entrenamientos/<int:entrenamiento_id>', methods=['PUT'])
+@requires_roles('admin', 'entrenador')
+def actualizar_entrenamiento(current_user, entrenamiento_id):
+    data = request.get_json(silent=True) or {}
 
-@app.route('/entrenamientos/<int:id>', methods=['PUT'])
-@requires_roles('admin', 'entrenador')  # Admin y Entrenador pueden editar
-def actualizar_entrenamiento(current_user, id):
-    data = request.get_json()
-    nombre = data.get('nombre')
-    duracion_tipo = data.get('duracion_tipo')
-    calentamiento_tipo = data.get('calentamiento_tipo')
-    calentamiento_valor = data.get('calentamiento_valor')
-    bloque_activacion = data.get('bloque_activacion')
-    bloque_principal = data.get('bloque_principal')
-    enfriamiento_tipo = data.get('enfriamiento_tipo')
-    enfriamiento_valor = data.get('enfriamiento_valor')
+    nombre = (data.get('nombre') or '').strip()
+    objetivo = (data.get('objetivo') or '').strip() or None
+    notas = (data.get('notas') or '').strip() or None
+    pasos = data.get('pasos') or []
 
-    if not nombre or not bloque_principal:
-        return jsonify({'error': 'Nombre y bloque_principal son obligatorios'}), 400
+    if not nombre:
+        return jsonify({'error': 'El nombre del entrenamiento es obligatorio'}), 400
+    if not isinstance(pasos, list) or not pasos:
+        return jsonify({'error': 'Debe haber al menos un bloque (paso) en el entrenamiento'}), 400
 
     try:
-        execute_db(
-            'UPDATE entrenamientos SET nombre = ?, duracion_valor = ?, duracion_tipo = ?, calentamiento_tipo = ?, calentamiento_valor = ?, bloque_activacion = ?, bloque_principal = ?, enfriamiento_tipo = ?, enfriamiento_valor = ? WHERE id = ?',
-            (nombre, duracion_valor, duracion_tipo, calentamiento_tipo, calentamiento_valor, bloque_activacion,
-             bloque_principal, enfriamiento_tipo, enfriamiento_valor, id)
+        conn = get_db()
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+
+        # 1) Comprobar que existe el entrenamiento
+        cur.execute("SELECT id FROM entrenamientos WHERE id = ?", (entrenamiento_id,))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Entrenamiento no encontrado'}), 404
+
+        # 2) Generar un pequeño resumen para bloque_principal (opcional)
+        def describe_step_py(step):
+            partes = []
+            tipo = (step.get('tipo_paso') or '').lower()
+
+            if tipo == 'warmup':
+                partes.append('Calentamiento')
+            elif tipo == 'interval':
+                partes.append('Intervalos')
+            elif tipo == 'rest':
+                partes.append('Recuperación')
+            elif tipo == 'cooldown':
+                partes.append('Enfriamiento')
+            elif tipo == 'repeat':
+                reps = step.get('repeticiones') or 1
+                partes.append(f'{reps}× bloque')
+            else:
+                partes.append('Bloque')
+
+            val = (str(step.get('objetivo_valor') or '')).strip()
+            unidad = (step.get('unidad') or '').strip()
+            if val:
+                partes.append(f'{val}{unidad}')
+
+            zona = (step.get('zona') or '').strip()
+            if zona:
+                partes.append(zona if zona.upper().startswith('Z') else f'Z{zona}')
+
+            return ' '.join(partes).strip()
+
+        resumen_partes = []
+
+        def flatten_steps(steps):
+            for s in steps:
+                desc = describe_step_py(s)
+                if desc:
+                    resumen_partes.append(desc)
+                sub = s.get('subpasos') or []
+                if sub:
+                    flatten_steps(sub)
+
+        flatten_steps(pasos)
+        bloque_principal = ' · '.join(resumen_partes) or None
+
+        # 3) Actualizar tabla principal de entrenamientos
+        cur.execute(
+            """
+            UPDATE entrenamientos
+            SET nombre = ?, objetivo = ?, notas = ?, bloque_principal = ?
+            WHERE id = ?
+            """,
+            (nombre, objetivo, notas, bloque_principal, entrenamiento_id)
         )
-        return jsonify({'message': 'Entrenamiento actualizado exitosamente'}), 200
-    except sqlite3.IntegrityError:
+
+        # 4) Borrar detalles antiguos
+        cur.execute(
+            "DELETE FROM entrenamientos_detalle WHERE entrenamiento_id = ?",
+            (entrenamiento_id,)
+        )
+
+        # 5) Insertar nuevos pasos en entrenamientos_detalle
+        now = datetime.now().isoformat(' ')
+        orden_counter = 1
+
+        def insert_step(step, parent_id=None):
+            nonlocal orden_counter
+
+            tipo_paso = step.get('tipo_paso') or 'custom'
+            repeticiones = step.get('repeticiones')
+            objetivo_tipo = step.get('objetivo_tipo')
+            objetivo_valor = step.get('objetivo_valor')
+            unidad = step.get('unidad')
+            zona = step.get('zona')
+            recuperacion_valor = step.get('recuperacion_valor')
+            recuperacion_unidad = step.get('recuperacion_unidad')
+            intensidad = step.get('intensidad')
+            descripcion = step.get('descripcion')
+
+            cur.execute(
+                """
+                INSERT INTO entrenamientos_detalle
+                    (entrenamiento_id, tipo_paso, repeticiones,
+                     objetivo_tipo, objetivo_valor, unidad, zona,
+                     recuperacion_valor, recuperacion_unidad,
+                     intensidad, descripcion, parent_id, orden)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    entrenamiento_id,
+                    tipo_paso,
+                    repeticiones,
+                    objetivo_tipo,
+                    objetivo_valor,
+                    unidad,
+                    zona,
+                    recuperacion_valor,
+                    recuperacion_unidad,
+                    intensidad,
+                    descripcion,
+                    parent_id,
+                    orden_counter
+                )
+            )
+            this_id = cur.lastrowid
+            orden_counter += 1
+
+            # subpasos (para repeat)
+            for sub in step.get('subpasos') or []:
+                insert_step(sub, this_id)
+
+        for step in pasos:
+            insert_step(step, None)
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return jsonify({'message': 'Entrenamiento actualizado'}), 200
+
+    except Exception as e:
+        print("Error en actualizar_entrenamiento:", e)
         return jsonify({'error': 'Error al actualizar el entrenamiento'}), 500
 
 

@@ -201,6 +201,133 @@ function describeStep(step) {
   return partes.join(' ');
 }
 
+function getStepLabel(tipo) {
+  switch (tipo) {
+    case 'warmup':
+      return 'Calentamiento';
+    case 'interval':
+      return 'Intervalos';
+    case 'rest':
+      return 'Recuperación';
+    case 'repeat':
+      return 'Bloque repetido';
+    case 'cooldown':
+      return 'Enfriamiento';
+    case 'custom':
+      return 'Bloque libre';
+    default:
+      return 'Bloque';
+  }
+}
+
+function getBlockClass(tipo) {
+  switch (tipo) {
+    case 'warmup':
+      return 'training-block--warmup';
+    case 'interval':
+      return 'training-block--interval';
+    case 'rest':
+      return 'training-block--rest';
+    case 'repeat':
+      return 'training-block--repeat';
+    case 'cooldown':
+      return 'training-block--cooldown';
+    case 'custom':
+      return 'training-block--custom';
+    default:
+      return '';
+  }
+}
+
+function renderStepContent(step) {
+  // Reutilizamos la lógica de describeStep pero sin el tipo al principio
+  const partes = [];
+
+  if (step.tipo_paso === 'repeat') {
+    const inner = (step.subpasos || [])
+      .map((s) => describeStep(s))
+      .filter(Boolean)
+      .join(' + ');
+    const reps = step.repeticiones || 1;
+    partes.push(`${reps} × (${inner})`);
+    return partes.join(' · ');
+  }
+
+  if (step.objetivo_valor) {
+    const unidad = step.unidad || '';
+    partes.push(`${step.objetivo_valor}${unidad}`);
+  }
+  if (step.zona) {
+    partes.push(`Zona ${step.zona}`);
+  }
+  if (step.recuperacion_valor) {
+    partes.push(`Rec: ${secondsToClock(step.recuperacion_valor)}`);
+  }
+  if (step.descripcion) {
+    partes.push(step.descripcion);
+  }
+
+  return partes.join(' · ') || 'Sin detalles';
+}
+
+function createBlockElement(step, index) {
+  const block = document.createElement('div');
+  block.className = `training-block ${getBlockClass(step.tipo_paso)}`.trim();
+
+  const header = document.createElement('div');
+  header.className = 'training-block-header';
+
+  const title = document.createElement('div');
+  title.className = 'training-block-title';
+
+  const label = getStepLabel(step.tipo_paso);
+  title.textContent = label;
+
+  header.appendChild(title);
+
+  // Etiquetas auxiliares (ej. número de bloque, repeticiones)
+  const meta = document.createElement('div');
+  meta.className = 'training-block-meta';
+
+  const numSpan = document.createElement('span');
+  numSpan.className = 'training-pill training-pill--index';
+  numSpan.textContent = `Bloque ${index + 1}`;
+  meta.appendChild(numSpan);
+
+  if (step.tipo_paso === 'repeat' && step.repeticiones) {
+    const repSpan = document.createElement('span');
+    repSpan.className = 'training-pill training-pill--repeat';
+    repSpan.textContent = `${step.repeticiones} repeticiones`;
+    meta.appendChild(repSpan);
+  }
+
+  header.appendChild(meta);
+  block.appendChild(header);
+
+  const body = document.createElement('div');
+  body.className = 'training-block-body';
+
+  const content = document.createElement('div');
+  content.className = 'training-block-text';
+  content.textContent = renderStepContent(step);
+  body.appendChild(content);
+
+  // Si es un bloque repetido, mostramos subpasos listados
+  if (step.tipo_paso === 'repeat' && Array.isArray(step.subpasos) && step.subpasos.length) {
+    const subList = document.createElement('ul');
+    subList.className = 'training-substeps-list';
+    step.subpasos.forEach((sub, idx) => {
+      const li = document.createElement('li');
+      li.textContent = `${idx + 1}. ${describeStep(sub)}`;
+      subList.appendChild(li);
+    });
+    body.appendChild(subList);
+  }
+
+  block.appendChild(body);
+  return block;
+}
+
 function renderPreview() {
   if (!previewList) return;
   previewList.innerHTML = '';
@@ -594,32 +721,59 @@ function renderEntrenamientos() {
 
   entrenamientosData.forEach((entrenamiento) => {
     const card = document.createElement('div');
-    card.className = 'training-card';
+    card.className = 'training-card training-card--blocks';
     if (entrenamiento.id === currentEntrenamientoId) {
       card.classList.add('training-card--active');
     }
 
+    // HEADER
     const header = document.createElement('div');
     header.className = 'training-card__header';
+
+    const titleBox = document.createElement('div');
+
     const title = document.createElement('h3');
     title.className = 'h6 mb-0';
     title.textContent = entrenamiento.nombre;
-    header.appendChild(title);
+    titleBox.appendChild(title);
 
-    const meta = document.createElement('div');
-    meta.className = 'training-card__meta';
-    if (entrenamiento.objetivo) meta.innerHTML += `<span>🎯 ${entrenamiento.objetivo}</span>`;
-    header.appendChild(meta);
+    if (entrenamiento.objetivo) {
+      const obj = document.createElement('div');
+      obj.className = 'training-card__objective';
+      obj.textContent = entrenamiento.objetivo;
+      titleBox.appendChild(obj);
+    }
+
+    if (entrenamiento.notas) {
+      const notas = document.createElement('div');
+      notas.className = 'training-card__notes';
+      notas.textContent = entrenamiento.notas;
+      titleBox.appendChild(notas);
+    }
+
+    header.appendChild(titleBox);
+
     card.appendChild(header);
 
-    const summary = document.createElement('div');
-    summary.className = 'training-card__summary';
-    const pasos = entrenamiento.pasos || [];
-    summary.textContent = pasos.length
-      ? pasos.map(describeStep).join(' · ')
-      : entrenamiento.bloque_principal || '-';
-    card.appendChild(summary);
+    // BLOQUES
+    const blocksWrapper = document.createElement('div');
+    blocksWrapper.className = 'training-card-blocks';
 
+    const pasos = entrenamiento.pasos || [];
+    if (!pasos.length) {
+      const emptySteps = document.createElement('div');
+      emptySteps.className = 'text-muted small';
+      emptySteps.textContent = 'Este entrenamiento aún no tiene bloques definidos.';
+      blocksWrapper.appendChild(emptySteps);
+    } else {
+      pasos.forEach((step, index) => {
+        blocksWrapper.appendChild(createBlockElement(step, index));
+      });
+    }
+
+    card.appendChild(blocksWrapper);
+
+    // ACCIONES
     const actions = document.createElement('div');
     actions.className = 'training-card__actions';
 
@@ -648,6 +802,7 @@ function renderEntrenamientos() {
   });
 }
 
+
 function duplicarEntrenamiento(id) {
   const original = entrenamientosData.find((item) => item.id === id);
   if (!original) return;
@@ -672,7 +827,12 @@ async function fetchEntrenamientos() {
     if (!response.ok) {
       throw new Error('No se pudieron cargar los entrenamientos');
     }
+
     entrenamientosData = await response.json();
+
+    // 🔹 NUEVO: cargar pasos completos de cada entrenamiento
+    await hydrateEntrenamientosPasos();
+
     renderEntrenamientos();
     // refrescamos biblioteca de microciclos si existe
     renderMicroLibrary();
@@ -680,6 +840,42 @@ async function fetchEntrenamientos() {
     console.error(error);
     alert('Error al obtener la lista de entrenamientos');
   }
+}
+
+
+async function hydrateEntrenamientosPasos() {
+  if (!entrenamientosData || !entrenamientosData.length) return;
+
+  const csrf = await ensureCsrfToken();
+
+  const promises = entrenamientosData.map(async (ent) => {
+    // Si ya tiene pasos cargados, no hacemos nada
+    if (Array.isArray(ent.pasos) && ent.pasos.length) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/entrenamientos/${ent.id}`, {
+        headers: {
+          Authorization: authHeader(),
+          ...(csrf ? { 'X-CSRF-Token': csrf } : {})
+        },
+        credentials: 'include'
+      });
+
+      if (!res.ok) return;
+
+      const data = await res.json().catch(() => null);
+      if (!data) return;
+
+      // Rellenamos pasos y, de paso, objetivo / notas por si vienen más completos
+      ent.pasos = Array.isArray(data.pasos) ? data.pasos : [];
+      if (data.objetivo !== undefined) ent.objetivo = data.objetivo;
+      if (data.notas !== undefined) ent.notas = data.notas;
+    } catch (err) {
+      console.warn('No se pudieron hidratar pasos del entrenamiento', ent.id, err);
+    }
+  });
+
+  await Promise.all(promises);
 }
 
 function toggleBuilder(show) {
