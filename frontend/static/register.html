@@ -1,216 +1,96 @@
 <!DOCTYPE html>
 <html lang="es">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Registro</title>
-  <link rel="stylesheet" href="css/style.css">
-  <link rel="shortcut icon" href="static/favicon.ico" type="image/x-icon">
-</head>
-<body class="auth-page">
-  <div class="auth-card">
-    <div class="auth-info">
-      <img src="img/logo.png" alt="Logo Gestión Entrenamiento" class="auth-logo">
-      <h1>Crea tu cuenta</h1>
-      <p>Solicita acceso como administrador, entrenador o atleta. Personaliza tu perfil para que podamos asignarte al equipo correcto.</p>
-      <p>Los atletas quedarán pendientes de aprobación por parte del entrenador seleccionado.</p>
-    </div>
-
-    <div class="auth-form">
-      <h2>Registro</h2>
-      <form id="registrationForm">
-        <div class="form-group">
-          <label for="nombre">Nombre</label>
-          <input type="text" id="nombre" name="nombre" required>
-        </div>
-
-        <div class="form-group">
-          <label for="apellidos">Apellidos</label>
-          <input type="text" id="apellidos" name="apellidos" required>
-        </div>
-
-        <div class="form-group">
-          <label for="email">Correo electrónico</label>
-          <input type="email" id="email" name="email" required>
-        </div>
-
-        <div class="form-group">
-          <label for="password">Contraseña</label>
-          <input type="password" id="password" name="password" required>
-        </div>
-
-        <div class="form-group">
-          <label for="confirmPassword">Confirmar contraseña</label>
-          <input type="password" id="confirmPassword" name="confirmPassword" required>
-        </div>
-
-        <div class="form-group">
-          <label for="rol">Rol</label>
-          <select id="rol" name="rol" required>
-            <option value="">Selecciona un rol</option>
-            <option value="admin">Administrador</option>
-            <option value="entrenador">Entrenador</option>
-            <option value="atleta">Atleta</option>
-          </select>
-        </div>
-
-        <div id="extra-atleta" style="display: none; margin-top: 1rem;">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MindPace · Registro</title>
+  <base href="/static/">
+  <link rel="shortcut icon" href="favicon.ico" type="image/x-icon" />
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/auth.css" />
+  </head>
+  <body class="auth-page">
+    <div class="auth-card">
+      <div class="auth-info">
+        <img src="img/logo_sin_fondo.png" alt="MindPace" class="auth-logo" />
+        <img src="img/letra_sin_fondo.png" alt="MindPace" class="brand-wordmark" />
+        <h1>Crea tu cuenta</h1>
+        <p>
+          Solicita acceso como administrador, entrenador o atleta. Personaliza tu perfil para
+          que podamos asignarte al equipo correcto.
+        </p>
+        <p>Los atletas quedarán pendientes de aprobación por parte del entrenador seleccionado.</p>
+      </div>
+      <div class="auth-form">
+        <h2>Registro</h2>
+        <form id="registrationForm" class="form-grid">
           <div class="form-group">
-            <label for="fecha_nacimiento">Fecha de nacimiento</label>
-            <input type="date" id="fecha_nacimiento" name="fecha_nacimiento">
+            <label>Nombre</label>
+            <input type="text" id="nombre" name="nombre" required />
           </div>
-
           <div class="form-group">
-            <label for="telefono">Teléfono</label>
-            <input type="tel" id="telefono" name="telefono">
+            <label>Apellidos</label>
+            <input type="text" id="apellidos" name="apellidos" required />
           </div>
-
           <div class="form-group">
-            <label for="entrenador_id">Entrenador</label>
-            <select id="entrenador_id" name="entrenador_id">
-              <option value="">Selecciona un entrenador</option>
+            <label>Correo electrónico</label>
+            <input type="email" id="email" name="email" required />
+          </div>
+          <div class="form-group">
+            <label>Contraseña</label>
+            <input type="password" id="password" name="password" required />
+          </div>
+          <div class="form-group">
+            <label>Confirmar contraseña</label>
+            <input type="password" id="confirmPassword" name="confirmPassword" required />
+          </div>
+          <div class="form-group">
+            <label>Rol</label>
+            <select id="rol" name="rol" required>
+              <option value="">Selecciona un rol</option>
+              <option value="admin">Administrador</option>
+              <option value="entrenador">Entrenador</option>
+              <option value="atleta">Atleta</option>
             </select>
           </div>
-
-          <div class="form-group">
-            <label for="categoria">Categoría</label>
-            <select id="categoria" name="categoria">
-              <option value="">Selecciona una categoría</option>
-              <option value="sub-16">Sub-16</option>
-              <option value="sub-18">Sub-18</option>
-              <option value="sub-20">Sub-20</option>
-              <option value="sub-23">Sub-23</option>
-              <option value="absoluto">Absoluto</option>
-            </select>
+          <div id="extra-atleta" class="extra-atleta">
+            <div class="form-group">
+              <label>Fecha de nacimiento</label>
+              <input type="date" id="fecha_nacimiento" name="fecha_nacimiento" />
+            </div>
+            <div class="form-group">
+              <label>Teléfono</label>
+              <input type="tel" id="telefono" name="telefono" />
+            </div>
+            <div class="form-group">
+              <label>Entrenador</label>
+              <select id="entrenador_id" name="entrenador_id">
+                <option value="">Selecciona un entrenador</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Categoría</label>
+              <select id="categoria" name="categoria">
+                <option value="">Selecciona una categoría</option>
+                <option value="sub-16">Sub-16</option>
+                <option value="sub-18">Sub-18</option>
+                <option value="sub-20">Sub-20</option>
+                <option value="sub-23">Sub-23</option>
+                <option value="absoluto">Absoluto</option>
+              </select>
+            </div>
+            <p class="info-text">
+              Tu solicitud quedará pendiente de aprobación por el entrenador seleccionado.
+            </p>
           </div>
-
-          <p class="info-text">
-            Tu solicitud quedará pendiente de aprobación por el entrenador seleccionado.
-          </p>
-        </div>
-
-        <button type="submit">Registrarme</button>
-      </form>
-
-      <div class="auth-alt">
-        ¿Ya tienes una cuenta? <a href="login.html">Inicia sesión</a>
+          <button type="submit" class="btn btn-brand w-100">Registrarme</button>
+        </form>
+        <p class="auth-alt">
+          ¿Ya tienes una cuenta? <a href="login.html">Inicia sesión</a>
+        </p>
       </div>
     </div>
-  </div>
-
-  <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      const registrationForm = document.getElementById("registrationForm");
-      const rolSelect = document.getElementById("rol");
-      const extraAtleta = document.getElementById("extra-atleta");
-      const entrenadorSelect = document.getElementById("entrenador_id");
-      const categoriaSelect = document.getElementById("categoria");
-      const fechaNacimientoInput = document.getElementById("fecha_nacimiento");
-      const telefonoInput = document.getElementById("telefono");
-      const passwordInput = document.getElementById("password");
-      const confirmPasswordInput = document.getElementById("confirmPassword");
-
-      let entrenadoresCargados = false;
-
-      function actualizarVisibilidadCampos() {
-        if (rolSelect.value === "atleta") {
-          extraAtleta.style.display = "block";
-
-          entrenadorSelect.required = true;
-          categoriaSelect.required = true;
-
-          fechaNacimientoInput.required = false; // ajústalo si quieres obligatorio
-          telefonoInput.required = false;
-
-          if (!entrenadoresCargados) {
-            cargarEntrenadores();
-          }
-        } else {
-          extraAtleta.style.display = "none";
-
-          entrenadorSelect.required = false;
-          categoriaSelect.required = false;
-        }
-      }
-
-      async function cargarEntrenadores() {
-        try {
-          const response = await fetch("/entrenadores");
-          if (!response.ok) {
-            throw new Error("Error al obtener la lista de entrenadores");
-          }
-
-          const entrenadores = await response.json();
-          entrenadorSelect.innerHTML = '<option value="">Selecciona un entrenador</option>';
-
-          if (entrenadores.length === 0) {
-            const option = document.createElement("option");
-            option.value = "";
-            option.textContent = "No hay entrenadores disponibles";
-            entrenadorSelect.appendChild(option);
-          } else {
-            entrenadores.forEach(ent => {
-              const option = document.createElement("option");
-              option.value = ent.id;
-              option.textContent = ent.nombre_completo || (ent.nombre + " " + (ent.apellidos || ""));
-              entrenadorSelect.appendChild(option);
-            });
-          }
-
-          entrenadoresCargados = true;
-        } catch (error) {
-          console.error(error);
-          entrenadorSelect.innerHTML = '<option value="">Error al cargar entrenadores</option>';
-        }
-      }
-
-      rolSelect.addEventListener("change", actualizarVisibilidadCampos);
-      actualizarVisibilidadCampos();
-
-      registrationForm.addEventListener("submit", async (e) => {
-        e.preventDefault();
-
-        if (passwordInput.value !== confirmPasswordInput.value) {
-          alert("Las contraseñas no coinciden.");
-          return;
-        }
-
-        const data = {
-          nombre: document.getElementById("nombre").value.trim(),
-          apellidos: document.getElementById("apellidos").value.trim(),
-          email: document.getElementById("email").value.trim(),
-          password: passwordInput.value,
-          rol: rolSelect.value
-        };
-
-        if (rolSelect.value === "atleta") {
-          data.fecha_nacimiento = fechaNacimientoInput.value || null;
-          data.telefono = telefonoInput.value || null;
-          data.entrenador_id = entrenadorSelect.value || null;
-          data.categoria = categoriaSelect.value || null;
-        }
-
-        try {
-          const response = await fetch("/register", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(data)
-          });
-
-          const result = await response.json();
-
-          if (response.ok) {
-            alert(result.message || "Registro completado. Ahora puedes iniciar sesión.");
-            window.location.href = "login.html";
-          } else {
-            alert(result.error || "Error en el registro. Revisa los datos.");
-          }
-        } catch (error) {
-          console.error("Error en el registro:", error);
-          alert("Error de conexión con el servidor.");
-        }
-      });
-    });
-  </script>
-</body>
+    <script src="js/utils/csrf.js"></script>
+    <script src="js/script.js"></script>
+  </body>
 </html>

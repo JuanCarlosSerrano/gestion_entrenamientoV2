@@ -8,58 +8,19 @@
     <link rel="stylesheet" href="../css/style.css">
     <script src="../js/utils/csrf.js"></script>
     <script src="../js/script.js"></script>
+    <script src="../js/utils/partials.js"></script>
     <script src="../js/entrenador/main.js" type="module"></script>
     <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
 </head>
 <body class="app-bg">
     <div class="container app-container">
-        <header class="page-heading">
-            <div class="page-heading__brand">
-                <img src="../img/logo.png" alt="PeakPace" class="brand-logo">
-                <div class="page-heading__text">
-                    <p class="eyebrow">Panel de entrenador</p>
-                    <h1>PeakPace</h1>
-                </div>
-            </div>
-            <div class="page-heading__actions">
-                <button class="btn btn-outline-brand" id="btn-logout">Salir</button>
-            </div>
-        </header>
+        <div data-include="../partials/header.html" data-nav-active="inicio"></div>
 
-        <div class="app-card">
-            <nav class="navbar navbar-expand-lg navbar-dark app-nav">
-                <div class="container-fluid px-0">
-                    <a class="navbar-brand" href="#">Inicio</a>
-                    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-                        <span class="navbar-toggler-icon"></span>
-                    </button>
-                    <div class="collapse navbar-collapse" id="navbarNav">
-                    <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-                        <li class="nav-item">
-                            <a class="nav-link active" aria-current="page" href="#">Inicio</a>
-                        </li>
-                        <li class="nav-item dropdown">
-                            <a class="nav-link dropdown-toggle" href="#" id="dropdownAtletas" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                              Mis Atletas
-                            </a>
-                            <ul class="dropdown-menu" aria-labelledby="dropdownAtletas">
-                              <li><a class="dropdown-item" href="atletas.html">Lista de Atletas</a></li>
-                              <li><a class="dropdown-item" href="aprobar_atletas.html">Aprobar Solicitudes</a></li>
-                            </ul>
-                          </li>                      
-                        <li class="nav-item">
-                            <a class="nav-link" href="grupo_entrenamiento.html">Gestion Grupos</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="ciclos.html">Gestión de entrenamiento</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="feedback.html">Bandeja de Feedback</a>
-                        </li>
-                    </ul>
-                </div>
+        <div class="page-context-bar page-context-bar--hero">
+            <div>
+                <p class="eyebrow eyebrow--subtle">Panel de entrenador</p>
+                <h1 class="page-context-title">Inicio</h1>
             </div>
-            </nav>
         </div>
 
         <div class="app-card">
@@ -78,7 +39,28 @@
                 </div>
               </div>              
         </div>
+        <div data-include="../partials/footer.html"></div>
     </div>
+
+    <div class="modal fade" id="modalVisibilidadEntreno" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Actualizar visibilidad</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            <p id="modal-entreno-info" class="mb-0"></p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+            <button type="button" class="btn btn-outline-primary" id="btn-modal-ocultar">Ocultar</button>
+            <button type="button" class="btn btn-brand" id="btn-modal-mostrar">Mostrar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
 </body>
 </html>

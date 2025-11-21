@@ -1,10 +1,13 @@
-const API = window.API_BASE || "http://127.0.0.1:5000";
+const API =
+  window.API_BASE ||
+  (window.location && window.location.origin ? window.location.origin : "http://127.0.0.1:5000");
 window.API_BASE = API;
 
 const qs = (sel) => document.querySelector(sel);
 const qsa = (sel) => Array.from(document.querySelectorAll(sel));
 
 const state = {
+  bloques: [],
   entrenamientos: [],
   microciclos: [],
   mesociclos: [],
@@ -17,12 +20,16 @@ const modalState = {
   meso: null,
   macro: null,
   microDetalles: [],
+  microDetalleEditIndex: null,
+  entrenamientoBloques: [],
+  bloqueDetalles: [],
 };
 
 let modalEntrenamiento;
 let modalMicro;
 let modalMeso;
 let modalMacro;
+let modalBloque;
 
 const authHeader = () =>
   "Basic " +
@@ -88,16 +95,19 @@ function setupTabs() {
 
 async function cargarDatos() {
   try {
-    const [entrenamientos, microciclos, mesociclos, macrociclos] = await Promise.all([
+    const [bloques, entrenamientos, microciclos, mesociclos, macrociclos] = await Promise.all([
+      apiFetch("/plantillas/bloques"),
       apiFetch("/plantillas/entrenamientos"),
       apiFetch("/plantillas/microciclos"),
       apiFetch("/plantillas/mesociclos"),
       apiFetch("/plantillas/macrociclos"),
     ]);
+    state.bloques = bloques;
     state.entrenamientos = entrenamientos;
     state.microciclos = microciclos;
     state.mesociclos = mesociclos;
     state.macrociclos = macrociclos;
+    renderBloques();
     renderEntrenamientos();
     renderMicrociclos();
     renderMesociclos();
@@ -109,9 +119,30 @@ async function cargarDatos() {
   }
 }
 
-function renderTabla(tbody, rowsHtml) {
+function renderTabla(tbody, rowsHtml, columnas = 5) {
   if (!tbody) return;
-  tbody.innerHTML = rowsHtml || `<tr><td colspan="5" class="text-muted text-center">Sin registros</td></tr>`;
+  tbody.innerHTML =
+    rowsHtml || `<tr><td colspan="${columnas}" class="text-muted text-center">Sin registros</td></tr>`;
+}
+
+function renderBloques() {
+  const tbody = qs("#tabla-bloques tbody");
+  const html = state.bloques
+    .map(
+      (bloque) => `
+      <tr>
+        <td>${bloque.nombre}</td>
+        <td>${bloque.tipo || "-"}</td>
+        <td>${bloque.duracion_valor ? `${bloque.duracion_valor} ${bloque.duracion_tipo || ""}` : "-"}</td>
+        <td>${bloque.detalles?.length || 0}</td>
+        <td class="text-end">
+          <button class="btn btn-sm btn-outline-primary me-2" data-action="edit-bloque" data-id="${bloque.id}">Editar</button>
+          <button class="btn btn-sm btn-outline-danger" data-action="delete-bloque" data-id="${bloque.id}">Eliminar</button>
+        </td>
+      </tr>`
+    )
+    .join("");
+  renderTabla(tbody, html, 5);
 }
 
 function renderEntrenamientos() {
@@ -121,7 +152,6 @@ function renderEntrenamientos() {
       (ent) => `
       <tr>
         <td>${ent.nombre}</td>
-        <td>${ent.duracion_referencia ? `${ent.duracion_referencia} ${ent.tipo_duracion || ""}` : "-"}</td>
         <td>${ent.categoria || "-"}</td>
         <td>${ent.intensidad || "-"}</td>
         <td class="text-end">
@@ -131,7 +161,7 @@ function renderEntrenamientos() {
       </tr>`
     )
     .join("");
-  renderTabla(tbody, html);
+  renderTabla(tbody, html, 4);
 }
 
 function renderMicrociclos() {
@@ -150,7 +180,7 @@ function renderMicrociclos() {
       </tr>`
     )
     .join("");
-  renderTabla(tbody, html);
+  renderTabla(tbody, html, 4);
 }
 
 function renderMesociclos() {
@@ -169,7 +199,7 @@ function renderMesociclos() {
       </tr>`
     )
     .join("");
-  renderTabla(tbody, html);
+  renderTabla(tbody, html, 4);
 }
 
 function renderMacrociclos() {
@@ -188,7 +218,7 @@ function renderMacrociclos() {
       </tr>`
     )
     .join("");
-  renderTabla(tbody, html);
+  renderTabla(tbody, html, 4);
 }
 
 function actualizarSelectores() {
@@ -206,17 +236,45 @@ function actualizarSelectores() {
   if (mesoSelect) {
     mesoSelect.innerHTML = state.mesociclos.map((me) => `<option value="${me.id}">${me.nombre}</option>`).join("");
   }
+  const bloqueDetalleSelect = qs("#bloque-detalle-select");
+  if (bloqueDetalleSelect) {
+    bloqueDetalleSelect.innerHTML =
+      '<option value="">Selecciona bloque</option>' +
+      state.bloques.map((b) => `<option value="${b.id}">${b.nombre}</option>`).join("");
+  }
+  const entrenamientoBloqueSelect = qs("#entrenamiento-bloque-select");
+  if (entrenamientoBloqueSelect) {
+    entrenamientoBloqueSelect.innerHTML =
+      '<option value="">Selecciona bloque</option>' +
+      state.bloques.map((b) => `<option value="${b.id}">${b.nombre}</option>`).join("");
+  }
 }
 
-function abrirModalEntrenamiento(entrenamiento) {
-  qs("#entrenamiento-id").value = entrenamiento?.id || "";
-  qs("#entrenamiento-nombre").value = entrenamiento?.nombre || "";
-  qs("#entrenamiento-duracion").value = entrenamiento?.duracion_referencia || "";
-  qs("#entrenamiento-tipo-duracion").value = entrenamiento?.tipo_duracion || "";
-  qs("#entrenamiento-categoria").value = entrenamiento?.categoria || "";
-  qs("#entrenamiento-intensidad").value = entrenamiento?.intensidad || "";
-  qs("#entrenamiento-descripcion").value = entrenamiento?.descripcion || "";
-  qs("#titulo-modal-entrenamiento").textContent = entrenamiento ? "Editar entrenamiento" : "Nuevo entrenamiento";
+async function abrirModalEntrenamiento(entrenamiento) {
+  let datos = entrenamiento;
+  if (entrenamiento?.id) {
+    try {
+      datos = await apiFetch(`/plantillas/entrenamientos/${entrenamiento.id}`);
+    } catch (err) {
+      console.error(err);
+      toast(err.message || "No se pudo cargar el entrenamiento", "danger");
+      return;
+    }
+  }
+  qs("#entrenamiento-id").value = datos?.id || "";
+  qs("#entrenamiento-nombre").value = datos?.nombre || "";
+  qs("#entrenamiento-categoria").value = datos?.categoria || "";
+  qs("#entrenamiento-intensidad").value = datos?.intensidad || "";
+  qs("#entrenamiento-descripcion").value = datos?.descripcion || "";
+  modalState.entrenamientoBloques = (datos?.bloques || []).map((bloque) => ({
+    bloque_id: bloque.bloque_id || bloque.id,
+    bloque_nombre: bloque.bloque_nombre || nombreBloque(bloque.bloque_id || bloque.id),
+    repeticiones: Number(bloque.repeticiones) || 1,
+  }));
+  renderBloquesEntrenamiento();
+  qs("#entrenamiento-bloque-reps").value = 1;
+  qs("#entrenamiento-bloque-select").value = "";
+  qs("#titulo-modal-entrenamiento").textContent = datos?.id ? "Editar entrenamiento" : "Nuevo entrenamiento";
   modalEntrenamiento.show();
 }
 
@@ -225,12 +283,14 @@ function abrirModalMicro(micro) {
   qs("#micro-nombre").value = micro?.nombre || "";
   qs("#micro-tipo").value = micro?.tipo_semana || "";
   qs("#micro-descripcion").value = micro?.descripcion || "";
+  modalState.microDetalleEditIndex = null;
   modalState.microDetalles = (micro?.detalles || []).map((det) => ({
     dia_semana: det.dia_semana,
     sesion: det.sesion,
     entrenamiento_id: det.entrenamiento_id,
     entrenamiento_nombre: det.entrenamiento_nombre,
   }));
+  finalizarEdicionDetalleMicro();
   renderDetallesMicro();
   qs("#titulo-modal-micro").textContent = micro ? "Editar microciclo" : "Nuevo microciclo";
   modalMicro.show();
@@ -282,7 +342,10 @@ function renderDetallesMicro() {
         <td>${det.sesion}</td>
         <td>${det.entrenamiento_nombre || nombreEntrenamiento(det.entrenamiento_id)}</td>
         <td class="text-end">
-          <button type="button" class="btn btn-sm btn-outline-danger" data-action="remove-detalle" data-index="${idx}">Quitar</button>
+          <div class="btn-group btn-group-sm">
+            <button type="button" class="btn btn-outline-edit" data-action="edit-detalle" data-index="${idx}">Editar</button>
+            <button type="button" class="btn btn-outline-delete" data-action="remove-detalle" data-index="${idx}">Quitar</button>
+          </div>
         </td>
       </tr>`
     )
@@ -293,6 +356,126 @@ function nombreEntrenamiento(id) {
   return state.entrenamientos.find((e) => Number(e.id) === Number(id))?.nombre || `Entrenamiento ${id}`;
 }
 
+function nombreBloque(id) {
+  return state.bloques.find((b) => Number(b.id) === Number(id))?.nombre || `Bloque ${id}`;
+}
+
+async function abrirModalBloque(bloque) {
+  let datos = bloque;
+  if (bloque?.id) {
+    try {
+      datos = await apiFetch(`/plantillas/bloques/${bloque.id}`);
+    } catch (err) {
+      console.error(err);
+      toast(err.message || "No se pudo cargar el bloque", "danger");
+      return;
+    }
+  }
+  qs("#bloque-id").value = datos?.id || "";
+  qs("#bloque-nombre").value = datos?.nombre || "";
+  qs("#bloque-tipo").value = datos?.tipo || "";
+  qs("#bloque-duracion").value = datos?.duracion_valor || "";
+  qs("#bloque-duracion-tipo").value = datos?.duracion_tipo || "";
+  qs("#bloque-intensidad").value = datos?.intensidad || "";
+  qs("#bloque-descripcion").value = datos?.descripcion || "";
+  modalState.bloqueDetalles = (datos?.detalles || []).map((det) => ({
+    bloque_hijo_id: det.bloque_hijo_id || det.id,
+    bloque_nombre: det.bloque_nombre || nombreBloque(det.bloque_hijo_id || det.id),
+    repeticiones: Number(det.repeticiones) || 1,
+  }));
+  renderDetallesBloque();
+  qs("#bloque-detalle-select").value = "";
+  qs("#bloque-detalle-reps").value = 1;
+  qs("#titulo-modal-bloque").textContent = datos?.id ? "Editar bloque" : "Nuevo bloque";
+  modalBloque.show();
+}
+
+function renderDetallesBloque() {
+  const tbody = qs("#tabla-detalles-bloque tbody");
+  if (!tbody) return;
+  if (!modalState.bloqueDetalles.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted small">No hay sub-bloques definidos.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = modalState.bloqueDetalles
+    .map(
+      (det, idx) => `
+      <tr>
+        <td>${idx + 1}</td>
+        <td>${det.bloque_nombre || nombreBloque(det.bloque_hijo_id)}</td>
+        <td>${det.repeticiones}</td>
+        <td class="text-end">
+          <button type="button" class="btn btn-sm btn-outline-danger" data-action="remove-detalle-bloque" data-index="${idx}">Quitar</button>
+        </td>
+      </tr>`
+    )
+    .join("");
+}
+
+function agregarDetalleBloque() {
+  const select = qs("#bloque-detalle-select");
+  if (!select || !select.value) {
+    toast("Selecciona un bloque para añadir", "warning");
+    return;
+  }
+  const bloquePadreId = Number(qs("#bloque-id").value || 0);
+  const hijoId = Number(select.value);
+  if (bloquePadreId && bloquePadreId === hijoId) {
+    toast("Un bloque no puede contenerse a sí mismo", "warning");
+    return;
+  }
+  const reps = Number(qs("#bloque-detalle-reps").value) || 1;
+  modalState.bloqueDetalles.push({
+    bloque_hijo_id: hijoId,
+    bloque_nombre: nombreBloque(hijoId),
+    repeticiones: reps,
+  });
+  renderDetallesBloque();
+  select.value = "";
+  qs("#bloque-detalle-reps").value = 1;
+}
+
+function quitarDetalleBloque(index) {
+  modalState.bloqueDetalles.splice(index, 1);
+  renderDetallesBloque();
+}
+
+async function guardarBloque(e) {
+  e.preventDefault();
+  const id = qs("#bloque-id").value;
+  const payload = {
+    nombre: qs("#bloque-nombre").value,
+    tipo: qs("#bloque-tipo").value || null,
+    descripcion: qs("#bloque-descripcion").value || null,
+    duracion_valor: qs("#bloque-duracion").value || null,
+    duracion_tipo: qs("#bloque-duracion-tipo").value || null,
+    intensidad: qs("#bloque-intensidad").value || null,
+    detalles: modalState.bloqueDetalles.map((det, idx) => ({
+      bloque_hijo_id: det.bloque_hijo_id,
+      repeticiones: det.repeticiones,
+      orden: idx + 1,
+    })),
+  };
+  if (!payload.nombre) {
+    toast("El nombre es obligatorio", "warning");
+    return;
+  }
+  try {
+    if (id) {
+      await apiFetch(`/plantillas/bloques/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+      toast("Bloque actualizado");
+    } else {
+      await apiFetch("/plantillas/bloques", { method: "POST", body: JSON.stringify(payload) });
+      toast("Bloque creado");
+    }
+    modalBloque.hide();
+    await cargarDatos();
+  } catch (err) {
+    console.error(err);
+    toast(err.message || "No se pudo guardar el bloque", "danger");
+  }
+}
+
 function agregarDetalleMicro() {
   const entrenamientoId = qs("#micro-detalle-entrenamiento").value;
   if (!entrenamientoId) {
@@ -301,39 +484,144 @@ function agregarDetalleMicro() {
   }
   const dia = Number(qs("#micro-detalle-dia").value);
   const sesion = Number(qs("#micro-detalle-sesion").value);
-  modalState.microDetalles.push({
+  const detalle = {
     dia_semana: dia,
     sesion,
     entrenamiento_id: Number(entrenamientoId),
     entrenamiento_nombre: nombreEntrenamiento(entrenamientoId),
-  });
+  };
+  if (modalState.microDetalleEditIndex !== null) {
+    modalState.microDetalles[modalState.microDetalleEditIndex] = detalle;
+    finalizarEdicionDetalleMicro();
+  } else {
+    modalState.microDetalles.push(detalle);
+  }
   renderDetallesMicro();
 }
 
 function quitarDetalleMicro(index) {
   modalState.microDetalles.splice(index, 1);
   renderDetallesMicro();
+  if (modalState.microDetalleEditIndex === index) {
+    finalizarEdicionDetalleMicro();
+  } else if (
+    modalState.microDetalleEditIndex !== null &&
+    modalState.microDetalleEditIndex > index
+  ) {
+    modalState.microDetalleEditIndex -= 1;
+  }
+}
+
+function iniciarEdicionDetalleMicro(index) {
+  const detalle = modalState.microDetalles[index];
+  if (!detalle) return;
+  modalState.microDetalleEditIndex = index;
+  const diaSelect = qs("#micro-detalle-dia");
+  const sesionSelect = qs("#micro-detalle-sesion");
+  const selectEntreno = qs("#micro-detalle-entrenamiento");
+  if (diaSelect) diaSelect.value = String(detalle.dia_semana);
+  if (sesionSelect) sesionSelect.value = String(detalle.sesion);
+  if (selectEntreno) selectEntreno.value = String(detalle.entrenamiento_id);
+  qs("#btn-agregar-detalle").textContent = "Actualizar";
+  qs("#btn-cancelar-detalle")?.classList.remove("d-none");
+}
+
+function finalizarEdicionDetalleMicro() {
+  modalState.microDetalleEditIndex = null;
+  const diaSelect = qs("#micro-detalle-dia");
+  const sesionSelect = qs("#micro-detalle-sesion");
+  const selectEntreno = qs("#micro-detalle-entrenamiento");
+  if (diaSelect) diaSelect.value = "1";
+  if (sesionSelect) sesionSelect.value = "1";
+  if (selectEntreno && selectEntreno.options.length) {
+    selectEntreno.selectedIndex = 0;
+  }
+  qs("#btn-agregar-detalle").textContent = "Añadir";
+  qs("#btn-cancelar-detalle")?.classList.add("d-none");
+}
+
+function renderBloquesEntrenamiento() {
+  const tbody = qs("#tabla-entrenamiento-bloques tbody");
+  if (!tbody) return;
+  if (!modalState.entrenamientoBloques.length) {
+    tbody.innerHTML =
+      '<tr><td colspan="4" class="text-center text-muted small">Añade bloques para definir el trabajo.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = modalState.entrenamientoBloques
+    .map(
+      (item, idx) => `
+      <tr>
+        <td>${idx + 1}</td>
+        <td>${item.bloque_nombre || nombreBloque(item.bloque_id)}</td>
+        <td>${item.repeticiones}</td>
+        <td class="text-end">
+          <button type="button" class="btn btn-sm btn-outline-danger" data-action="remove-entrenamiento-bloque" data-index="${idx}">Quitar</button>
+        </td>
+      </tr>`
+    )
+    .join("");
+}
+
+function agregarBloqueEntrenamiento() {
+  const select = qs("#entrenamiento-bloque-select");
+  if (!select || !select.value) {
+    toast("Selecciona un bloque", "warning");
+    return;
+  }
+  const reps = Number(qs("#entrenamiento-bloque-reps").value) || 1;
+  if (reps < 1) {
+    toast("Las repeticiones deben ser mayores a cero", "warning");
+    return;
+  }
+  const bloqueId = Number(select.value);
+  modalState.entrenamientoBloques.push({
+    bloque_id: bloqueId,
+    bloque_nombre: nombreBloque(bloqueId),
+    repeticiones: reps,
+  });
+  renderBloquesEntrenamiento();
+  select.value = "";
+  qs("#entrenamiento-bloque-reps").value = 1;
+}
+
+function quitarBloqueEntrenamiento(index) {
+  modalState.entrenamientoBloques.splice(index, 1);
+  renderBloquesEntrenamiento();
 }
 
 async function guardarEntrenamiento(e) {
   e.preventDefault();
   const body = {
     nombre: qs("#entrenamiento-nombre").value,
-    duracion_referencia: qs("#entrenamiento-duracion").value || null,
-    tipo_duracion: qs("#entrenamiento-tipo-duracion").value || null,
     categoria: qs("#entrenamiento-categoria").value || null,
     intensidad: qs("#entrenamiento-intensidad").value || null,
     descripcion: qs("#entrenamiento-descripcion").value || null,
   };
+  const bloquesPayload = modalState.entrenamientoBloques.map((bloque, idx) => ({
+    orden: idx + 1,
+    bloque_id: bloque.bloque_id,
+    repeticiones: bloque.repeticiones,
+  }));
+  if (!bloquesPayload.length) {
+    toast("Añade al menos un bloque al entrenamiento", "warning");
+    return;
+  }
   const id = qs("#entrenamiento-id").value;
   try {
+    let entrenamientoId = id;
     if (id) {
       await apiFetch(`/plantillas/entrenamientos/${id}`, { method: "PUT", body: JSON.stringify(body) });
       toast("Entrenamiento actualizado");
     } else {
-      await apiFetch("/plantillas/entrenamientos", { method: "POST", body: JSON.stringify(body) });
+      const res = await apiFetch("/plantillas/entrenamientos", { method: "POST", body: JSON.stringify(body) });
+      entrenamientoId = res.id;
       toast("Entrenamiento creado");
     }
+    await apiFetch(`/plantillas/entrenamientos/${entrenamientoId || id}/bloques`, {
+      method: "PUT",
+      body: JSON.stringify({ bloques: bloquesPayload }),
+    });
     modalEntrenamiento.hide();
     await cargarDatos();
   } catch (err) {
@@ -446,6 +734,7 @@ async function deleteResource(path, message) {
 }
 
 function setupEventListeners() {
+  qs("#btn-nuevo-bloque")?.addEventListener("click", () => abrirModalBloque());
   qs("#btn-nuevo-entrenamiento")?.addEventListener("click", () => abrirModalEntrenamiento());
   qs("#btn-nuevo-micro")?.addEventListener("click", () => {
     modalState.microDetalles = [];
@@ -454,18 +743,44 @@ function setupEventListeners() {
   qs("#btn-nuevo-meso")?.addEventListener("click", () => abrirModalMeso());
   qs("#btn-nuevo-macro")?.addEventListener("click", () => abrirModalMacro());
 
+  qs("#form-plantilla-bloque")?.addEventListener("submit", guardarBloque);
   qs("#form-plantilla-entrenamiento")?.addEventListener("submit", guardarEntrenamiento);
   qs("#form-plantilla-micro")?.addEventListener("submit", guardarMicro);
   qs("#form-plantilla-meso")?.addEventListener("submit", guardarMeso);
   qs("#form-plantilla-macro")?.addEventListener("submit", guardarMacro);
 
   qs("#btn-agregar-detalle")?.addEventListener("click", agregarDetalleMicro);
+  qs("#btn-cancelar-detalle")?.addEventListener("click", finalizarEdicionDetalleMicro);
+  qs("#btn-agregar-detalle-bloque")?.addEventListener("click", agregarDetalleBloque);
+  qs("#btn-agregar-bloque-entrenamiento")?.addEventListener("click", agregarBloqueEntrenamiento);
+
+  qs("#tabla-entrenamiento-bloques")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    if (btn.dataset.action === "remove-entrenamiento-bloque") {
+      const index = Number(btn.dataset.index);
+      if (!Number.isNaN(index)) quitarBloqueEntrenamiento(index);
+    }
+  });
+
+  qs("#tabla-detalles-bloque")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    if (btn.dataset.action === "remove-detalle-bloque") {
+      const index = Number(btn.dataset.index);
+      if (!Number.isNaN(index)) quitarDetalleBloque(index);
+    }
+  });
 
   qs("#tabla-detalles-micro")?.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-action='remove-detalle']");
-    if (btn) {
-      const idx = Number(btn.dataset.index);
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+    const idx = Number(btn.dataset.index);
+    if (Number.isNaN(idx)) return;
+    if (btn.dataset.action === "remove-detalle") {
       quitarDetalleMicro(idx);
+    } else if (btn.dataset.action === "edit-detalle") {
+      iniciarEdicionDetalleMicro(idx);
     }
   });
 
@@ -475,6 +790,12 @@ function setupEventListeners() {
     const action = btn.dataset.action;
     const id = btn.dataset.id;
     switch (action) {
+      case "edit-bloque":
+        abrirModalBloque(state.bloques.find((b) => Number(b.id) === Number(id)));
+        break;
+      case "delete-bloque":
+        deleteResource(`/plantillas/bloques/${id}`, "¿Eliminar este bloque?");
+        break;
       case "edit-entrenamiento":
         abrirModalEntrenamiento(state.entrenamientos.find((ent) => Number(ent.id) === Number(id)));
         break;
@@ -507,6 +828,7 @@ function setupEventListeners() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   setupTabs();
+  modalBloque = new bootstrap.Modal("#modalBloque");
   modalEntrenamiento = new bootstrap.Modal("#modalEntrenamiento");
   modalMicro = new bootstrap.Modal("#modalMicrociclo");
   modalMeso = new bootstrap.Modal("#modalMesociclo");

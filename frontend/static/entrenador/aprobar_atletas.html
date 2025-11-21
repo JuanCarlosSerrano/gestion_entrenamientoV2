@@ -7,24 +7,23 @@
   <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="../css/style.css">
+  <script src="../js/utils/csrf.js"></script>
+  <script src="../js/script.js"></script>
+  <script src="../js/utils/partials.js"></script>
 </head>
 <body class="app-bg">
   <div class="container app-container">
-    <header class="page-heading">
-      <div class="page-heading__brand">
-        <img src="../img/logo.png" alt="PeakPace" class="brand-logo">
-        <div class="page-heading__text">
-          <p class="eyebrow">Panel de entrenador</p>
-          <h1 class="mb-0">Solicitudes de atletas</h1>
-        </div>
+    <div data-include="../partials/header.html" data-nav-active="atletas"></div>
+
+    <div class="page-context-bar page-context-bar--hero">
+      <div>
+        <p class="eyebrow eyebrow--subtle">Panel de entrenador</p>
+        <h1 class="page-context-title">Solicitudes de atletas</h1>
       </div>
-      <div class="page-heading__actions">
-        <a href="index.html" class="btn btn-outline-brand">
-          &larr; Volver al Panel
-        </a>
-        <button class="btn btn-brand" id="btn-logout">Salir</button>
+      <div class="page-context-actions gap-2">
+        <a href="index.html" class="btn btn-outline-brand btn-sm">&larr; Volver al panel</a>
       </div>
-    </header>
+    </div>
 
     <table class="table table-bordered table-theme app-card" id="tabla-pendientes">
       <thead>
@@ -40,10 +39,10 @@
         <!-- Aquí se llenará con JS -->
       </tbody>
     </table>
+    <div data-include="../partials/footer.html"></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="../js/utils/csrf.js"></script>
   <script src="../js/entrenador/aprobar_atletas.js"></script>
 </body>
 </html>

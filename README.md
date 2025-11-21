@@ -1,4 +1,4 @@
-# Gestión de Entrenamiento
+# MindPace
 
 Primer borrador de la documentación para orientar la puesta en marcha local del proyecto y organizar el trabajo pendiente.
 

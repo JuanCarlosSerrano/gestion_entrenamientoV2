@@ -4,178 +4,232 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Calendario del Atleta</title>
-
-  <!-- Bootstrap CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet"/>
-
-  <!-- FullCalendar CSS -->
   <link rel="stylesheet" href="../libs/fullcalendar/main.min.css">
   <link rel="stylesheet" href="../css/style.css">
+  <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
+  <script src="../js/utils/csrf.js"></script>
+  <script src="../js/script.js"></script>
+  <script src="../js/utils/partials.js"></script>
 </head>
 <body class="app-bg">
   <div class="container app-container">
-    <header class="page-heading">
-      <div class="page-heading__brand">
-        <img src="../img/logo.png" alt="PeakPace" class="brand-logo">
-        <div class="page-heading__text">
-          <p class="eyebrow">Panel de entrenador</p>
-          <h1 id="atleta-name" class="mb-0">Calendario del atleta</h1>
+    <div data-include="../partials/header.html" data-nav-active="atletas"></div>
+    <div class="page-context-bar page-context-bar--hero">
+      <div>
+        <p class="eyebrow eyebrow--subtle">Panel de entrenador</p>
+        <h1 id="atleta-name" class="page-context-title">Calendario del atleta</h1>
+      </div>
+    </div>
+
+    <div class="app-card mt-4">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-4">
+          <label for="vis-fecha" class="form-label">Fecha de referencia</label>
+          <input type="date" id="vis-fecha" class="form-control">
+        </div>
+        <div class="col-md-4">
+          <label for="vis-modo" class="form-label">Modo</label>
+          <select id="vis-modo" class="form-select">
+            <option value="dia">Día seleccionado</option>
+            <option value="semana">Semana completa</option>
+          </select>
+        </div>
+        <div class="col-md-4 d-flex flex-wrap gap-2">
+          <button class="btn btn-outline-secondary flex-grow-1" id="btn-vis-ocultar">Ocultar</button>
+          <button class="btn btn-brand flex-grow-1" id="btn-vis-mostrar">Mostrar</button>
         </div>
       </div>
-      <div class="page-heading__actions">
-        <a href="/static/entrenador/atletas.html" class="btn btn-outline-brand">
-          &larr; Volver a atletas
-        </a>
-        <button class="btn btn-outline-brand" id="btn-asignar-ciclo">Asignar ciclo</button>
-        <button class="btn btn-brand" id="btn-logout">Salir</button>
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-4">
+        <div>
+          <h3 class="h6 mb-0">Asignar ciclos o plantillas</h3>
+          <p class="text-muted small mb-0">Utiliza tus plantillas de micro, meso o macrociclos para poblar el calendario.</p>
+        </div>
+        <button class="btn btn-primary btn-sm" id="btn-asignar-ciclo">
+          <span class="me-1">＋</span>Asignar ciclo / plantilla
+        </button>
       </div>
-    </header>
-    <div id="calendar" class="app-card"></div>
+    </div>
 
-    <!-- Offcanvas: Asignar / editar entrenamiento -->
-    <div class="offcanvas offcanvas-end" tabindex="-1" id="offcanvasEntrenamiento" aria-labelledby="offcanvasEntrenamientoLabel">
-      <div class="offcanvas-header">
-        <h5 id="offcanvasEntrenamientoLabel">Asignar Entrenamiento</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
+    <div class="row g-4 mt-3">
+      <div class="col-lg-8">
+        <div class="app-card">
+          <div id="calendar"></div>
+        </div>
       </div>
-      <div class="offcanvas-body">
-        <form id="form-asignar-entrenamiento">
-          <div class="mb-3">
-            <label for="select-entrenamiento" class="form-label">Entrenamiento tipo:</label>
-            <select class="form-select" id="select-entrenamiento" required></select>
+      <div class="col-lg-4">
+        <div class="app-card">
+          <h5 class="mb-3">Entrenamientos asignados</h5>
+          <ul class="list-group" id="lista-entrenos"></ul>
+        </div>
+      </div>
+    </div>
+
+    <div data-include="../partials/footer.html"></div>
+  </div>
+
+  <!-- Modal: crear/editar entrenamiento -->
+  <div class="modal fade" id="modalAsignarEntrenamiento" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Asignar entrenamiento</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <form id="form-asignar-entrenamiento">
+            <div class="mb-3">
+              <label class="form-label">Entrenamiento disponible</label>
+              <select id="select-entrenamiento" class="form-select"></select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Nombre</label>
+              <input type="text" id="nombre" class="form-control" readonly>
+            </div>
+            <div class="mt-3">
+              <label class="form-label">Descripción</label>
+              <textarea id="descripcion" class="form-control" rows="3" readonly></textarea>
+            </div>
+            <div class="mt-3">
+              <p class="text-muted small mb-2">Bloques del entrenamiento</p>
+              <div id="bloques-preview-empty" class="alert alert-secondary small">Selecciona un entrenamiento para ver sus bloques.</div>
+              <ul id="bloques-preview-list" class="list-group small"></ul>
+            </div>
+          </form>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-danger me-auto" id="btn-eliminar-entrenamiento" style="display:none;">Eliminar</button>
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" form="form-asignar-entrenamiento" class="btn btn-brand">Guardar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: detalle de entrenamiento asignado -->
+  <div class="modal fade" id="modalDetalleEntreno" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Entrenamiento asignado</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Entrenamiento tipo</label>
+              <input type="text" id="detalle-tipo" class="form-control" readonly>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Nombre asignado</label>
+              <input type="text" id="detalle-nombre" class="form-control" readonly>
+            </div>
           </div>
-
-          <div class="mb-3">
-            <label for="nombre" class="form-label">Nombre:</label>
-            <input type="text" class="form-control" id="nombre" required>
+          <div class="row g-3 mt-1">
+            <div class="col-md-6">
+              <label class="form-label">Fecha</label>
+              <input type="text" id="detalle-fecha" class="form-control" readonly>
+            </div>
           </div>
-
-          <div class="mb-3">
-            <label for="duracion_valor" class="form-label">Duración:</label>
-            <input type="number" class="form-control" id="duracion_valor">
+          <div class="mt-3">
+            <label class="form-label">Descripción</label>
+            <textarea id="detalle-descripcion" class="form-control" rows="3" readonly></textarea>
           </div>
-
-          <div class="mb-3">
-            <label for="duracion_tipo" class="form-label">Tipo de duración:</label>
-            <input type="text" class="form-control" id="duracion_tipo">
+          <div class="mt-3">
+            <p class="text-muted small mb-2">Bloques del entrenamiento</p>
+            <div id="detalle-bloques-empty" class="alert alert-secondary small">
+              No hay información detallada de pasos para este entrenamiento.
+            </div>
+            <ul class="detalle-bloques-list" id="detalle-bloques-list"></ul>
           </div>
-
-          <div class="mb-3">
-            <label for="calentamiento_tipo" class="form-label">Calentamiento (tipo):</label>
-            <input type="text" class="form-control" id="calentamiento_tipo">
+          <div class="mt-4 d-none" id="repeat-editor-wrapper">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+              <div>
+                <h5 class="h6 mb-0">Ajustes personalizados</h5>
+                <p class="text-muted small mb-0">Modifica las repeticiones sólo para este atleta/fecha.</p>
+              </div>
+              <button type="button" class="btn btn-sm btn-brand" id="btn-guardar-personalizacion">
+                Guardar ajustes
+              </button>
+            </div>
+            <div id="repeat-editor-list" class="repeat-editor-list"></div>
           </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+          <button type="button" class="btn btn-brand" id="btn-detalle-editar">Editar entrenamiento</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
-          <div class="mb-3">
-            <label for="calentamiento_valor" class="form-label">Calentamiento (valor):</label>
-            <input type="number" class="form-control" id="calentamiento_valor">
+  <!-- Modal: asignar ciclo -->
+  <div class="modal fade" id="modalAsignarCiclo" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Asignar ciclo o plantilla</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <form id="form-asignar-ciclo">
+          <div class="modal-body">
+            <div class="mb-3">
+              <label class="form-label">Tipo de ciclo</label>
+              <select id="select-ciclo-tipo" class="form-select" required>
+                <option value="micro" selected>Microciclo</option>
+                <option value="meso">Mesociclo</option>
+                <option value="macro">Macrociclo</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Ciclo disponible</label>
+              <select id="select-ciclo-id" class="form-select" required></select>
+              <div id="ayuda-ciclo" class="form-text">Selecciona un ciclo para desplegarlo en el calendario.</div>
+            </div>
+            <div class="row g-3">
+              <div class="col-md-7">
+                <label class="form-label" id="label-ciclo-fecha">Fecha de inicio real</label>
+                <input type="date" id="input-ciclo-fecha" class="form-control" required>
+              </div>
+              <div class="col-md-5">
+                <label class="form-label">Anclar en</label>
+                <select id="select-ciclo-anclaje" class="form-select">
+                  <option value="inicio" selected>Inicio del ciclo</option>
+                  <option value="fin">Fin del ciclo</option>
+                </select>
+              </div>
+            </div>
           </div>
-
-          <div class="mb-3">
-            <label for="bloque_activacion" class="form-label">Bloque de activación:</label>
-            <textarea class="form-control" id="bloque_activacion" rows="2"></textarea>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button type="submit" class="btn btn-primary">Asignar</button>
           </div>
-
-          <div class="mb-3">
-            <label for="bloque_principal" class="form-label">Bloque principal:</label>
-            <textarea class="form-control" id="bloque_principal" rows="3" required></textarea>
-          </div>
-
-          <div class="mb-3">
-            <label for="enfriamiento_tipo" class="form-label">Enfriamiento (tipo):</label>
-            <input type="text" class="form-control" id="enfriamiento_tipo">
-          </div>
-
-          <div class="mb-3">
-            <label for="enfriamiento_valor" class="form-label">Enfriamiento (valor):</label>
-            <input type="number" class="form-control" id="enfriamiento_valor">
-          </div>
-
-          <button type="submit" class="btn btn-primary w-100">
-            Asignar Entrenamiento
-          </button>
-
-          <button type="button"
-                  id="btn-eliminar-entrenamiento"
-                  class="btn btn-danger mt-2 w-100"
-                  style="display: none;">
-            Eliminar Entrenamiento
-          </button>
         </form>
       </div>
     </div>
   </div>
-  <!-- Modal asignar ciclo -->
-  <div class="modal fade" id="modalAsignarCiclo" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-      <form class="modal-content" id="form-asignar-ciclo">
-        <div class="modal-header">
-          <h5 class="modal-title">Asignar ciclo al calendario</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-        </div>
-        <div class="modal-body">
-          <div class="mb-3">
-            <label class="form-label">Tipo de ciclo</label>
-            <select class="form-select" id="select-ciclo-tipo" required>
-              <option value="micro" selected>Microciclo (1 semana)</option>
-              <option value="meso">Mesociclo (4-7 semanas)</option>
-              <option value="macro">Macrociclo (12-14 semanas)</option>
-            </select>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Ciclo disponible</label>
-            <select class="form-select" id="select-ciclo-id" required>
-              <option value="">Selecciona un ciclo</option>
-            </select>
-            <small class="text-muted d-block mt-1" id="ayuda-ciclo">Selecciona tipo para ver opciones.</small>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Modo de anclaje</label>
-            <select class="form-select" id="select-ciclo-anclaje">
-              <option value="inicio" selected>Anclar en fecha de inicio</option>
-              <option value="fin">Anclar en fecha final</option>
-            </select>
-          </div>
-          <div class="mb-3">
-            <label class="form-label" id="label-ciclo-fecha">Fecha de inicio real</label>
-            <input type="date" class="form-control" id="input-ciclo-fecha" required>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button type="submit" class="btn btn-brand">Asignar</button>
-        </div>
-      </form>
-    </div>
-  </div>
 
-  <!-- Modal de confirmación (para eliminar) -->
+  <!-- Modal: confirmación genérica -->
   <div class="modal fade" id="modalConfirmacion" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-dialog">
       <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title">Confirmar acción</h5>
           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
         </div>
-        <div class="modal-body" id="modal-confirmacion-mensaje">
-          ¿Estás seguro de que deseas continuar?
+        <div class="modal-body">
+          <p id="modal-confirmacion-mensaje" class="mb-0"></p>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button type="button" class="btn btn-danger" id="modal-confirmacion-aceptar">Eliminar</button>
+          <button type="button" class="btn btn-danger" id="modal-confirmacion-aceptar">Aceptar</button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- FullCalendar JS -->
-  <script src="../libs/fullcalendar/index.global.min.js"></script>
-
-  <!-- Bootstrap JS (siempre antes de tu script que usa bootstrap.*) -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"></script>
-
-  <script src="../js/utils/csrf.js"></script>
-  <!-- Tu JS del calendario (el que te pasé completo) -->
-  <script src="../js/script.js"></script>
+  <script src="../libs/fullcalendar/index.global.min.js"></script>
   <script src="../js/entrenador/calendario.js"></script>
 </body>
 </html>

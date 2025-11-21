@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Estadísticas | Entrenador</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+  <link rel="stylesheet" href="../css/style.css">
+  <script src="../js/utils/csrf.js"></script>
+  <script src="../js/script.js"></script>
+  <script src="../js/utils/partials.js"></script>
+  <script src="../js/entrenador/estadisticas.js" type="module"></script>
+  <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
+</head>
+<body class="app-bg">
+  <div class="container app-container">
+    <div data-include="../partials/header.html" data-nav-active="estadisticas"></div>
+
+    <div class="page-context-bar page-context-bar--hero">
+      <div>
+        <p class="eyebrow eyebrow--subtle">Panel de entrenador</p>
+        <h1 class="page-context-title">Estadísticas</h1>
+      </div>
+    </div>
+    <div class="app-card">
+      <ul class="nav nav-tabs" id="estadisticasTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" id="tab-atletas-btn" data-bs-toggle="tab" data-bs-target="#tab-atletas" type="button" role="tab">
+            Atletas
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="tab-resultados-btn" data-bs-toggle="tab" data-bs-target="#tab-resultados" type="button" role="tab">
+            Resultados
+          </button>
+        </li>
+      </ul>
+    </div>
+
+    <div class="tab-content mt-3">
+      <div class="tab-pane fade show active" id="tab-atletas" role="tabpanel">
+        <div class="app-card">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+              <h2 class="mb-1">Resumen por atleta</h2>
+              <p class="text-muted mb-0">Analiza la adherencia y la desviación respecto a los objetivos.</p>
+            </div>
+            <button class="btn btn-outline-brand btn-sm" id="btn-refrescar-estadisticas">Actualizar datos</button>
+          </div>
+          <div class="table-responsive mt-3">
+            <table class="table table-sm align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>Atleta</th>
+                  <th>Series planificadas</th>
+                  <th>Series reportadas</th>
+                  <th>Desviación media</th>
+                  <th>Zona más trabajada</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="estadisticas-resumen"></tbody>
+            </table>
+            <p class="text-muted mb-0" id="estadisticas-vacio">Sin datos registrados todavía.</p>
+          </div>
+        </div>
+
+        <div class="app-card mt-4">
+          <div class="d-flex justify-content-between flex-wrap align-items-center gap-2 mb-3">
+            <div>
+              <h3 id="detalle-titulo" class="mb-0">Detalle por atleta</h3>
+              <small class="text-muted" id="detalle-subtitulo">Selecciona un atleta para ver la evolución de sus series.</small>
+            </div>
+          </div>
+          <div id="detalle-placeholder" class="text-muted">
+            No hay atleta seleccionado. Usa el botón "Ver detalle" del resumen para cargar sus métricas.
+          </div>
+          <div id="detalle-contenido" class="d-none">
+            <div class="mt-2 mb-4" id="historico-section">
+              <div class="d-flex justify-content-between flex-wrap align-items-center gap-2 mb-3">
+                <div>
+                  <h5 class="mb-1">Comparar entrenamientos repetidos</h5>
+                  <small class="text-muted">Selecciona un entrenamiento y una serie para ver su evolución temporal.</small>
+                </div>
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                  <label for="historico-select" class="form-label mb-0 small text-muted">Entrenamiento</label>
+                  <select id="historico-select" class="form-select form-select-sm" style="min-width:220px"></select>
+                  <label for="historico-bloque-select" class="form-label mb-0 small text-muted">Serie/Bloque</label>
+                  <select id="historico-bloque-select" class="form-select form-select-sm" style="min-width:220px"></select>
+                </div>
+              </div>
+              <div id="historico-empty" class="text-muted">El atleta aún no tiene sesiones repetidas para comparar.</div>
+              <div id="historico-contenido" class="d-none">
+                <div class="table-responsive">
+                  <table class="table table-sm align-middle">
+                    <thead class="table-light">
+                      <tr>
+                        <th>Fecha</th>
+                        <th>Tiempo objetivo medio</th>
+                        <th>Tiempo real medio</th>
+                        <th>Δ</th>
+                      </tr>
+                    </thead>
+                    <tbody id="historico-tabla-body"></tbody>
+                  </table>
+                </div>
+                <div class="mt-3 border rounded bg-white p-2">
+                  <canvas id="historico-chart" height="260" class="w-100"></canvas>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-body">
+                <h5 class="card-title">Rendimiento por zona</h5>
+                <div class="table-responsive">
+                  <table class="table table-sm">
+                    <thead>
+                      <tr>
+                        <th>Zona</th>
+                        <th>Series</th>
+                        <th>Promedio objetivo</th>
+                        <th>Promedio real</th>
+                        <th>Δ</th>
+                      </tr>
+                    </thead>
+                    <tbody id="detalle-zonas-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-pane fade" id="tab-resultados" role="tabpanel">
+        <div class="app-card">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+            <div>
+              <h3 class="mb-1">Resultados de entrenamientos</h3>
+              <p class="text-muted mb-0">Entrenamientos completados con todas las series reportadas.</p>
+            </div>
+            <button class="btn btn-outline-brand btn-sm" id="btn-refrescar-resultados">Actualizar</button>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>Atleta</th>
+                  <th>Entrenamiento</th>
+                  <th>Fecha</th>
+                  <th>Tiempo objetivo</th>
+                  <th>Tiempo real</th>
+                  <th>Δ</th>
+                </tr>
+              </thead>
+              <tbody id="tabla-resultados-body"></tbody>
+            </table>
+          </div>
+          <div id="resultados-vacio" class="text-muted">Aún no hay entrenamientos finalizados.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade" id="modalDetalleResultado" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Detalle del entrenamiento</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body" id="detalle-resultado-body">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div data-include="../partials/footer.html"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
+</body>
+</html>

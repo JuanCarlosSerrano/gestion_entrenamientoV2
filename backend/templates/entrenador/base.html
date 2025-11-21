@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}MindPace · Panel entrenador{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+    <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon" />
+    <script src="{{ url_for('static', filename='js/utils/csrf.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+    {% block extra_head %}{% endblock %}
+  </head>
+  <body class="app-bg">
+    <div class="container app-container">
+      <header class="page-heading page-heading--minimal">
+        <img src="{{ url_for('static', filename='img/logo_sin_fondo.png') }}" alt="MindPace" class="brand-logo" />
+        <img src="{{ url_for('static', filename='img/letra_sin_fondo.png') }}" alt="MindPace" class="brand-wordmark" />
+      </header>
+      <nav class="navbar navbar-expand-lg navbar-dark app-nav">
+        <div class="container-fluid px-0">
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+          </button>
+          <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+              <li class="nav-item">
+                <a class="nav-link {% if active_nav == 'inicio' %}active{% endif %}" href="{{ url_for('entrenador_dashboard') }}">Inicio</a>
+              </li>
+              <li class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle {% if active_nav and 'atletas' in active_nav %}active{% endif %}" href="#" id="dropdownAtletas" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  Mis Atletas
+                </a>
+                <ul class="dropdown-menu" aria-labelledby="dropdownAtletas">
+                  <li><a class="dropdown-item" href="{{ url_for('static', filename='entrenador/atletas.html') }}">Lista de Atletas</a></li>
+                  <li><a class="dropdown-item" href="{{ url_for('static', filename='entrenador/aprobar_atletas.html') }}">Aprobar Solicitudes</a></li>
+                </ul>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link {% if active_nav == 'grupos' %}active{% endif %}" href="{{ url_for('static', filename='entrenador/grupo_entrenamiento.html') }}">Gestión de grupos</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link {% if active_nav == 'entrenamientos' %}active{% endif %}" href="{{ url_for('static', filename='entrenador/entrenamientos.html') }}">Gestión de entrenamiento</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link {% if active_nav == 'estadisticas' %}active{% endif %}" href="{{ url_for('static', filename='entrenador/estadisticas.html') }}">Estadísticas</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link {% if active_nav == 'feedback' %}active{% endif %}" href="{{ url_for('static', filename='entrenador/feedback.html') }}">Bandeja de feedback</a>
+              </li>
+            </ul>
+            <button class="btn btn-outline-brand ms-lg-3" id="btn-logout">Salir</button>
+          </div>
+        </div>
+      </nav>
+      <div class="page-context-bar page-context-bar--hero">
+        {% block context_bar %}{% endblock %}
+      </div>
+      <main class="app-card">
+        {% block content %}{% endblock %}
+      </main>
+      <footer class="site-footer">
+        <small>&copy; {{ current_year }} MindPace</small>
+      </footer>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
+    {% block extra_js %}{% endblock %}
+  </body>
+</html>

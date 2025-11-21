@@ -7,7 +7,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const cancelBtn = document.getElementById('cancel-btn');
 
     let editingUserId = null;
-    const API_BASE = window.API_BASE || 'http://127.0.0.1:5000';
+    const API_BASE =
+        window.API_BASE ||
+        (window.location && window.location.origin ? window.location.origin : 'http://127.0.0.1:5000');
     window.API_BASE = API_BASE;
 
     // --------------------------------------------------

@@ -1,40 +1,43 @@
 <!DOCTYPE html>
 <html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Iniciar Sesión</title>
-    <link rel="stylesheet" href="css/style.css">
-    <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
-</head>
-<body class="auth-page">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MindPace · Iniciar sesión</title>
+    <link rel="shortcut icon" href="favicon.ico" type="image/x-icon" />
+    <link rel="stylesheet" href="css/style.css" />
+    <link rel="stylesheet" href="css/auth.css" />
+  </head>
+  <body class="auth-page">
     <div class="auth-card">
-        <div class="auth-info">
-            <img src="img/logo.png" alt="Logo Gestión Entrenamiento" class="auth-logo">
-            <h1>Gestión de Entrenamiento</h1>
-            <p>Centraliza la planificación, seguimiento y aprobación de tus atletas desde un único panel.</p>
-            <p>Accede con tus credenciales para continuar.</p>
-        </div>
-
-        <div class="auth-form">
-            <h2>Iniciar sesión</h2>
-            <form id="loginForm">
-                <div class="form-group">
-                    <label for="email">Correo electrónico</label>
-                    <input type="email" id="email" name="email" placeholder="tu@correo.com" required>
-                </div>
-                <div class="form-group">
-                    <label for="password">Contraseña</label>
-                    <input type="password" id="password" name="password" placeholder="••••••••" required>
-                </div>
-                <button type="submit">Entrar</button>
-            </form>
-            <div class="auth-alt">
-                ¿No tienes cuenta? <a href="register.html">Regístrate aquí</a>
-            </div>
-        </div>
+      <div class="auth-info">
+        <img src="img/logo_sin_fondo.png" alt="MindPace" class="auth-logo" />
+        <img src="img/letra_sin_fondo.png" alt="MindPace" class="brand-wordmark" />
+        <h1>Gestión de Entrenamiento</h1>
+        <p>
+          Centraliza la planificación y seguimiento de tus atletas en una sola plataforma.
+          Diseña rutinas, asigna ciclos y controla el feedback desde cualquier lugar.
+        </p>
+      </div>
+      <div class="auth-form">
+        <h2>Iniciar sesión</h2>
+        <form id="loginForm" class="form-grid">
+          <div class="form-group">
+            <label for="email">Correo electrónico</label>
+            <input type="email" id="email" name="email" required placeholder="tucorreo@midominio.com" />
+          </div>
+          <div class="form-group">
+            <label for="password">Contraseña</label>
+            <input type="password" id="password" name="password" required placeholder="••••••••" />
+          </div>
+          <button type="submit" class="btn btn-brand w-100">Entrar</button>
+        </form>
+        <p class="auth-alt">
+          ¿No tienes cuenta? <a href="register.html">Regístrate aquí</a>
+        </p>
+      </div>
     </div>
     <script src="js/utils/csrf.js"></script>
     <script src="js/script.js"></script>
-</body>
+  </body>
 </html>

@@ -11,20 +11,48 @@
 </head>
 <body class="app-bg">
     <div class="container app-container">
-        <header class="page-heading">
-            <div class="page-heading__brand">
-                <img src="../img/logo.png" alt="PeakPace" class="brand-logo">
-                <div class="page-heading__text">
-                    <p class="eyebrow">Panel de administración</p>
-                    <h1>Gestión de Usuarios</h1>
+        <header class="page-heading page-heading--minimal">
+            <img src="../img/logo_sin_fondo.png" alt="MindPace" class="brand-logo">
+            <img src="../img/letra_sin_fondo.png" alt="MindPace" class="brand-wordmark">
+        </header>
+        <div class="page-context-bar page-context-bar--hero">
+            <div>
+                <p class="eyebrow eyebrow--subtle">Panel de administración</p>
+                <h1 class="page-context-title">Gestión de usuarios</h1>
+            </div>
+            <div class="page-context-actions gap-2">
+                <a href="index.html" class="btn btn-outline-secondary btn-sm">Volver</a>
+            </div>
+        </div>
+<div>
+            <nav class="navbar navbar-expand-lg navbar-dark app-nav">
+                <div class="container-fluid px-0">
+                    <a class="navbar-brand d-flex align-items-center gap-2" href="index.html">
+                        <span class="fw-bold">Panel</span>
+                    </a>
+                    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                        <span class="navbar-toggler-icon"></span>
+                    </button>
+                    <div class="collapse navbar-collapse" id="navbarNav">
+                        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                        <li class="nav-item">
+                            <a class="nav-link active" aria-current="page" href="usuarios.html">Gestión de Usuarios</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#">Otras Funciones</a>
+                        </li>
+                    </ul>
+                    <div class="d-flex flex-column flex-lg-row gap-2 align-items-stretch">
+                        <form class="d-flex" role="search">
+                            <input class="form-control me-2" type="search" placeholder="Buscar" aria-label="Buscar">
+                            <button class="btn btn-outline-light" type="submit">Buscar</button>
+                        </form>
+                        <button class="btn btn-outline-brand" id="btn-logout">Salir</button>
+                    </div>
                 </div>
             </div>
-            <div class="page-heading__actions">
-                <a href="index.html" class="btn btn-outline-brand">Volver</a>
-                <button class="btn btn-brand" id="btn-logout">Salir</button>
-            </div>
-        </header>
-
+            </nav>
+        </div>
         <div id="user-list-container" class="app-card">
             <h2>Lista de Usuarios</h2>
             <div class="table-responsive">

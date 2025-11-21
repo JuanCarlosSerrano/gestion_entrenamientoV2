@@ -3,13 +3,12 @@ from flask import redirect, url_for
 from flask_cors import CORS
 from flask_session import Session
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import os
 from werkzeug.utils import secure_filename
 import secrets
-import time
 
 app = Flask(__name__, static_folder='../frontend/static')  # Configuración correcta de static_folder
 CORS(app)
@@ -22,32 +21,11 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True  # Recomendado por seguridad
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"  # Recomendado por seguridad
 app.config["SESSION_COOKIE_SECURE"] = True  # 1 hora de duración de la sesión
 Session(app)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE = os.path.join(BASE_DIR, 'atletas.db')
-
-
-def configure_database(max_retries=5, delay=1.0):
-    for intento in range(max_retries):
-        try:
-            conn = sqlite3.connect(DATABASE, timeout=15, check_same_thread=False)
-            conn.execute('PRAGMA journal_mode = WAL')
-            conn.execute('PRAGMA foreign_keys = ON')
-            conn.close()
-            return
-        except sqlite3.OperationalError:
-            if intento == max_retries - 1:
-                print("Aviso: no se pudo establecer WAL. Continúo con modo por defecto.")
-                return
-            time.sleep(delay)
-
-
-configure_database()
+DATABASE = 'atletas.db'
 
 
 def get_db():
-    conn = sqlite3.connect(DATABASE, timeout=15, check_same_thread=False)
-    conn.execute('PRAGMA busy_timeout = 15000')
-    conn.execute('PRAGMA foreign_keys = ON')
+    conn = sqlite3.connect(DATABASE)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -69,704 +47,19 @@ def execute_db(query, args=()):
     conn.close()
 
 
-def execute_db_returning_id(query, args=()):
-    conn = get_db()
-    cur = conn.execute(query, args)
-    conn.commit()
-    last_id = cur.lastrowid
-    cur.close()
-    conn.close()
-    return last_id
-
-
-def ensure_feedback_schema():
-    if not os.path.exists(DATABASE):
-        return
-    try:
-        conn = sqlite3.connect(DATABASE)
-        cursor = conn.execute("PRAGMA table_info(feedbacks)")
-        columns = {row[1] for row in cursor.fetchall()}
-        alter_queries = []
-        if 'enlace' not in columns:
-            alter_queries.append("ALTER TABLE feedbacks ADD COLUMN enlace TEXT")
-        if 'percepcion' not in columns:
-            alter_queries.append("ALTER TABLE feedbacks ADD COLUMN percepcion TEXT")
-        if 'tiempo_realizado' not in columns:
-            alter_queries.append("ALTER TABLE feedbacks ADD COLUMN tiempo_realizado TEXT")
-        if 'resultado' not in columns:
-            alter_queries.append("ALTER TABLE feedbacks ADD COLUMN resultado TEXT")
-        if 'respuesta' not in columns:
-            alter_queries.append("ALTER TABLE feedbacks ADD COLUMN respuesta TEXT")
-        for query in alter_queries:
-            conn.execute(query)
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
-    finally:
-        if 'conn' in locals():
-            conn.close()
-
-
-ensure_feedback_schema()
-
-
-def trainer_owns_feedback(feedback_id, trainer_id):
-    feedback = query_db(
-        '''
-        SELECT f.id
-        FROM feedbacks f
-        JOIN usuarios u ON f.atleta_id = u.id
-        WHERE f.id = ? AND u.entrenador_id = ?
-        ''',
-        (feedback_id, trainer_id),
-        one=True
-    )
-    return feedback is not None
-
-
-def ensure_training_cycle_schema():
-    if not os.path.exists(DATABASE):
-        return
-    script = """
-    CREATE TABLE IF NOT EXISTS textos_descriptivos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        contenido TEXT NOT NULL,
-        creado_en TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS macrociclos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        entrenador_id INTEGER NOT NULL,
-        nombre TEXT NOT NULL,
-        descripcion_id INTEGER,
-        objetivo_general TEXT,
-        fecha_inicio TEXT NOT NULL,
-        fecha_fin TEXT NOT NULL,
-        notas TEXT,
-        FOREIGN KEY (entrenador_id) REFERENCES usuarios(id),
-        FOREIGN KEY (descripcion_id) REFERENCES textos_descriptivos(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS mesociclos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        macrociclo_id INTEGER NOT NULL,
-        nombre TEXT NOT NULL,
-        descripcion_id INTEGER,
-        objetivo TEXT,
-        fecha_inicio TEXT NOT NULL,
-        fecha_fin TEXT NOT NULL,
-        notas TEXT,
-        FOREIGN KEY (macrociclo_id) REFERENCES macrociclos(id) ON DELETE CASCADE,
-        FOREIGN KEY (descripcion_id) REFERENCES textos_descriptivos(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS microciclos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        mesociclo_id INTEGER NOT NULL,
-        nombre TEXT NOT NULL,
-        descripcion_id INTEGER,
-        objetivo TEXT,
-        fecha_inicio TEXT NOT NULL,
-        fecha_fin TEXT NOT NULL,
-        notas TEXT,
-        FOREIGN KEY (mesociclo_id) REFERENCES mesociclos(id) ON DELETE CASCADE,
-        FOREIGN KEY (descripcion_id) REFERENCES textos_descriptivos(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS ciclo_entrenamientos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        tipo_ciclo TEXT NOT NULL CHECK (tipo_ciclo IN ('macro','meso','micro')),
-        ciclo_id INTEGER NOT NULL,
-        entrenamiento_id INTEGER NOT NULL,
-        orden INTEGER,
-        dia_relativo INTEGER,
-        sesion_indice INTEGER DEFAULT 1 CHECK (sesion_indice BETWEEN 1 AND 3),
-        notas TEXT,
-        FOREIGN KEY (entrenamiento_id) REFERENCES entrenamientos(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS ciclo_asignaciones (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        tipo_ciclo TEXT NOT NULL CHECK (tipo_ciclo IN ('macro','meso','micro')),
-        ciclo_id INTEGER NOT NULL,
-        atleta_id INTEGER NOT NULL,
-        fecha_inicio_real TEXT NOT NULL,
-        estado TEXT DEFAULT 'planificado',
-        notas TEXT,
-        FOREIGN KEY (atleta_id) REFERENCES usuarios(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS plantillas_entrenamientos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        codigo TEXT UNIQUE,
-        nombre TEXT NOT NULL,
-        descripcion_id INTEGER,
-        categoria TEXT,
-        intensidad TEXT,
-        duracion_referencia INTEGER,
-        tipo_duracion TEXT,
-        FOREIGN KEY (descripcion_id) REFERENCES textos_descriptivos(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS plantillas_microciclos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        entrenador_id INTEGER NOT NULL,
-        nombre TEXT NOT NULL,
-        tipo_semana TEXT,
-        descripcion_id INTEGER,
-        FOREIGN KEY (entrenador_id) REFERENCES usuarios(id),
-        FOREIGN KEY (descripcion_id) REFERENCES textos_descriptivos(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS plantillas_microciclo_detalle (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        microciclo_id INTEGER NOT NULL,
-        dia_semana INTEGER NOT NULL CHECK (dia_semana BETWEEN 1 AND 7),
-        orden INTEGER NOT NULL DEFAULT 1,
-        sesion INTEGER NOT NULL DEFAULT 1 CHECK (sesion BETWEEN 1 AND 3),
-        entrenamiento_id INTEGER NOT NULL,
-        FOREIGN KEY (microciclo_id) REFERENCES plantillas_microciclos(id) ON DELETE CASCADE,
-        FOREIGN KEY (entrenamiento_id) REFERENCES plantillas_entrenamientos(id),
-        UNIQUE (microciclo_id, dia_semana, orden, sesion)
-    );
-
-    CREATE TABLE IF NOT EXISTS plantillas_mesociclos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        entrenador_id INTEGER NOT NULL,
-        nombre TEXT NOT NULL,
-        tipo_bloque TEXT,
-        descripcion_id INTEGER,
-        FOREIGN KEY (entrenador_id) REFERENCES usuarios(id),
-        FOREIGN KEY (descripcion_id) REFERENCES textos_descriptivos(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS plantillas_mesociclo_microciclos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        mesociclo_id INTEGER NOT NULL,
-        microciclo_id INTEGER NOT NULL,
-        orden_semana INTEGER NOT NULL,
-        FOREIGN KEY (mesociclo_id) REFERENCES plantillas_mesociclos(id) ON DELETE CASCADE,
-        FOREIGN KEY (microciclo_id) REFERENCES plantillas_microciclos(id),
-        UNIQUE (mesociclo_id, orden_semana)
-    );
-
-    CREATE TABLE IF NOT EXISTS plantillas_macrociclos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        entrenador_id INTEGER NOT NULL,
-        nombre TEXT NOT NULL,
-        objetivo_principal TEXT,
-        descripcion_id INTEGER,
-        duracion_semanas INTEGER,
-        FOREIGN KEY (entrenador_id) REFERENCES usuarios(id),
-        FOREIGN KEY (descripcion_id) REFERENCES textos_descriptivos(id)
-    );
-
-    CREATE TABLE IF NOT EXISTS plantillas_macrociclo_mesociclos (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        macrociclo_id INTEGER NOT NULL,
-        mesociclo_id INTEGER NOT NULL,
-        orden_bloque INTEGER NOT NULL,
-        FOREIGN KEY (macrociclo_id) REFERENCES plantillas_macrociclos(id) ON DELETE CASCADE,
-        FOREIGN KEY (mesociclo_id) REFERENCES plantillas_mesociclos(id),
-        UNIQUE (macrociclo_id, orden_bloque)
-    );
-    """
-    try:
-        conn = sqlite3.connect(DATABASE)
-        conn.executescript(script)
-        # Ajustes para tablas existentes
-        pragma_targets = [
-            ('ciclo_entrenamientos', [('sesion_indice', "ALTER TABLE ciclo_entrenamientos ADD COLUMN sesion_indice INTEGER DEFAULT 1 CHECK (sesion_indice BETWEEN 1 AND 3)")]),
-            ('entrenamientos_asignados', [
-                ('ciclo_tipo', "ALTER TABLE entrenamientos_asignados ADD COLUMN ciclo_tipo TEXT"),
-                ('ciclo_id', "ALTER TABLE entrenamientos_asignados ADD COLUMN ciclo_id INTEGER"),
-                ('macrociclo_id', "ALTER TABLE entrenamientos_asignados ADD COLUMN macrociclo_id INTEGER"),
-                ('mesociclo_id', "ALTER TABLE entrenamientos_asignados ADD COLUMN mesociclo_id INTEGER"),
-                ('microciclo_id', "ALTER TABLE entrenamientos_asignados ADD COLUMN microciclo_id INTEGER"),
-            ]),
-            ('entrenamientos', [
-                ('descripcion_id', "ALTER TABLE entrenamientos ADD COLUMN descripcion_id INTEGER")
-            ]),
-            ('macrociclos', [
-                ('descripcion_id', "ALTER TABLE macrociclos ADD COLUMN descripcion_id INTEGER")
-            ]),
-            ('mesociclos', [
-                ('descripcion_id', "ALTER TABLE mesociclos ADD COLUMN descripcion_id INTEGER")
-            ]),
-            ('microciclos', [
-                ('descripcion_id', "ALTER TABLE microciclos ADD COLUMN descripcion_id INTEGER")
-            ])
-        ]
-
-        for table, alterations in pragma_targets:
-            cursor = conn.execute(f"PRAGMA table_info({table})")
-            columns = {row[1] for row in cursor.fetchall()}
-            for column, statement in alterations:
-                if column not in columns:
-                    conn.execute(statement)
-
-        conn.commit()
-    except sqlite3.OperationalError:
-        pass
-    finally:
-        if 'conn' in locals():
-            conn.close()
-
-
-ensure_training_cycle_schema()
-
-CYCLE_TABLES = {
-    'macro': 'macrociclos',
-    'meso': 'mesociclos',
-    'micro': 'microciclos'
-}
-
-
-def get_macrociclo(macrociclo_id, entrenador_id):
-    return query_db(
-        'SELECT * FROM macrociclos WHERE id = ? AND entrenador_id = ?',
-        (macrociclo_id, entrenador_id),
-        one=True
-    )
-
-
-def get_mesociclo(mesociclo_id, entrenador_id):
-    return query_db(
-        '''
-        SELECT m.*
-        FROM mesociclos m
-        JOIN macrociclos ma ON m.macrociclo_id = ma.id
-        WHERE m.id = ? AND ma.entrenador_id = ?
-        ''',
-        (mesociclo_id, entrenador_id),
-        one=True
-    )
-
-
-def get_microciclo(microciclo_id, entrenador_id):
-    return query_db(
-        '''
-        SELECT mi.*
-        FROM microciclos mi
-        JOIN mesociclos me ON mi.mesociclo_id = me.id
-        JOIN macrociclos ma ON me.macrociclo_id = ma.id
-        WHERE mi.id = ? AND ma.entrenador_id = ?
-        ''',
-        (microciclo_id, entrenador_id),
-        one=True
-    )
-
-
-def get_ciclo(tipo, ciclo_id, entrenador_id):
-    if tipo == 'macro':
-        return get_macrociclo(ciclo_id, entrenador_id)
-    if tipo == 'meso':
-        return get_mesociclo(ciclo_id, entrenador_id)
-    if tipo == 'micro':
-        return get_microciclo(ciclo_id, entrenador_id)
-    return None
-
-
-def entrenamiento_existe(entrenamiento_id):
-    return query_db(
-        'SELECT id FROM entrenamientos WHERE id = ?',
-        (entrenamiento_id,),
-        one=True
-    ) is not None
-
-
-def entrenador_asociado(atleta_id, entrenador_id):
-    atleta = query_db(
-        'SELECT id FROM usuarios WHERE id = ? AND entrenador_id = ? AND rol = "atleta"',
-        (atleta_id, entrenador_id),
-        one=True
-    )
-    return atleta is not None
-
-
-def descripcion_por_id(descripcion_id):
-    if not descripcion_id:
-        return None
-    registro = query_db(
-        'SELECT contenido FROM textos_descriptivos WHERE id = ?',
-        (descripcion_id,),
-        one=True
-    )
-    return registro['contenido'] if registro else None
-
-
-def crear_descripcion(contenido):
-    texto = (contenido or '').strip()
-    if not texto:
-        return None
-    return execute_db_returning_id(
-        'INSERT INTO textos_descriptivos (contenido) VALUES (?)',
-        (texto,)
-    )
-
-
-def actualizar_descripcion(descripcion_id, contenido):
-    texto = (contenido or '').strip()
-    if descripcion_id and texto:
-        execute_db('UPDATE textos_descriptivos SET contenido = ? WHERE id = ?', (texto, descripcion_id))
-        return descripcion_id
-    if descripcion_id and not texto:
-        execute_db('DELETE FROM textos_descriptivos WHERE id = ?', (descripcion_id,))
-        return None
-    if not descripcion_id and texto:
-        return crear_descripcion(texto)
-    return None
-
-
-def eliminar_descripcion(descripcion_id):
-    if descripcion_id:
-        execute_db('DELETE FROM textos_descriptivos WHERE id = ?', (descripcion_id,))
-
-
-def plantilla_entrenamiento_existe(entrenamiento_id):
-    return query_db(
-        'SELECT id FROM plantillas_entrenamientos WHERE id = ?',
-        (entrenamiento_id,),
-        one=True
-    ) is not None
-
-
-def get_plantilla_micro(micro_id, entrenador_id):
-    return query_db(
-        '''SELECT pm.*, td.contenido AS descripcion
-           FROM plantillas_microciclos pm
-           LEFT JOIN textos_descriptivos td ON pm.descripcion_id = td.id
-           WHERE pm.id = ? AND pm.entrenador_id = ?''',
-        (micro_id, entrenador_id),
-        one=True
-    )
-
-
-def get_micro_detalles(micro_id):
-    detalles = query_db(
-        '''SELECT pmd.*, pe.nombre AS entrenamiento_nombre
-           FROM plantillas_microciclo_detalle pmd
-           JOIN plantillas_entrenamientos pe ON pmd.entrenamiento_id = pe.id
-           WHERE pmd.microciclo_id = ?
-           ORDER BY pmd.dia_semana, pmd.sesion, pmd.orden''',
-        (micro_id,)
-    )
-    return [dict(d) for d in detalles]
-
-
-def get_plantilla_meso(meso_id, entrenador_id):
-    return query_db(
-        '''SELECT pm.*, td.contenido AS descripcion
-           FROM plantillas_mesociclos pm
-           LEFT JOIN textos_descriptivos td ON pm.descripcion_id = td.id
-           WHERE pm.id = ? AND pm.entrenador_id = ?''',
-        (meso_id, entrenador_id),
-        one=True
-    )
-
-
-def get_plantilla_macro(macro_id, entrenador_id):
-    return query_db(
-        '''SELECT pm.*, td.contenido AS descripcion
-           FROM plantillas_macrociclos pm
-           LEFT JOIN textos_descriptivos td ON pm.descripcion_id = td.id
-           WHERE pm.id = ? AND pm.entrenador_id = ?''',
-        (macro_id, entrenador_id),
-        one=True
-    )
-
-
-def micro_pertenece_entrenador(micro_id, entrenador_id):
-    return query_db(
-        'SELECT id FROM plantillas_microciclos WHERE id = ? AND entrenador_id = ?',
-        (micro_id, entrenador_id),
-        one=True
-    ) is not None
-
-
-def meso_pertenece_entrenador(meso_id, entrenador_id):
-    return query_db(
-        'SELECT id FROM plantillas_mesociclos WHERE id = ? AND entrenador_id = ?',
-        (meso_id, entrenador_id),
-        one=True
-    ) is not None
-
-
-def calcular_duracion_ciclo(ciclo):
-    inicio = ciclo.get('fecha_inicio')
-    fin = ciclo.get('fecha_fin')
-    if not inicio or not fin:
-        return 7
-    try:
-        fecha_inicio = datetime.strptime(inicio, "%Y-%m-%d").date()
-        fecha_fin = datetime.strptime(fin, "%Y-%m-%d").date()
-        delta = (fecha_fin - fecha_inicio).days + 1
-        return delta if delta > 0 else 7
-    except ValueError:
-        return 7
-
-
-def calcular_inicio_por_anclaje(tipo, ciclo, fecha, anclar_en):
-    if anclar_en != 'fin':
-        return fecha
-    try:
-        fecha_fin_real = datetime.strptime(fecha, "%Y-%m-%d").date()
-    except ValueError:
-        return fecha
-    duracion = calcular_duracion_ciclo(ciclo)
-    fecha_inicio = fecha_fin_real - timedelta(days=max(duracion - 1, 0))
-    return fecha_inicio.isoformat()
-
-
-def get_plantilla_entrenamiento(entrenamiento_id):
-    registro = query_db(
-        '''SELECT pe.*, td.contenido AS descripcion
-           FROM plantillas_entrenamientos pe
-           LEFT JOIN textos_descriptivos td ON pe.descripcion_id = td.id
-           WHERE pe.id = ?''',
-        (entrenamiento_id,),
-        one=True
-    )
-    return dict(registro) if registro else None
-
-
-def duracion_micro_plantilla_dias(micro_id):
-    detalle = query_db(
-        'SELECT MAX(dia_semana) AS max_dia FROM plantillas_microciclo_detalle WHERE microciclo_id = ?',
-        (micro_id,),
-        one=True
-    )
-    max_dia = (detalle['max_dia'] if detalle else None) or 7
-    return max(1, min(7, max_dia))
-
-
-def duracion_meso_plantilla_dias(meso_id):
-    micro_refs = query_db(
-        '''SELECT microciclo_id
-           FROM plantillas_mesociclo_microciclos
-           WHERE mesociclo_id = ?
-           ORDER BY orden_semana''',
-        (meso_id,)
-    )
-    if not micro_refs:
-        return 7
-    return sum(duracion_micro_plantilla_dias(ref['microciclo_id']) for ref in micro_refs)
-
-
-def duracion_macro_plantilla_dias(macro):
-    if macro.get('duracion_semanas'):
-        return max(1, int(macro['duracion_semanas'])) * 7
-    meso_refs = query_db(
-        '''SELECT mesociclo_id
-           FROM plantillas_macrociclo_mesociclos
-           WHERE macrociclo_id = ?
-           ORDER BY orden_bloque''',
-        (macro['id'],)
-    )
-    if not meso_refs:
-        return 28
-    return sum(duracion_meso_plantilla_dias(ref['mesociclo_id']) for ref in meso_refs)
-
-
-def calcular_inicio_plantilla(tipo, plantilla, fecha, anclar_en):
-    if anclar_en != 'fin':
-        return fecha
-    try:
-        fecha_fin_real = datetime.strptime(fecha, "%Y-%m-%d").date()
-    except ValueError:
-        return fecha
-    if tipo == 'micro':
-        dias = duracion_micro_plantilla_dias(plantilla['id'])
-    elif tipo == 'meso':
-        dias = duracion_meso_plantilla_dias(plantilla['id'])
-    else:
-        dias = duracion_macro_plantilla_dias(plantilla)
-    fecha_inicio = fecha_fin_real - timedelta(days=max(dias - 1, 0))
-    return fecha_inicio.isoformat()
-
-
-def expandir_plantilla_micro(micro_id, atleta_id, fecha_inicio_str, ciclo_tipo='tpl_micro'):
-    detalles = query_db(
-        '''SELECT *
-           FROM plantillas_microciclo_detalle
-           WHERE microciclo_id = ?
-           ORDER BY dia_semana, sesion, orden''',
-        (micro_id,)
-    )
-    if not detalles:
-        return
-    try:
-        fecha_base = datetime.strptime(fecha_inicio_str, "%Y-%m-%d").date()
-    except ValueError:
-        fecha_base = datetime.today().date()
-    for det in detalles:
-        entrenamiento = get_plantilla_entrenamiento(det['entrenamiento_id'])
-        if not entrenamiento:
-            continue
-        offset = max((det['dia_semana'] or 1) - 1, 0)
-        fecha_evento = fecha_base + timedelta(days=offset)
-        insert_entrenamiento_asignado(
-            atleta_id=atleta_id,
-            fecha=fecha_evento.isoformat(),
-            entrenamiento=entrenamiento,
-            ciclo_tipo=ciclo_tipo,
-            ciclo_id=micro_id
-        )
-
-
-def expandir_plantilla_meso(meso_id, atleta_id, fecha_inicio_str):
-    micro_refs = query_db(
-        '''SELECT microciclo_id
-           FROM plantillas_mesociclo_microciclos
-           WHERE mesociclo_id = ?
-           ORDER BY orden_semana''',
-        (meso_id,)
-    )
-    if not micro_refs:
-        return
-    try:
-        fecha_actual = datetime.strptime(fecha_inicio_str, "%Y-%m-%d").date()
-    except ValueError:
-        fecha_actual = datetime.today().date()
-    for ref in micro_refs:
-        expandir_plantilla_micro(ref['microciclo_id'], atleta_id, fecha_actual.isoformat(), ciclo_tipo='tpl_meso_micro')
-        dias = duracion_micro_plantilla_dias(ref['microciclo_id'])
-        fecha_actual += timedelta(days=dias)
-
-
-def expandir_plantilla_macro(macro_id, atleta_id, fecha_inicio_str):
-    meso_refs = query_db(
-        '''SELECT mesociclo_id
-           FROM plantillas_macrociclo_mesociclos
-           WHERE macrociclo_id = ?
-           ORDER BY orden_bloque''',
-        (macro_id,)
-    )
-    if not meso_refs:
-        return
-    try:
-        fecha_actual = datetime.strptime(fecha_inicio_str, "%Y-%m-%d").date()
-    except ValueError:
-        fecha_actual = datetime.today().date()
-    for ref in meso_refs:
-        expandir_plantilla_meso(ref['mesociclo_id'], atleta_id, fecha_actual.isoformat())
-        dias = duracion_meso_plantilla_dias(ref['mesociclo_id'])
-        fecha_actual += timedelta(days=dias)
-
-
-def generar_entrenamientos_para_microciclo(microciclo_id, atleta_id, fecha_inicio_str):
-    entrenamientos = query_db(
-        '''SELECT ce.*, e.nombre, e.duracion_valor, e.duracion_tipo,
-                  e.calentamiento_tipo, e.calentamiento_valor,
-                  e.bloque_activacion, e.bloque_principal,
-                  e.enfriamiento_tipo, e.enfriamiento_valor,
-                  me.id AS mesociclo_fk,
-                  ma.id AS macrociclo_fk
-           FROM ciclo_entrenamientos ce
-           JOIN entrenamientos e ON ce.entrenamiento_id = e.id
-           JOIN microciclos mi ON mi.id = ce.ciclo_id
-           JOIN mesociclos me ON mi.mesociclo_id = me.id
-           JOIN macrociclos ma ON me.macrociclo_id = ma.id
-           WHERE ce.tipo_ciclo = 'micro' AND ce.ciclo_id = ?
-           ORDER BY COALESCE(ce.dia_relativo, ce.orden, ce.id),
-                    COALESCE(ce.sesion_indice, 1),
-                    COALESCE(ce.orden, ce.id)''',
-        (microciclo_id,)
-    )
-    if not entrenamientos:
-        return
-
-    execute_db(
-        '''DELETE FROM entrenamientos_asignados
-           WHERE atleta_id = ? AND ciclo_tipo = "micro" AND ciclo_id = ?''',
-        (atleta_id, microciclo_id)
-    )
-
-    try:
-        fecha_inicio = datetime.strptime(fecha_inicio_str, "%Y-%m-%d").date()
-    except ValueError:
-        fecha_inicio = datetime.today().date()
-
-    for entrada in entrenamientos:
-        dias = entrada['dia_relativo'] or entrada['orden'] or 0
-        offset = (dias - 1) if dias else 0
-        fecha = fecha_inicio + timedelta(days=offset)
-        execute_db(
-            '''INSERT INTO entrenamientos_asignados (
-                   atleta_id, fecha, nombre, duracion_valor, duracion_tipo,
-                   calentamiento_tipo, calentamiento_valor, bloque_activacion,
-                   bloque_principal, enfriamiento_tipo, enfriamiento_valor,
-                   ciclo_tipo, ciclo_id, macrociclo_id, mesociclo_id, microciclo_id
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-            (
-                atleta_id,
-                fecha.isoformat(),
-                entrada['nombre'],
-                entrada['duracion_valor'],
-                entrada['duracion_tipo'],
-                entrada['calentamiento_tipo'],
-                entrada['calentamiento_valor'],
-                entrada['bloque_activacion'],
-                entrada['bloque_principal'],
-                entrada['enfriamiento_tipo'],
-                entrada['enfriamiento_valor'],
-                'micro',
-                microciclo_id,
-                entrada['macrociclo_fk'],
-                entrada['mesociclo_fk'],
-                microciclo_id
-            )
-        )
-
-
-def expandir_ciclo_y_generar_entrenamientos(tipo, ciclo_id, atleta_id, fecha_inicio_str):
-    if tipo == 'micro':
-        generar_entrenamientos_para_microciclo(ciclo_id, atleta_id, fecha_inicio_str)
-        return
-
-    try:
-        fecha_inicio = datetime.strptime(fecha_inicio_str, "%Y-%m-%d").date()
-    except ValueError:
-        fecha_inicio = datetime.today().date()
-
-    if tipo == 'meso':
-        microciclos = query_db(
-            'SELECT * FROM microciclos WHERE mesociclo_id = ? ORDER BY fecha_inicio',
-            (ciclo_id,)
-        )
-        if not microciclos:
-            return
-        base = datetime.strptime(microciclos[0]['fecha_inicio'], "%Y-%m-%d").date()
-        for micro in microciclos:
-            micro_inicio = datetime.strptime(micro['fecha_inicio'], "%Y-%m-%d").date()
-            delta = micro_inicio - base
-            fecha_micro = (fecha_inicio + delta).isoformat()
-            generar_entrenamientos_para_microciclo(micro['id'], atleta_id, fecha_micro)
-        return
-
-    if tipo == 'macro':
-        mesociclos = query_db(
-            'SELECT * FROM mesociclos WHERE macrociclo_id = ? ORDER BY fecha_inicio',
-            (ciclo_id,)
-        )
-        if not mesociclos:
-            return
-        base_macro = datetime.strptime(mesociclos[0]['fecha_inicio'], "%Y-%m-%d").date()
-        for meso in mesociclos:
-            microciclos = query_db(
-                'SELECT * FROM microciclos WHERE mesociclo_id = ? ORDER BY fecha_inicio',
-                (meso['id'],)
-            )
-            if not microciclos:
-                continue
-            base_meso = datetime.strptime(microciclos[0]['fecha_inicio'], "%Y-%m-%d").date()
-            meso_inicio = datetime.strptime(meso['fecha_inicio'], "%Y-%m-%d").date()
-            delta_meso = meso_inicio - base_macro
-            for micro in microciclos:
-                micro_inicio = datetime.strptime(micro['fecha_inicio'], "%Y-%m-%d").date()
-                delta_micro = micro_inicio - base_meso
-                fecha_micro = (fecha_inicio + delta_meso + delta_micro).isoformat()
-                generar_entrenamientos_para_microciclo(micro['id'], atleta_id, fecha_micro)
+def init_db():
+    with app.app_context():
+        db = get_db()
+        with open('schema.sql', 'r') as f:
+            db.cursor().executescript(f.read())
+        db.commit()
+
+
+@app.cli.command('initdb')
+def initdb_command():
+    """Initializes the database."""
+    init_db()
+    print('Initialized the database.')
 
 
 # Función para verificar el rol del usuario (decorator)
@@ -796,1162 +89,6 @@ def requires_roles(*roles):
 
         return decorated_function
     return wrapper
-
-
-# --------------------------
-# Rutas para planificación
-# --------------------------
-
-
-def row_to_dict(row):
-    return dict(row) if row else None
-
-
-@app.route('/plantillas/entrenamientos', methods=['GET', 'POST'])
-@requires_roles('entrenador')
-def plantillas_entrenamientos(current_user):
-    if request.method == 'GET':
-        registros = query_db(
-            '''SELECT pe.*, td.contenido AS descripcion
-               FROM plantillas_entrenamientos pe
-               LEFT JOIN textos_descriptivos td ON pe.descripcion_id = td.id
-               ORDER BY pe.nombre'''
-        )
-        return jsonify([dict(r) for r in registros]), 200
-
-    data = request.get_json() or {}
-    nombre = (data.get('nombre') or '').strip()
-    if not nombre:
-        return jsonify({'error': 'El nombre es obligatorio'}), 400
-
-    descripcion_id = crear_descripcion(data.get('descripcion'))
-    new_id = execute_db_returning_id(
-        '''INSERT INTO plantillas_entrenamientos
-           (codigo, nombre, descripcion_id, categoria, intensidad, duracion_referencia, tipo_duracion)
-           VALUES (?, ?, ?, ?, ?, ?, ?)''',
-        (
-            data.get('codigo'),
-            nombre,
-            descripcion_id,
-            data.get('categoria'),
-            data.get('intensidad'),
-            data.get('duracion_referencia'),
-            data.get('tipo_duracion')
-        )
-    )
-    return jsonify({'id': new_id}), 201
-
-
-@app.route('/plantillas/entrenamientos/<int:entrenamiento_id>', methods=['GET', 'PUT', 'DELETE'])
-@requires_roles('entrenador')
-def plantilla_entrenamiento_detalle(current_user, entrenamiento_id):
-    registro = query_db(
-        '''SELECT pe.*, td.contenido AS descripcion
-           FROM plantillas_entrenamientos pe
-           LEFT JOIN textos_descriptivos td ON pe.descripcion_id = td.id
-           WHERE pe.id = ?''',
-        (entrenamiento_id,),
-        one=True
-    )
-    if not registro:
-        return jsonify({'error': 'Entrenamiento no encontrado'}), 404
-
-    if request.method == 'GET':
-        return jsonify(dict(registro)), 200
-
-    if request.method == 'PUT':
-        data = request.get_json() or {}
-        descripcion_id = actualizar_descripcion(registro['descripcion_id'], data.get('descripcion'))
-        execute_db(
-            '''UPDATE plantillas_entrenamientos
-               SET codigo = ?, nombre = ?, descripcion_id = ?, categoria = ?, intensidad = ?,
-                   duracion_referencia = ?, tipo_duracion = ?
-               WHERE id = ?''',
-            (
-                data.get('codigo', registro['codigo']),
-                data.get('nombre', registro['nombre']),
-                descripcion_id,
-                data.get('categoria', registro['categoria']),
-                data.get('intensidad', registro['intensidad']),
-                data.get('duracion_referencia', registro['duracion_referencia']),
-                data.get('tipo_duracion', registro['tipo_duracion']),
-                entrenamiento_id
-            )
-        )
-        return jsonify({'message': 'Entrenamiento actualizado'}), 200
-
-    eliminar_descripcion(registro['descripcion_id'])
-    try:
-        execute_db('DELETE FROM plantillas_entrenamientos WHERE id = ?', (entrenamiento_id,))
-    except sqlite3.IntegrityError:
-        return jsonify({'error': 'No se puede eliminar: está asociado a un microciclo'}), 400
-    return jsonify({'message': 'Entrenamiento eliminado'}), 200
-
-
-@app.route('/plantillas/microciclos', methods=['GET', 'POST'])
-@requires_roles('entrenador')
-def plantillas_microciclos(current_user):
-    entrenador_id = current_user['id']
-    if request.method == 'GET':
-        micros = query_db(
-            '''SELECT pm.*, td.contenido AS descripcion
-               FROM plantillas_microciclos pm
-               LEFT JOIN textos_descriptivos td ON pm.descripcion_id = td.id
-               WHERE pm.entrenador_id = ?
-               ORDER BY pm.id DESC''',
-            (entrenador_id,)
-        )
-        resultado = []
-        for micro in micros:
-            registro = dict(micro)
-            registro['detalles'] = get_micro_detalles(micro['id'])
-            resultado.append(registro)
-        return jsonify(resultado), 200
-
-    data = request.get_json() or {}
-    nombre = (data.get('nombre') or '').strip()
-    if not nombre:
-        return jsonify({'error': 'El nombre es obligatorio'}), 400
-
-    descripcion_id = crear_descripcion(data.get('descripcion'))
-    new_id = execute_db_returning_id(
-        '''INSERT INTO plantillas_microciclos (entrenador_id, nombre, tipo_semana, descripcion_id)
-           VALUES (?, ?, ?, ?)''',
-        (entrenador_id, nombre, data.get('tipo_semana'), descripcion_id)
-    )
-
-    detalles = data.get('detalles') or []
-    for detalle in detalles:
-        entrenamiento_id = detalle.get('entrenamiento_id')
-        try:
-            entrenamiento_id = int(entrenamiento_id)
-        except (TypeError, ValueError):
-            return jsonify({'error': 'Entrenamiento de plantilla inválido'}), 400
-        if not plantilla_entrenamiento_existe(entrenamiento_id):
-            return jsonify({'error': 'Entrenamiento de plantilla inválido'}), 400
-        try:
-            dia = int(detalle.get('dia_semana') or detalle.get('dia') or 1)
-        except (TypeError, ValueError):
-            dia = 1
-        dia = min(7, max(1, dia))
-        try:
-            sesion = int(detalle.get('sesion') or detalle.get('sesion_indice') or 1)
-        except (TypeError, ValueError):
-            sesion = 1
-        sesion = min(3, max(1, sesion))
-        try:
-            orden = int(detalle.get('orden') or 1)
-        except (TypeError, ValueError):
-            orden = 1
-        execute_db(
-            '''INSERT INTO plantillas_microciclo_detalle
-               (microciclo_id, dia_semana, orden, sesion, entrenamiento_id)
-               VALUES (?, ?, ?, ?, ?)''',
-            (new_id, dia, orden, sesion, entrenamiento_id)
-        )
-
-    return jsonify({'id': new_id}), 201
-
-
-@app.route('/plantillas/microciclos/<int:micro_id>', methods=['GET', 'PUT', 'DELETE'])
-@requires_roles('entrenador')
-def plantilla_microciclo_detalle(current_user, micro_id):
-    entrenador_id = current_user['id']
-    micro = get_plantilla_micro(micro_id, entrenador_id)
-    if not micro:
-        return jsonify({'error': 'Microciclo no encontrado'}), 404
-
-    if request.method == 'GET':
-        registro = dict(micro)
-        registro['detalles'] = get_micro_detalles(micro_id)
-        return jsonify(registro), 200
-
-    if request.method == 'PUT':
-        data = request.get_json() or {}
-        descripcion_id = actualizar_descripcion(micro['descripcion_id'], data.get('descripcion'))
-        execute_db(
-            '''UPDATE plantillas_microciclos
-               SET nombre = ?, tipo_semana = ?, descripcion_id = ?
-               WHERE id = ?''',
-            (
-                data.get('nombre', micro['nombre']),
-                data.get('tipo_semana', micro['tipo_semana']),
-                descripcion_id,
-                micro_id
-            )
-        )
-        if 'detalles' in data:
-            execute_db('DELETE FROM plantillas_microciclo_detalle WHERE microciclo_id = ?', (micro_id,))
-            detalles = data.get('detalles') or []
-            for detalle in detalles:
-                entrenamiento_id = detalle.get('entrenamiento_id')
-                try:
-                    entrenamiento_id = int(entrenamiento_id)
-                except (TypeError, ValueError):
-                    return jsonify({'error': 'Entrenamiento de plantilla inválido'}), 400
-                if not plantilla_entrenamiento_existe(entrenamiento_id):
-                    return jsonify({'error': 'Entrenamiento de plantilla inválido'}), 400
-                try:
-                    dia = int(detalle.get('dia_semana') or detalle.get('dia') or 1)
-                except (TypeError, ValueError):
-                    dia = 1
-                dia = min(7, max(1, dia))
-                try:
-                    sesion = int(detalle.get('sesion') or detalle.get('sesion_indice') or 1)
-                except (TypeError, ValueError):
-                    sesion = 1
-                sesion = min(3, max(1, sesion))
-                try:
-                    orden = int(detalle.get('orden') or 1)
-                except (TypeError, ValueError):
-                    orden = 1
-                execute_db(
-                    '''INSERT INTO plantillas_microciclo_detalle
-                       (microciclo_id, dia_semana, orden, sesion, entrenamiento_id)
-                       VALUES (?, ?, ?, ?, ?)''',
-                    (micro_id, dia, orden, sesion, entrenamiento_id)
-                )
-        return jsonify({'message': 'Microciclo actualizado'}), 200
-
-    eliminar_descripcion(micro['descripcion_id'])
-    try:
-        execute_db('DELETE FROM plantillas_microciclos WHERE id = ?', (micro_id,))
-    except sqlite3.IntegrityError:
-        return jsonify({'error': 'No se puede eliminar: está siendo usado por un mesociclo'}), 400
-    return jsonify({'message': 'Microciclo eliminado'}), 200
-
-
-def obtener_relacion_mesociclo(meso_id):
-    return query_db(
-        '''SELECT r.*, pm.nombre AS micro_nombre
-           FROM plantillas_mesociclo_microciclos r
-           JOIN plantillas_microciclos pm ON r.microciclo_id = pm.id
-           WHERE r.mesociclo_id = ?
-           ORDER BY r.orden_semana''',
-        (meso_id,)
-    )
-
-
-@app.route('/plantillas/mesociclos', methods=['GET', 'POST'])
-@requires_roles('entrenador')
-def plantillas_mesociclos(current_user):
-    entrenador_id = current_user['id']
-    if request.method == 'GET':
-        registros = query_db(
-            '''SELECT pm.*, td.contenido AS descripcion
-               FROM plantillas_mesociclos pm
-               LEFT JOIN textos_descriptivos td ON pm.descripcion_id = td.id
-               WHERE pm.entrenador_id = ?
-               ORDER BY pm.id DESC''',
-            (entrenador_id,)
-        )
-        resultado = []
-        for registro in registros:
-            item = dict(registro)
-            item['microciclos'] = [dict(r) for r in obtener_relacion_mesociclo(registro['id'])]
-            resultado.append(item)
-        return jsonify(resultado), 200
-
-    data = request.get_json() or {}
-    nombre = (data.get('nombre') or '').strip()
-    if not nombre:
-        return jsonify({'error': 'El nombre es obligatorio'}), 400
-
-    descripcion_id = crear_descripcion(data.get('descripcion'))
-    new_id = execute_db_returning_id(
-        '''INSERT INTO plantillas_mesociclos (entrenador_id, nombre, tipo_bloque, descripcion_id)
-           VALUES (?, ?, ?, ?)''',
-        (entrenador_id, nombre, data.get('tipo_bloque'), descripcion_id)
-    )
-
-    micro_entries = data.get('microciclos') or []
-    normalizados = []
-    for item in micro_entries:
-        if isinstance(item, dict):
-            micro_id = item.get('microciclo_id') or item.get('id')
-        else:
-            micro_id = item
-        try:
-            micro_id = int(micro_id)
-        except (TypeError, ValueError):
-            return jsonify({'error': 'Identificador de microciclo inválido'}), 400
-        normalizados.append(micro_id)
-
-    for idx, micro_id in enumerate(normalizados, start=1):
-        if not micro_pertenece_entrenador(micro_id, entrenador_id):
-            return jsonify({'error': f'Microciclo {micro_id} no pertenece al entrenador'}), 400
-        execute_db(
-            '''INSERT INTO plantillas_mesociclo_microciclos (mesociclo_id, microciclo_id, orden_semana)
-               VALUES (?, ?, ?)''',
-            (new_id, micro_id, idx)
-        )
-
-    return jsonify({'id': new_id}), 201
-
-
-@app.route('/plantillas/mesociclos/<int:meso_id>', methods=['GET', 'PUT', 'DELETE'])
-@requires_roles('entrenador')
-def plantilla_mesociclo_detalle(current_user, meso_id):
-    entrenador_id = current_user['id']
-    meso = get_plantilla_meso(meso_id, entrenador_id)
-    if not meso:
-        return jsonify({'error': 'Mesociclo no encontrado'}), 404
-
-    if request.method == 'GET':
-        registro = dict(meso)
-        registro['microciclos'] = [dict(r) for r in obtener_relacion_mesociclo(meso_id)]
-        return jsonify(registro), 200
-
-    if request.method == 'PUT':
-        data = request.get_json() or {}
-        descripcion_id = actualizar_descripcion(meso['descripcion_id'], data.get('descripcion'))
-        execute_db(
-            '''UPDATE plantillas_mesociclos
-               SET nombre = ?, tipo_bloque = ?, descripcion_id = ?
-               WHERE id = ?''',
-            (
-                data.get('nombre', meso['nombre']),
-                data.get('tipo_bloque', meso['tipo_bloque']),
-                descripcion_id,
-                meso_id
-            )
-        )
-        if 'microciclos' in data:
-            execute_db('DELETE FROM plantillas_mesociclo_microciclos WHERE mesociclo_id = ?', (meso_id,))
-            micro_entries = data.get('microciclos') or []
-            normalizados = []
-            for item in micro_entries:
-                if isinstance(item, dict):
-                    micro_id = item.get('microciclo_id') or item.get('id')
-                else:
-                    micro_id = item
-                try:
-                    micro_id = int(micro_id)
-                except (TypeError, ValueError):
-                    return jsonify({'error': 'Identificador de microciclo inválido'}), 400
-                normalizados.append(micro_id)
-            for idx, micro_id in enumerate(normalizados, start=1):
-                if not micro_pertenece_entrenador(micro_id, entrenador_id):
-                    return jsonify({'error': f'Microciclo {micro_id} no pertenece al entrenador'}), 400
-                execute_db(
-                    '''INSERT INTO plantillas_mesociclo_microciclos (mesociclo_id, microciclo_id, orden_semana)
-                       VALUES (?, ?, ?)''',
-                    (meso_id, micro_id, idx)
-                )
-        return jsonify({'message': 'Mesociclo actualizado'}), 200
-
-    eliminar_descripcion(meso['descripcion_id'])
-    try:
-        execute_db('DELETE FROM plantillas_mesociclos WHERE id = ?', (meso_id,))
-    except sqlite3.IntegrityError:
-        return jsonify({'error': 'No se puede eliminar: está siendo usado por un macrociclo'}), 400
-    return jsonify({'message': 'Mesociclo eliminado'}), 200
-
-
-def obtener_relacion_macrociclo(macro_id):
-    return query_db(
-        '''SELECT r.*, pm.nombre AS meso_nombre
-           FROM plantillas_macrociclo_mesociclos r
-           JOIN plantillas_mesociclos pm ON r.mesociclo_id = pm.id
-           WHERE r.macrociclo_id = ?
-           ORDER BY r.orden_bloque''',
-        (macro_id,)
-    )
-
-
-@app.route('/plantillas/macrociclos', methods=['GET', 'POST'])
-@requires_roles('entrenador')
-def plantillas_macrociclos(current_user):
-    entrenador_id = current_user['id']
-    if request.method == 'GET':
-        registros = query_db(
-            '''SELECT pm.*, td.contenido AS descripcion
-               FROM plantillas_macrociclos pm
-               LEFT JOIN textos_descriptivos td ON pm.descripcion_id = td.id
-               WHERE pm.entrenador_id = ?
-               ORDER BY pm.id DESC''',
-            (entrenador_id,)
-        )
-        resultado = []
-        for registro in registros:
-            item = dict(registro)
-            item['mesociclos'] = [dict(r) for r in obtener_relacion_macrociclo(registro['id'])]
-            resultado.append(item)
-        return jsonify(resultado), 200
-
-    data = request.get_json() or {}
-    nombre = (data.get('nombre') or '').strip()
-    if not nombre:
-        return jsonify({'error': 'El nombre es obligatorio'}), 400
-
-    descripcion_id = crear_descripcion(data.get('descripcion'))
-    new_id = execute_db_returning_id(
-        '''INSERT INTO plantillas_macrociclos
-           (entrenador_id, nombre, objetivo_principal, descripcion_id, duracion_semanas)
-           VALUES (?, ?, ?, ?, ?)''',
-        (
-            entrenador_id,
-            nombre,
-            data.get('objetivo_principal'),
-            descripcion_id,
-            data.get('duracion_semanas')
-        )
-    )
-
-    meso_entries = data.get('mesociclos') or []
-    normalizados = []
-    for item in meso_entries:
-        if isinstance(item, dict):
-            meso_id = item.get('mesociclo_id') or item.get('id')
-        else:
-            meso_id = item
-        try:
-            meso_id = int(meso_id)
-        except (TypeError, ValueError):
-            return jsonify({'error': 'Identificador de mesociclo inválido'}), 400
-        normalizados.append(meso_id)
-
-    for idx, meso_id in enumerate(normalizados, start=1):
-        if not meso_pertenece_entrenador(meso_id, entrenador_id):
-            return jsonify({'error': f'Mesociclo {meso_id} no pertenece al entrenador'}), 400
-        execute_db(
-            '''INSERT INTO plantillas_macrociclo_mesociclos (macrociclo_id, mesociclo_id, orden_bloque)
-               VALUES (?, ?, ?)''',
-            (new_id, meso_id, idx)
-        )
-
-    return jsonify({'id': new_id}), 201
-
-
-@app.route('/plantillas/macrociclos/<int:macro_id>', methods=['GET', 'PUT', 'DELETE'])
-@requires_roles('entrenador')
-def plantilla_macrociclo_detalle(current_user, macro_id):
-    entrenador_id = current_user['id']
-    macro = get_plantilla_macro(macro_id, entrenador_id)
-    if not macro:
-        return jsonify({'error': 'Macrociclo no encontrado'}), 404
-
-    if request.method == 'GET':
-        registro = dict(macro)
-        registro['mesociclos'] = [dict(r) for r in obtener_relacion_macrociclo(macro_id)]
-        return jsonify(registro), 200
-
-    if request.method == 'PUT':
-        data = request.get_json() or {}
-        descripcion_id = actualizar_descripcion(macro['descripcion_id'], data.get('descripcion'))
-        execute_db(
-            '''UPDATE plantillas_macrociclos
-               SET nombre = ?, objetivo_principal = ?, descripcion_id = ?, duracion_semanas = ?
-               WHERE id = ?''',
-            (
-                data.get('nombre', macro['nombre']),
-                data.get('objetivo_principal', macro['objetivo_principal']),
-                descripcion_id,
-                data.get('duracion_semanas', macro['duracion_semanas']),
-                macro_id
-            )
-        )
-        if 'mesociclos' in data:
-            execute_db('DELETE FROM plantillas_macrociclo_mesociclos WHERE macrociclo_id = ?', (macro_id,))
-            meso_entries = data.get('mesociclos') or []
-            normalizados = []
-            for item in meso_entries:
-                if isinstance(item, dict):
-                    meso_id = item.get('mesociclo_id') or item.get('id')
-                else:
-                    meso_id = item
-                try:
-                    meso_id = int(meso_id)
-                except (TypeError, ValueError):
-                    return jsonify({'error': 'Identificador de mesociclo inválido'}), 400
-                normalizados.append(meso_id)
-            for idx, meso_id in enumerate(normalizados, start=1):
-                if not meso_pertenece_entrenador(meso_id, entrenador_id):
-                    return jsonify({'error': f'Mesociclo {meso_id} no pertenece al entrenador'}), 400
-                execute_db(
-                    '''INSERT INTO plantillas_macrociclo_mesociclos (macrociclo_id, mesociclo_id, orden_bloque)
-                       VALUES (?, ?, ?)''',
-                    (macro_id, meso_id, idx)
-                )
-        return jsonify({'message': 'Macrociclo actualizado'}), 200
-
-    eliminar_descripcion(macro['descripcion_id'])
-    try:
-        execute_db('DELETE FROM plantillas_macrociclos WHERE id = ?', (macro_id,))
-    except sqlite3.IntegrityError:
-        return jsonify({'error': 'No se puede eliminar: está asignado o tiene dependencias'}), 400
-    return jsonify({'message': 'Macrociclo eliminado'}), 200
-
-
-@app.route('/macrociclos', methods=['GET', 'POST'])
-@requires_roles('entrenador')
-def gestionar_macrociclos(current_user):
-    entrenador_id = current_user['id']
-    if request.method == 'GET':
-        macros = query_db(
-            'SELECT * FROM macrociclos WHERE entrenador_id = ? ORDER BY fecha_inicio',
-            (entrenador_id,)
-        )
-        return jsonify([dict(m) for m in macros]), 200
-
-    data = request.get_json() or {}
-    nombre = data.get('nombre')
-    fecha_inicio = data.get('fecha_inicio')
-    fecha_fin = data.get('fecha_fin')
-    objetivo = data.get('objetivo_general')
-    notas = data.get('notas')
-
-    if not nombre or not fecha_inicio or not fecha_fin:
-        return jsonify({'error': 'Nombre y fechas son obligatorios'}), 400
-
-    new_id = execute_db_returning_id(
-        '''INSERT INTO macrociclos (entrenador_id, nombre, objetivo_general, fecha_inicio, fecha_fin, notas)
-           VALUES (?, ?, ?, ?, ?, ?)''',
-        (entrenador_id, nombre, objetivo, fecha_inicio, fecha_fin, notas)
-    )
-    return jsonify({'id': new_id, 'message': 'Macrociclo creado'}), 201
-
-
-@app.route('/macrociclos/<int:macrociclo_id>', methods=['GET', 'PUT', 'DELETE'])
-@requires_roles('entrenador')
-def macrociclo_detalle(current_user, macrociclo_id):
-    entrenador_id = current_user['id']
-    macrociclo = get_macrociclo(macrociclo_id, entrenador_id)
-    if not macrociclo:
-        return jsonify({'error': 'Macrociclo no encontrado'}), 404
-
-    if request.method == 'GET':
-        return jsonify(dict(macrociclo)), 200
-
-    if request.method == 'PUT':
-        data = request.get_json() or {}
-        execute_db(
-            '''UPDATE macrociclos
-               SET nombre = ?, objetivo_general = ?, fecha_inicio = ?, fecha_fin = ?, notas = ?
-               WHERE id = ?''',
-            (
-                data.get('nombre', macrociclo['nombre']),
-                data.get('objetivo_general', macrociclo['objetivo_general']),
-                data.get('fecha_inicio', macrociclo['fecha_inicio']),
-                data.get('fecha_fin', macrociclo['fecha_fin']),
-                data.get('notas', macrociclo['notas']),
-                macrociclo_id
-            )
-        )
-        return jsonify({'message': 'Macrociclo actualizado'}), 200
-
-    execute_db('DELETE FROM macrociclos WHERE id = ?', (macrociclo_id,))
-    return jsonify({'message': 'Macrociclo eliminado'}), 200
-
-
-@app.route('/mesociclos', methods=['GET', 'POST'])
-@requires_roles('entrenador')
-def gestionar_mesociclos(current_user):
-    entrenador_id = current_user['id']
-    if request.method == 'GET':
-        macrociclo_id = request.args.get('macrociclo_id')
-        if macrociclo_id:
-            if not get_macrociclo(int(macrociclo_id), entrenador_id):
-                return jsonify({'error': 'Macrociclo no encontrado'}), 404
-            meso = query_db(
-                'SELECT * FROM mesociclos WHERE macrociclo_id = ? ORDER BY fecha_inicio',
-                (macrociclo_id,)
-            )
-        else:
-            meso = query_db(
-                '''SELECT me.* FROM mesociclos me
-                   JOIN macrociclos ma ON me.macrociclo_id = ma.id
-                   WHERE ma.entrenador_id = ?
-                   ORDER BY me.fecha_inicio''',
-                (entrenador_id,)
-            )
-        return jsonify([dict(m) for m in meso]), 200
-
-    data = request.get_json() or {}
-    macrociclo_id = data.get('macrociclo_id')
-    if not macrociclo_id or not get_macrociclo(macrociclo_id, entrenador_id):
-        return jsonify({'error': 'Macrociclo inválido'}), 400
-
-    nombre = data.get('nombre')
-    fecha_inicio = data.get('fecha_inicio')
-    fecha_fin = data.get('fecha_fin')
-    if not nombre or not fecha_inicio or not fecha_fin:
-        return jsonify({'error': 'Nombre y fechas son obligatorios'}), 400
-
-    new_id = execute_db_returning_id(
-        '''INSERT INTO mesociclos (macrociclo_id, nombre, objetivo, fecha_inicio, fecha_fin, notas)
-           VALUES (?, ?, ?, ?, ?, ?)''',
-        (macrociclo_id, nombre, data.get('objetivo'), fecha_inicio, fecha_fin, data.get('notas'))
-    )
-    return jsonify({'id': new_id, 'message': 'Mesociclo creado'}), 201
-
-
-@app.route('/mesociclos/<int:mesociclo_id>', methods=['GET', 'PUT', 'DELETE'])
-@requires_roles('entrenador')
-def mesociclo_detalle(current_user, mesociclo_id):
-    entrenador_id = current_user['id']
-    mesociclo = get_mesociclo(mesociclo_id, entrenador_id)
-    if not mesociclo:
-        return jsonify({'error': 'Mesociclo no encontrado'}), 404
-
-    if request.method == 'GET':
-        return jsonify(dict(mesociclo)), 200
-
-    if request.method == 'PUT':
-        data = request.get_json() or {}
-        execute_db(
-            '''UPDATE mesociclos
-               SET nombre = ?, objetivo = ?, fecha_inicio = ?, fecha_fin = ?, notas = ?
-               WHERE id = ?''',
-            (
-                data.get('nombre', mesociclo['nombre']),
-                data.get('objetivo', mesociclo['objetivo']),
-                data.get('fecha_inicio', mesociclo['fecha_inicio']),
-                data.get('fecha_fin', mesociclo['fecha_fin']),
-                data.get('notas', mesociclo['notas']),
-                mesociclo_id
-            )
-        )
-        return jsonify({'message': 'Mesociclo actualizado'}), 200
-
-    execute_db('DELETE FROM mesociclos WHERE id = ?', (mesociclo_id,))
-    return jsonify({'message': 'Mesociclo eliminado'}), 200
-
-
-@app.route('/microciclos', methods=['GET', 'POST'])
-@requires_roles('entrenador')
-def gestionar_microciclos(current_user):
-    entrenador_id = current_user['id']
-    if request.method == 'GET':
-        mesociclo_id = request.args.get('mesociclo_id')
-        if mesociclo_id:
-            if not get_mesociclo(int(mesociclo_id), entrenador_id):
-                return jsonify({'error': 'Mesociclo no encontrado'}), 404
-            micros = query_db(
-                'SELECT * FROM microciclos WHERE mesociclo_id = ? ORDER BY fecha_inicio',
-                (mesociclo_id,)
-            )
-        else:
-            micros = query_db(
-                '''SELECT mi.* FROM microciclos mi
-                   JOIN mesociclos me ON mi.mesociclo_id = me.id
-                   JOIN macrociclos ma ON me.macrociclo_id = ma.id
-                   WHERE ma.entrenador_id = ?
-                   ORDER BY mi.fecha_inicio''',
-                (entrenador_id,)
-            )
-        return jsonify([dict(m) for m in micros]), 200
-
-    data = request.get_json() or {}
-    mesociclo_id = data.get('mesociclo_id')
-    if not mesociclo_id or not get_mesociclo(mesociclo_id, entrenador_id):
-        return jsonify({'error': 'Mesociclo inválido'}), 400
-
-    nombre = data.get('nombre')
-    fecha_inicio = data.get('fecha_inicio')
-    fecha_fin = data.get('fecha_fin')
-    if not nombre or not fecha_inicio or not fecha_fin:
-        return jsonify({'error': 'Nombre y fechas son obligatorios'}), 400
-
-    new_id = execute_db_returning_id(
-        '''INSERT INTO microciclos (mesociclo_id, nombre, objetivo, fecha_inicio, fecha_fin, notas)
-           VALUES (?, ?, ?, ?, ?, ?)''',
-        (mesociclo_id, nombre, data.get('objetivo'), fecha_inicio, fecha_fin, data.get('notas'))
-    )
-    return jsonify({'id': new_id, 'message': 'Microciclo creado'}), 201
-
-
-@app.route('/microciclos/<int:microciclo_id>', methods=['GET', 'PUT', 'DELETE'])
-@requires_roles('entrenador')
-def microciclo_detalle(current_user, microciclo_id):
-    entrenador_id = current_user['id']
-    microciclo = get_microciclo(microciclo_id, entrenador_id)
-    if not microciclo:
-        return jsonify({'error': 'Microciclo no encontrado'}), 404
-
-    if request.method == 'GET':
-        return jsonify(dict(microciclo)), 200
-
-    if request.method == 'PUT':
-        data = request.get_json() or {}
-        execute_db(
-            '''UPDATE microciclos
-               SET nombre = ?, objetivo = ?, fecha_inicio = ?, fecha_fin = ?, notas = ?
-               WHERE id = ?''',
-            (
-                data.get('nombre', microciclo['nombre']),
-                data.get('objetivo', microciclo['objetivo']),
-                data.get('fecha_inicio', microciclo['fecha_inicio']),
-                data.get('fecha_fin', microciclo['fecha_fin']),
-                data.get('notas', microciclo['notas']),
-                microciclo_id
-            )
-        )
-        return jsonify({'message': 'Microciclo actualizado'}), 200
-
-    execute_db('DELETE FROM microciclos WHERE id = ?', (microciclo_id,))
-    return jsonify({'message': 'Microciclo eliminado'}), 200
-
-
-def validar_tipo_ciclo(tipo):
-    if tipo not in CYCLE_TABLES:
-        return False
-    return True
-
-
-@app.route('/ciclos/<tipo>/<int:ciclo_id>/entrenamientos', methods=['GET', 'POST'])
-@requires_roles('entrenador')
-def entrenamientos_por_ciclo(current_user, tipo, ciclo_id):
-    tipo = tipo.lower()
-    if not validar_tipo_ciclo(tipo):
-        return jsonify({'error': 'Tipo de ciclo inválido'}), 400
-    if not get_ciclo(tipo, ciclo_id, current_user['id']):
-        return jsonify({'error': 'Ciclo no encontrado'}), 404
-
-    if request.method == 'GET':
-        registros = query_db(
-            '''SELECT ce.*, e.nombre AS entrenamiento_nombre
-               FROM ciclo_entrenamientos ce
-               JOIN entrenamientos e ON ce.entrenamiento_id = e.id
-               WHERE ce.tipo_ciclo = ? AND ce.ciclo_id = ?
-               ORDER BY COALESCE(ce.dia_relativo, ce.orden, ce.id),
-                        COALESCE(ce.sesion_indice, 1),
-                        COALESCE(ce.orden, ce.id)''',
-            (tipo, ciclo_id)
-        )
-        return jsonify([dict(r) for r in registros]), 200
-
-    data = request.get_json() or {}
-    entrenamiento_id = data.get('entrenamiento_id')
-    if not entrenamiento_id or not entrenamiento_existe(entrenamiento_id):
-        return jsonify({'error': 'Entrenamiento inválido'}), 400
-
-    sesion_indice = data.get('sesion_indice', 1)
-    try:
-        sesion_indice = int(sesion_indice)
-    except (TypeError, ValueError):
-        return jsonify({'error': 'Sesión inválida'}), 400
-    if sesion_indice < 1 or sesion_indice > 3:
-        return jsonify({'error': 'La sesión debe estar entre 1 y 3'}), 400
-
-    dia_relativo = data.get('dia_relativo')
-    if dia_relativo is not None and dia_relativo != '':
-        try:
-            dia_relativo = int(dia_relativo)
-        except (TypeError, ValueError):
-            return jsonify({'error': 'Día relativo inválido'}), 400
-    else:
-        dia_relativo = None
-
-    new_id = execute_db_returning_id(
-        '''INSERT INTO ciclo_entrenamientos
-           (tipo_ciclo, ciclo_id, entrenamiento_id, orden, dia_relativo, sesion_indice, notas)
-           VALUES (?, ?, ?, ?, ?, ?, ?)''',
-        (
-            tipo,
-            ciclo_id,
-            entrenamiento_id,
-            data.get('orden'),
-            dia_relativo,
-            sesion_indice,
-            data.get('notas')
-        )
-    )
-    return jsonify({'id': new_id, 'message': 'Entrenamiento agregado al ciclo'}), 201
-
-
-@app.route('/ciclos/<tipo>/<int:ciclo_id>/entrenamientos/<int:registro_id>', methods=['DELETE'])
-@requires_roles('entrenador')
-def eliminar_entrenamiento_ciclo(current_user, tipo, ciclo_id, registro_id):
-    tipo = tipo.lower()
-    if not validar_tipo_ciclo(tipo):
-        return jsonify({'error': 'Tipo de ciclo inválido'}), 400
-    if not get_ciclo(tipo, ciclo_id, current_user['id']):
-        return jsonify({'error': 'Ciclo no encontrado'}), 404
-
-    execute_db(
-        'DELETE FROM ciclo_entrenamientos WHERE id = ? AND tipo_ciclo = ? AND ciclo_id = ?',
-        (registro_id, tipo, ciclo_id)
-    )
-    return jsonify({'message': 'Entrenamiento eliminado del ciclo'}), 200
-
-
-@app.route('/ciclos/<tipo>/<int:ciclo_id>/asignaciones', methods=['GET', 'POST'])
-@requires_roles('entrenador')
-def asignaciones_ciclo(current_user, tipo, ciclo_id):
-    tipo = tipo.lower()
-    if not validar_tipo_ciclo(tipo):
-        return jsonify({'error': 'Tipo de ciclo inválido'}), 400
-    ciclo = get_ciclo(tipo, ciclo_id, current_user['id'])
-    if not ciclo:
-        return jsonify({'error': 'Ciclo no encontrado'}), 404
-    ciclo = dict(ciclo)
-
-    if request.method == 'GET':
-        asignaciones = query_db(
-            '''SELECT ca.*, u.nombre || ' ' || u.apellidos AS atleta
-               FROM ciclo_asignaciones ca
-               JOIN usuarios u ON ca.atleta_id = u.id
-               WHERE ca.tipo_ciclo = ? AND ca.ciclo_id = ?
-               ORDER BY ca.fecha_inicio_real''',
-            (tipo, ciclo_id)
-        )
-        return jsonify([dict(a) for a in asignaciones]), 200
-
-    data = request.get_json() or {}
-    atletas = data.get('atleta_ids') or []
-    if not atletas and data.get('atleta_id'):
-        atletas = [data.get('atleta_id')]
-    fecha_inicio = data.get('fecha_inicio_real')
-    anclar_en = (data.get('anclar_en') or 'inicio').lower()
-    if not fecha_inicio:
-        return jsonify({'error': 'Debes indicar atletas y fecha de inicio'}), 400
-    if anclar_en not in ('inicio', 'fin'):
-        anclar_en = 'inicio'
-    fecha_inicio_real = calcular_inicio_por_anclaje(tipo, ciclo, fecha_inicio, anclar_en)
-    if not atletas or not fecha_inicio:
-        return jsonify({'error': 'Debes indicar atletas y fecha de inicio'}), 400
-
-    created = []
-    for atleta_id in atletas:
-        if not entrenador_asociado(atleta_id, current_user['id']):
-            return jsonify({'error': 'Uno de los atletas no pertenece a este entrenador'}), 400
-        new_id = execute_db_returning_id(
-            '''INSERT INTO ciclo_asignaciones (tipo_ciclo, ciclo_id, atleta_id, fecha_inicio_real, estado, notas)
-               VALUES (?, ?, ?, ?, ?, ?)''',
-            (
-                tipo,
-                ciclo_id,
-                atleta_id,
-                fecha_inicio_real,
-                data.get('estado', 'planificado'),
-                data.get('notas')
-            )
-        )
-        expandir_ciclo_y_generar_entrenamientos(tipo, ciclo_id, atleta_id, fecha_inicio_real)
-        created.append(new_id)
-    return jsonify({'ids': created, 'message': 'Ciclo asignado'}), 201
-
-
-@app.route('/ciclos/<tipo>/<int:ciclo_id>/asignaciones/<int:asignacion_id>', methods=['PUT', 'DELETE'])
-@requires_roles('entrenador')
-def asignacion_detalle(current_user, tipo, ciclo_id, asignacion_id):
-    tipo = tipo.lower()
-    if not validar_tipo_ciclo(tipo):
-        return jsonify({'error': 'Tipo de ciclo inválido'}), 400
-    if not get_ciclo(tipo, ciclo_id, current_user['id']):
-        return jsonify({'error': 'Ciclo no encontrado'}), 404
-
-    asignacion = query_db(
-        '''SELECT ca.*
-           FROM ciclo_asignaciones ca
-           WHERE ca.id = ? AND ca.tipo_ciclo = ? AND ca.ciclo_id = ?''',
-        (asignacion_id, tipo, ciclo_id),
-        one=True
-    )
-    if not asignacion:
-        return jsonify({'error': 'Asignación no encontrada'}), 404
-
-    if request.method == 'DELETE':
-        if tipo == 'micro':
-            execute_db(
-                '''DELETE FROM entrenamientos_asignados
-                   WHERE atleta_id = ? AND ciclo_tipo = ? AND ciclo_id = ?''',
-                (asignacion['atleta_id'], 'micro', ciclo_id)
-            )
-        elif tipo == 'meso':
-            execute_db(
-                '''DELETE FROM entrenamientos_asignados
-                   WHERE atleta_id = ? AND mesociclo_id = ?''',
-                (asignacion['atleta_id'], ciclo_id)
-            )
-        elif tipo == 'macro':
-            execute_db(
-                '''DELETE FROM entrenamientos_asignados
-                   WHERE atleta_id = ? AND macrociclo_id = ?''',
-                (asignacion['atleta_id'], ciclo_id)
-            )
-        execute_db('DELETE FROM ciclo_asignaciones WHERE id = ?', (asignacion_id,))
-        return jsonify({'message': 'Asignación eliminada'}), 200
-
-    data = request.get_json() or {}
-    nueva_fecha = data.get('fecha_inicio_real', asignacion['fecha_inicio_real'])
-    nuevo_estado = data.get('estado', asignacion['estado'])
-    nuevas_notas = data.get('notas', asignacion['notas'])
-
-    execute_db(
-        '''UPDATE ciclo_asignaciones
-           SET fecha_inicio_real = ?, estado = ?, notas = ?
-           WHERE id = ?''',
-        (
-            nueva_fecha,
-            nuevo_estado,
-            nuevas_notas,
-            asignacion_id
-        )
-    )
-    expandir_ciclo_y_generar_entrenamientos(tipo, ciclo_id, asignacion['atleta_id'], nueva_fecha)
-
-    return jsonify({'message': 'Asignación actualizada'}), 200
-
-
-@app.route('/plantillas/ciclos/<tipo>/<int:ciclo_id>/asignaciones', methods=['POST'])
-@requires_roles('entrenador')
-def asignar_ciclo_plantilla(current_user, tipo, ciclo_id):
-    tipo = tipo.lower()
-    if tipo not in ('micro', 'meso', 'macro'):
-        return jsonify({'error': 'Tipo de ciclo inválido'}), 400
-
-    if tipo == 'micro':
-        plantilla = get_plantilla_micro(ciclo_id, current_user['id'])
-    elif tipo == 'meso':
-        plantilla = get_plantilla_meso(ciclo_id, current_user['id'])
-    else:
-        plantilla = get_plantilla_macro(ciclo_id, current_user['id'])
-
-    if not plantilla:
-        return jsonify({'error': 'Plantilla no encontrada'}), 404
-
-    data = request.get_json() or {}
-    atletas = data.get('atleta_ids') or []
-    if not atletas and data.get('atleta_id'):
-        atletas = [data.get('atleta_id')]
-    fecha_ref = data.get('fecha_inicio_real')
-    if not atletas or not fecha_ref:
-        return jsonify({'error': 'Debes indicar atletas y fecha'}), 400
-
-    anclar_en = (data.get('anclar_en') or 'inicio').lower()
-    fecha_inicio = calcular_inicio_plantilla(tipo, plantilla, fecha_ref, anclar_en)
-
-    created = []
-    for atleta_id in atletas:
-        if not entrenador_asociado(atleta_id, current_user['id']):
-            return jsonify({'error': 'Uno de los atletas no pertenece a este entrenador'}), 400
-
-        if tipo == 'micro':
-            expandir_plantilla_micro(ciclo_id, atleta_id, fecha_inicio)
-        elif tipo == 'meso':
-            expandir_plantilla_meso(ciclo_id, atleta_id, fecha_inicio)
-        else:
-            expandir_plantilla_macro(ciclo_id, atleta_id, fecha_inicio)
-
-        asignacion_id = execute_db_returning_id(
-            '''INSERT INTO ciclo_asignaciones (tipo_ciclo, ciclo_id, atleta_id, fecha_inicio_real, estado, notas)
-               VALUES (?, ?, ?, ?, ?, ?)''',
-            (
-                tipo,
-                ciclo_id,
-                atleta_id,
-                fecha_inicio,
-                data.get('estado', 'planificado'),
-                data.get('notas')
-            )
-        )
-        created.append(asignacion_id)
-    return jsonify({'ids': created, 'message': 'Ciclo de plantilla asignado'}), 201
-
-
-def init_db():
-    with app.app_context():
-        db = get_db()
-        with open('schema.sql', 'r') as f:
-            db.cursor().executescript(f.read())
-        db.commit()
-
-
-@app.cli.command('initdb')
-def initdb_command():
-    """Initializes the database."""
-    init_db()
-    print('Initialized the database.')
-
-
-def _insert_descripcion(conn, *partes):
-    texto = "\n\n".join([p.strip() for p in partes if p and str(p).strip()])
-    if not texto:
-        return None
-    cursor = conn.execute(
-        "INSERT INTO textos_descriptivos (contenido) VALUES (?)",
-        (texto,)
-    )
-    return cursor.lastrowid
-
-
-def migrate_to_templates():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    try:
-        for tabla in (
-            'plantillas_entrenamientos',
-            'plantillas_microciclos',
-            'plantillas_mesociclos',
-            'plantillas_macrociclos'
-        ):
-            count = conn.execute(f"SELECT COUNT(*) FROM {tabla}").fetchone()[0]
-            if count:
-                print(f"La tabla {tabla} ya contiene datos. Aborta la migración para evitar duplicados.")
-                return
-
-        entrenamiento_map = {}
-        entrenamientos = conn.execute("SELECT * FROM entrenamientos").fetchall()
-        for ent in entrenamientos:
-            desc_id = _insert_descripcion(
-                conn,
-                ent['calentamiento_tipo'] and f"Calentamiento: {ent['calentamiento_tipo']} {ent['calentamiento_valor'] or ''}",
-                ent['bloque_activacion'] and f"Bloque de activación:\n{ent['bloque_activacion']}",
-                ent['bloque_principal'] and f"Bloque principal:\n{ent['bloque_principal']}",
-                ent['enfriamiento_tipo'] and f"Enfriamiento: {ent['enfriamiento_tipo']} {ent['enfriamiento_valor'] or ''}"
-            )
-            cursor = conn.execute(
-                '''INSERT INTO plantillas_entrenamientos
-                   (codigo, nombre, descripcion_id, categoria, intensidad, duracion_referencia, tipo_duracion)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)''',
-                (
-                    f"ENT-{ent['id']}",
-                    ent['nombre'],
-                    desc_id,
-                    None,
-                    None,
-                    ent['duracion_valor'],
-                    ent['duracion_tipo']
-                )
-            )
-            entrenamiento_map[ent['id']] = cursor.lastrowid
-
-        micro_map = {}
-        micro_rows = conn.execute(
-            '''
-            SELECT mi.*, me.macrociclo_id, ma.entrenador_id
-            FROM microciclos mi
-            JOIN mesociclos me ON mi.mesociclo_id = me.id
-            JOIN macrociclos ma ON me.macrociclo_id = ma.id
-            '''
-        ).fetchall()
-
-        for mi in micro_rows:
-            desc_id = _insert_descripcion(conn, mi['objetivo'], mi['notas'])
-            cursor = conn.execute(
-                '''INSERT INTO plantillas_microciclos (entrenador_id, nombre, tipo_semana, descripcion_id)
-                   VALUES (?, ?, ?, ?)''',
-                (mi['entrenador_id'], mi['nombre'], mi['objetivo'], desc_id)
-            )
-            new_micro_id = cursor.lastrowid
-            micro_map[mi['id']] = new_micro_id
-
-            detalles = conn.execute(
-                '''
-                SELECT *
-                FROM ciclo_entrenamientos
-                WHERE tipo_ciclo = 'micro' AND ciclo_id = ?
-                ORDER BY COALESCE(dia_relativo, orden, id),
-                         COALESCE(sesion_indice, 1),
-                         COALESCE(orden, id)
-                ''',
-                (mi['id'],)
-            ).fetchall()
-
-            orden_por_slot = {}
-            for det in detalles:
-                entrenamiento_id = entrenamiento_map.get(det['entrenamiento_id'])
-                if not entrenamiento_id:
-                    continue
-                dia = det['dia_relativo'] or 1
-                if dia < 1:
-                    dia = 1
-                dia = ((dia - 1) % 7) + 1
-                sesion = det['sesion_indice'] or 1
-                clave = (dia, sesion)
-                orden_por_slot[clave] = orden_por_slot.get(clave, 0) + 1
-                orden = orden_por_slot[clave]
-                conn.execute(
-                    '''INSERT INTO plantillas_microciclo_detalle
-                       (microciclo_id, dia_semana, orden, sesion, entrenamiento_id)
-                       VALUES (?, ?, ?, ?, ?)''',
-                    (new_micro_id, dia, orden, sesion, entrenamiento_id)
-                )
-
-        meso_map = {}
-        meso_rows = conn.execute(
-            '''
-            SELECT me.*, ma.entrenador_id
-            FROM mesociclos me
-            JOIN macrociclos ma ON me.macrociclo_id = ma.id
-            '''
-        ).fetchall()
-
-        for me in meso_rows:
-            desc_id = _insert_descripcion(conn, me['objetivo'], me['notas'])
-            cursor = conn.execute(
-                '''INSERT INTO plantillas_mesociclos (entrenador_id, nombre, tipo_bloque, descripcion_id)
-                   VALUES (?, ?, ?, ?)''',
-                (me['entrenador_id'], me['nombre'], me['objetivo'], desc_id)
-            )
-            new_meso_id = cursor.lastrowid
-            meso_map[me['id']] = new_meso_id
-
-            micros_hijos = conn.execute(
-                'SELECT id FROM microciclos WHERE mesociclo_id = ? ORDER BY fecha_inicio, id',
-                (me['id'],)
-            ).fetchall()
-            for idx, micro in enumerate(micros_hijos, start=1):
-                micro_tpl = micro_map.get(micro['id'])
-                if not micro_tpl:
-                    continue
-                conn.execute(
-                    '''INSERT INTO plantillas_mesociclo_microciclos
-                       (mesociclo_id, microciclo_id, orden_semana)
-                       VALUES (?, ?, ?)''',
-                    (new_meso_id, micro_tpl, idx)
-                )
-
-        macro_map = {}
-        macro_rows = conn.execute('SELECT * FROM macrociclos').fetchall()
-        for ma in macro_rows:
-            desc_id = _insert_descripcion(conn, ma['objetivo_general'], ma['notas'])
-            duracion_semanas = None
-            try:
-                if ma['fecha_inicio'] and ma['fecha_fin']:
-                    inicio = datetime.strptime(ma['fecha_inicio'], "%Y-%m-%d").date()
-                    fin = datetime.strptime(ma['fecha_fin'], "%Y-%m-%d").date()
-                    dias = (fin - inicio).days
-                    duracion_semanas = max(1, dias // 7) if dias > 0 else 1
-            except Exception:
-                pass
-            cursor = conn.execute(
-                '''INSERT INTO plantillas_macrociclos
-                   (entrenador_id, nombre, objetivo_principal, descripcion_id, duracion_semanas)
-                   VALUES (?, ?, ?, ?, ?)''',
-                (ma['entrenador_id'], ma['nombre'], ma['objetivo_general'], desc_id, duracion_semanas)
-            )
-            new_macro_id = cursor.lastrowid
-            macro_map[ma['id']] = new_macro_id
-
-            mesociclos_hijos = conn.execute(
-                'SELECT id FROM mesociclos WHERE macrociclo_id = ? ORDER BY fecha_inicio, id',
-                (ma['id'],)
-            ).fetchall()
-            for idx, meso in enumerate(mesociclos_hijos, start=1):
-                meso_tpl = meso_map.get(meso['id'])
-                if not meso_tpl:
-                    continue
-                conn.execute(
-                    '''INSERT INTO plantillas_macrociclo_mesociclos
-                       (macrociclo_id, mesociclo_id, orden_bloque)
-                       VALUES (?, ?, ?)''',
-                    (new_macro_id, meso_tpl, idx)
-                )
-
-        conn.commit()
-        print(f"Migración completada: {len(entrenamientos)} entrenamientos, {len(micro_rows)} microciclos, "
-              f"{len(meso_rows)} mesociclos y {len(macro_rows)} macrociclos trasladados a plantillas.")
-    finally:
-        conn.close()
-
-
-@app.cli.command('migrar-plantillas')
-def migrar_plantillas_command():
-    """Migra los ciclos existentes hacia las tablas de plantillas."""
-    migrate_to_templates()
 
 
 @app.route('/csrf-token', methods=['GET'])
@@ -2118,14 +255,6 @@ def login_user():
 
     print("Credenciales inválidas")
     return jsonify({'error': 'Credenciales inválidas'}), 401
-
-
-@app.route('/logout', methods=['POST'])
-def logout_user():
-    session.clear()
-    response = jsonify({'message': 'Sesión cerrada'})
-    response.set_cookie(app.config.get("SESSION_COOKIE_NAME", "session"), '', expires=0)
-    return response, 200
 
 # --- Rutas para Usuarios (Gestión - Solo para Admin) ---
 
@@ -2473,6 +602,38 @@ def eliminar_entrenamiento(current_user, id):
 @app.route('/calendario/<int:atleta_id>', methods=['GET'])
 @requires_roles('admin', 'entrenador', 'atleta')
 def get_calendario(current_user, atleta_id):
+    try:
+        # Recuperamos todas las asignaciones del atleta
+        entrenamientos_asignados = query_db(
+            "SELECT id, nombre, fecha, visible FROM entrenamientos_asignados WHERE atleta_id = ?",
+            (atleta_id,)
+        )
+
+        eventos = []
+        for e in entrenamientos_asignados:
+            # visible puede ser None en algunos registros antiguos
+            raw_visible = e["visible"]
+            if raw_visible is None:
+                visible = 1
+            else:
+                try:
+                    visible = int(raw_visible)
+                except:
+                    visible = 1
+
+            eventos.append({
+                "id": e["id"],
+                "title": e["nombre"],
+                "start": e["fecha"],
+                "visible": visible,
+            })
+
+        return jsonify(eventos), 200
+
+    except Exception as ex:
+        print("Error en GET /calendario:", ex)
+        return jsonify({"error": "Error al cargar el calendario"}), 500
+
     print(f'Ruta /calendario/{atleta_id} solicitada')  # Depuración
 
     try:
@@ -2485,10 +646,15 @@ def get_calendario(current_user, atleta_id):
         # Formatear los datos para FullCalendar
         events = []
         for entrenamiento in entrenamientos_asignados:
+            visible = entrenamiento.get('visible')
+            if visible is None:
+                visible = 1  # Por defecto visible si no está definido
+
             events.append({
                 'id': entrenamiento['id'],
                 'title': entrenamiento['nombre'],
-                'start': entrenamiento['fecha']
+                'start': entrenamiento['fecha'],
+                'visible': int(visible),
             })
 
         return jsonify(events), 200
@@ -2754,30 +920,16 @@ def enviar_feedback(current_user):
     data = request.get_json()
     entrenamiento_id = data.get("entrenamiento_id")
     comentario = data.get("comentario")
-    enlace = data.get("enlace")
-    percepcion = data.get("percepcion")
-    tiempo_realizado = data.get("tiempo_realizado")
-    resultado = data.get("resultado")
     atleta_id = current_user['id']
 
     if not entrenamiento_id or not comentario:
         return jsonify({"error": "Entrenamiento y comentario requeridos"}), 400
 
-    if not percepcion or not tiempo_realizado:
-        return jsonify({"error": "Percepción y tiempo realizado son obligatorios"}), 400
-
     try:
         execute_db(
-            '''INSERT INTO feedbacks (
-                   entrenamiento_asignado_id,
-                   atleta_id,
-                   comentario,
-                   enlace,
-                   percepcion,
-                   tiempo_realizado,
-                   resultado
-               ) VALUES (?, ?, ?, ?, ?, ?, ?)''',
-            (entrenamiento_id, atleta_id, comentario, enlace, percepcion, tiempo_realizado, resultado)
+            '''INSERT INTO feedbacks (entrenamiento_asignado_id, atleta_id, comentario) 
+               VALUES (?, ?, ?)''',
+            (entrenamiento_id, atleta_id, comentario)
         )
         return jsonify({"message": "Feedback enviado correctamente"}), 200
     except Exception as e:
@@ -2789,12 +941,19 @@ def enviar_feedback(current_user):
 def feedbacks_no_leidos(current_user):
     try:
         query = '''
-            SELECT f.id, f.comentario, f.enlace, f.percepcion, f.tiempo_realizado, f.resultado,
-                   f.fecha, u.nombre || ' ' || u.apellidos AS atleta, ea.fecha AS fecha_entreno, ea.nombre AS entrenamiento_nombre
+            SELECT
+                f.id,
+                f.comentario,
+                f.fecha,
+                u.nombre || ' ' || u.apellidos AS atleta,
+                ea.fecha AS fecha_entreno
             FROM feedbacks f
-            JOIN usuarios u ON f.atleta_id = u.id
-            JOIN entrenamientos_asignados ea ON f.entrenamiento_asignado_id = ea.id
-            WHERE f.leido = 0 AND u.entrenador_id = ?
+            JOIN usuarios u
+              ON f.atleta_id = u.id
+            LEFT JOIN entrenamientos_asignados ea
+              ON f.entrenamiento_asignado_id = ea.id
+            WHERE f.leido = 0
+              AND u.entrenador_id = ?
             ORDER BY f.fecha DESC
         '''
         resultados = query_db(query, (current_user["id"],))
@@ -2807,8 +966,6 @@ def feedbacks_no_leidos(current_user):
 @requires_roles('entrenador')
 def marcar_feedback_leido(current_user, feedback_id):
     try:
-        if not trainer_owns_feedback(feedback_id, current_user['id']):
-            return jsonify({'error': 'Feedback no encontrado'}), 404
         data = request.get_json(silent=True) or {}
         nuevo_estado = data.get('leido', 1)  # Por defecto marcar como leído
 
@@ -2828,13 +985,11 @@ def ver_feedback(current_user, feedback_id):
     try:
         query = '''
             SELECT f.id, f.comentario, f.fecha, f.leido, f.respuesta,
-                   f.enlace, f.percepcion, f.tiempo_realizado, f.resultado,
                    u.nombre || ' ' || u.apellidos AS atleta,
-                   ea.fecha AS fecha_entreno,
-                   ea.nombre AS entrenamiento_nombre
+                   ea.fecha AS fecha_entreno
             FROM feedbacks f
             JOIN usuarios u ON f.atleta_id = u.id
-            JOIN entrenamientos_asignados ea ON f.entrenamiento_asignado_id = ea.id
+            LEFT JOIN entrenamientos_asignados ea ON f.entrenamiento_asignado_id = ea.id
             WHERE f.id = ? AND u.entrenador_id = ?
         '''
         resultado = query_db(query, (feedback_id, current_user['id']), one=True)
@@ -2850,13 +1005,11 @@ def obtener_todos_los_feedbacks(current_user):
     try:
         query = '''
             SELECT f.id, f.comentario, f.fecha, f.leido, f.respuesta,
-                   f.enlace, f.percepcion, f.tiempo_realizado, f.resultado,
                    u.nombre || ' ' || u.apellidos AS atleta,
-                   ea.fecha AS fecha_entreno,
-                   ea.nombre AS entrenamiento_nombre
+                   ea.fecha AS fecha_entreno
             FROM feedbacks f
             JOIN usuarios u ON f.atleta_id = u.id
-            JOIN entrenamientos_asignados ea ON f.entrenamiento_asignado_id = ea.id
+            LEFT JOIN entrenamientos_asignados ea ON f.entrenamiento_asignado_id = ea.id
             WHERE u.entrenador_id = ?
             ORDER BY f.fecha DESC
         '''
@@ -2876,10 +1029,8 @@ def responder_feedback(current_user, feedback_id):
         return jsonify({'error': 'Respuesta vacía'}), 400
 
     try:
-        if not trainer_owns_feedback(feedback_id, current_user['id']):
-            return jsonify({'error': 'Feedback no encontrado'}), 404
         execute_db(
-            'UPDATE feedbacks SET respuesta = ?, leido = 1 WHERE id = ?',
+            'UPDATE feedbacks SET respuesta = ? WHERE id = ?',
             (respuesta, feedback_id)
         )
         return jsonify({'message': 'Respuesta guardada'}), 200
@@ -2887,44 +1038,26 @@ def responder_feedback(current_user, feedback_id):
         print("Error al guardar respuesta:", e)
         return jsonify({'error': 'Error al guardar respuesta'}), 500
 
-
-@app.route('/mis_feedbacks', methods=['GET'])
-@requires_roles('atleta')
-def mis_feedbacks(current_user):
-    try:
-        query = '''
-            SELECT f.id, f.comentario, f.fecha, f.leido, f.respuesta,
-                   f.enlace, f.percepcion, f.tiempo_realizado, f.resultado,
-                   ea.fecha AS fecha_entreno,
-                   ea.nombre AS entrenamiento_nombre
-            FROM feedbacks f
-            JOIN entrenamientos_asignados ea ON f.entrenamiento_asignado_id = ea.id
-            WHERE f.atleta_id = ?
-            ORDER BY f.fecha DESC
-        '''
-        resultados = query_db(query, (current_user['id'],))
-        return jsonify([dict(r) for r in resultados]), 200
-    except Exception as e:
-        print("Error al obtener feedbacks del atleta:", e)
-        return jsonify({'error': 'No se pudieron obtener los feedbacks'}), 500
-
 # En el backend, podrías añadir una ruta como:
 @app.route('/entrenamientos_proximos', methods=['GET'])
 @requires_roles('entrenador')
 def entrenamientos_proximos(current_user):
     try:
         query = '''
-            SELECT 
-                MIN(ea.id) as id,
-                ea.fecha,
-                ea.nombre,
-                COUNT(ea.id) as num_atletas
+            SELECT
+                DATE(ea.fecha) AS fecha,
+                ea.entrenamiento_id,
+                MIN(COALESCE(ea.visible, 1)) AS visible,
+                MIN(COALESCE(ea.nombre, t.nombre, 'Entrenamiento')) AS nombre,
+                COUNT(DISTINCT ea.atleta_id) AS num_atletas,
+                GROUP_CONCAT(DISTINCT ea.atleta_id) AS atletas_ids
             FROM entrenamientos_asignados ea
-            JOIN usuarios u ON ea.atleta_id = u.id
+            JOIN usuarios u ON u.id = ea.atleta_id
+            LEFT JOIN entrenamientos t ON t.id = ea.entrenamiento_id
             WHERE u.entrenador_id = ?
               AND DATE(ea.fecha) >= DATE('now')
-            GROUP BY ea.fecha, ea.nombre
-            ORDER BY ea.fecha ASC
+            GROUP BY DATE(ea.fecha), ea.entrenamiento_id
+            ORDER BY DATE(ea.fecha) ASC
             LIMIT 10
         '''
         resultados = query_db(query, (current_user['id'],))
@@ -2995,6 +1128,186 @@ def guardar_zonas(current_user):
         print("Error al guardar zonas:", e)
         return jsonify({"error": "No se pudieron guardar las zonas"}), 500
 
+from datetime import datetime, timedelta  # asegúrate de tener esto arriba del todo
+
+@app.route('/entrenamientos_asignados/visibilidad', methods=['POST'])
+def actualizar_visibilidad_entrenamientos_asignados():
+    """
+    Acepta JSON:
+      { "atletas": [3,4], "fecha": "2025-11-21", "visible": 1, "modo": "dia|semana" }
+    o:
+      { "asignacion_id": 12, "atletas": [3,4], "visible": 1 }
+
+    Devuelve: { ok: True, updated: N } o { error: '...' }
+    """
+    data = request.get_json(silent=True) or {}
+    atletas = data.get('atletas') or []
+    asignacion_id = data.get('asignacion_id')
+    fecha = data.get('fecha')
+    visible = data.get('visible')
+    modo = (data.get('modo') or 'dia').lower()  # "dia" por defecto
+
+    if not isinstance(atletas, list) or len(atletas) == 0:
+        return jsonify({'error': 'Faltan atletas'}), 400
+    if visible is None:
+        return jsonify({'error': 'Falta campo visible'}), 400
+
+    # normalizar visible
+    try:
+        visible_val = 1 if int(visible) else 0
+    except Exception:
+        visible_val = 1 if bool(visible) else 0
+
+    try:
+        conn = sqlite3.connect(DATABASE)
+        cur = conn.cursor()
+
+        placeholders = ','.join(['?'] * len(atletas))
+        params = [visible_val]
+
+        if asignacion_id:
+            # actualizar por asignacion_id y atleta_id
+            query = f"""
+                UPDATE entrenamientos_asignados
+                   SET visible = ?
+                 WHERE asignacion_id = ?
+                   AND atleta_id IN ({placeholders})
+            """
+            params.append(asignacion_id)
+            params.extend(atletas)
+
+        elif fecha:
+            # actualizar por fecha, con soporte para "dia" o "semana"
+            if modo == 'semana':
+                # calcular lunes–domingo de la semana de 'fecha'
+                try:
+                    fecha_dt = datetime.strptime(fecha, "%Y-%m-%d").date()
+                except ValueError:
+                    return jsonify({'error': 'Fecha inválida'}), 400
+
+                inicio_semana = fecha_dt - timedelta(days=fecha_dt.weekday())  # lunes
+                fin_semana = inicio_semana + timedelta(days=6)                # domingo
+
+                query = f"""
+                    UPDATE entrenamientos_asignados
+                       SET visible = ?
+                     WHERE DATE(fecha) BETWEEN DATE(?) AND DATE(?)
+                       AND atleta_id IN ({placeholders})
+                """
+                params.append(inicio_semana.isoformat())
+                params.append(fin_semana.isoformat())
+                params.extend(atletas)
+            else:
+                # modo "dia" (comportamiento original)
+                query = f"""
+                    UPDATE entrenamientos_asignados
+                       SET visible = ?
+                     WHERE DATE(fecha) = DATE(?)
+                       AND atleta_id IN ({placeholders})
+                """
+                params.append(fecha)
+                params.extend(atletas)
+
+        else:
+            # actualizar por atleta_id solamente (todo lo asignado)
+            query = f"""
+                UPDATE entrenamientos_asignados
+                   SET visible = ?
+                 WHERE atleta_id IN ({placeholders})
+            """
+            params.extend(atletas)
+
+        cur.execute(query, tuple(params))
+        conn.commit()
+        updated = cur.rowcount if hasattr(cur, 'rowcount') else None
+        if updated is None or updated < 0:
+            updated = conn.total_changes
+
+        return jsonify({'ok': True, 'updated': updated}), 200
+
+    except Exception as e:
+        app.logger.exception('Error actualizando visibilidad grupal')
+        return jsonify({'error': 'No se pudo actualizar la visibilidad'}), 500
+
+    finally:
+        try:
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
+
+    """
+    Acepta JSON:
+      { "atletas": [3,4], "fecha": "2025-11-21", "visible": 1 }
+    o:
+      { "asignacion_id": 12, "atletas": [3,4], "visible": 1 }
+    Devuelve: { ok: True, updated: N } o { error: '...' }
+    """
+    data = request.get_json(silent=True) or {}
+    atletas = data.get('atletas') or []
+    asignacion_id = data.get('asignacion_id')
+    fecha = data.get('fecha')
+    visible = data.get('visible')
+
+    if not isinstance(atletas, list) or len(atletas) == 0:
+        return jsonify({'error': 'Faltan atletas'}), 400
+    if visible is None:
+        return jsonify({'error': 'Falta campo visible'}), 400
+
+    try:
+        visible_val = 1 if int(visible) else 0
+    except Exception:
+        visible_val = 1 if bool(visible) else 0
+
+    try:
+        conn = sqlite3.connect(DATABASE)
+        cur = conn.cursor()
+
+        placeholders = ','.join(['?'] * len(atletas))
+        params = [visible_val]
+
+        if asignacion_id:
+            query = f"""
+                UPDATE entrenamientos_asignados
+                   SET visible = ?
+                 WHERE asignacion_id = ?
+                   AND atleta_id IN ({placeholders})
+            """
+            params.append(asignacion_id)
+            params.extend(atletas)
+        elif fecha:
+            query = f"""
+                UPDATE entrenamientos_asignados
+                   SET visible = ?
+                 WHERE DATE(fecha) = DATE(?)
+                   AND atleta_id IN ({placeholders})
+            """
+            params.append(fecha)
+            params.extend(atletas)
+        else:
+            query = f"""
+                UPDATE entrenamientos_asignados
+                   SET visible = ?
+                 WHERE atleta_id IN ({placeholders})
+            """
+            params.extend(atletas)
+
+        cur.execute(query, tuple(params))
+        conn.commit()
+        updated = cur.rowcount if hasattr(cur, 'rowcount') else None
+        if updated is None or updated < 0:
+            updated = conn.total_changes
+        return jsonify({'ok': True, 'updated': updated}), 200
+    except Exception as e:
+        app.logger.exception('Error actualizando visibilidad grupal')
+        return jsonify({'error': 'No se pudo actualizar la visibilidad'}), 500
+    finally:
+        try:
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
+
 @app.route('/zonas_atleta/<int:atleta_id>', methods=['GET'])
 @requires_roles('entrenador', 'atleta')
 def obtener_zonas_atleta(current_user, atleta_id):
@@ -3037,68 +1350,663 @@ def get_entrenadores():
         print("Error obteniendo entrenadores:", e)
         return jsonify({'error': 'No se pudieron cargar los entrenadores'}), 500
 
+from datetime import datetime  # ya lo tienes arriba, si no, añádelo
+
+
+# ============================================================
+#   RUTAS PARA CICLOS: MICRO / MESO / MACRO
+# ============================================================
+
+# ---------- MICRO CICLOS ----------
+
+@app.route('/microciclos', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def listar_microciclos(current_user):
+    """
+    Devuelve la lista de microciclos (plantillas de 1 semana).
+    """
+    try:
+        filas = query_db(
+            "SELECT id, nombre, objetivo FROM microciclos ORDER BY id DESC"
+        )
+        return jsonify([dict(f) for f in filas]), 200
+    except Exception as e:
+        print("Error en listar_microciclos:", e)
+        return jsonify({'error': 'Error al obtener microciclos'}), 500
+
+
+@app.route('/plantillas/microciclos', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def listar_microciclos_plantillas(current_user):
+    """
+    Alias para compatibilidad con el frontend:
+    /plantillas/microciclos -> mismo resultado que /microciclos
+    """
+    try:
+        filas = query_db(
+            "SELECT id, nombre, objetivo FROM microciclos ORDER BY id DESC"
+        )
+        return jsonify([dict(f) for f in filas]), 200
+    except Exception as e:
+        print("Error en listar_microciclos_plantillas:", e)
+        return jsonify({'error': 'Error al obtener microciclos'}), 500
+
+
+@app.route('/microciclos/<int:micro_id>', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def obtener_microciclo(current_user, micro_id):
+    """
+    Detalle de un microciclo, incluyendo sus sesiones por día.
+    """
+    try:
+        micro = query_db(
+            "SELECT id, nombre, objetivo FROM microciclos WHERE id = ?",
+            (micro_id,),
+            one=True
+        )
+        if not micro:
+            return jsonify({'error': 'Microciclo no encontrado'}), 404
+
+        sesiones = query_db(
+            """
+            SELECT me.id,
+                   me.dia_relativo,
+                   me.sesion_indice,
+                   me.entrenamiento_id,
+                   e.nombre AS entrenamiento_nombre,
+                   me.notas,
+                   me.orden
+            FROM microciclos_entrenamientos AS me
+            LEFT JOIN entrenamientos e ON e.id = me.entrenamiento_id
+            WHERE me.microciclo_id = ?
+            ORDER BY me.dia_relativo, me.sesion_indice, me.orden, me.id
+            """,
+            (micro_id,)
+        )
+
+        data = dict(micro)
+        data['sesiones'] = [dict(s) for s in sesiones]
+        return jsonify(data), 200
+
+    except Exception as e:
+        print("Error en obtener_microciclo:", e)
+        return jsonify({'error': 'Error al obtener el microciclo'}), 500
+
+
+@app.route('/microciclos', methods=['POST'])
+@requires_roles('admin', 'entrenador')
+def crear_microciclo(current_user):
+    """
+    Crea un microciclo nuevo.
+
+    Espera JSON:
+    {
+      "nombre": "Carga",
+      "objetivo": "Semana de carga",
+      "sesiones": [
+        {
+          "dia_relativo": 1,
+          "sesion_indice": 1,
+          "entrenamiento_id": 5,
+          "notas": "Rodaje suave",
+          "orden": 1
+        },
+        ...
+      ]
+    }
+    """
+    data = request.get_json(silent=True) or {}
+    nombre = (data.get('nombre') or '').strip()
+    objetivo = (data.get('objetivo') or '').strip() or None
+    sesiones = data.get('sesiones') or []
+
+    if not nombre:
+        return jsonify({'error': 'El nombre es obligatorio'}), 400
+
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+
+        now = datetime.now().isoformat(' ')
+        cur.execute(
+            """
+            INSERT INTO microciclos (mesociclo_id, nombre, objetivo, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (None, nombre, objetivo, now)
+        )
+        micro_id = cur.lastrowid
+
+        for s in sesiones:
+            dia = int(s.get('dia_relativo') or 1)
+            sesion_idx = int(s.get('sesion_indice') or 1)
+            entrenamiento_id = s.get('entrenamiento_id')
+            notas = s.get('notas')
+            orden = s.get('orden')
+            cur.execute(
+                """
+                INSERT INTO microciclos_entrenamientos
+                    (microciclo_id, dia_relativo, sesion_indice,
+                     entrenamiento_id, notas, orden, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (micro_id, dia, sesion_idx, entrenamiento_id, notas, orden, now)
+            )
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'message': 'Microciclo creado', 'id': micro_id}), 201
+
+    except Exception as e:
+        print("Error en crear_microciclo:", e)
+        return jsonify({'error': 'Error al crear el microciclo'}), 500
+
+
+@app.route('/microciclos/<int:micro_id>', methods=['PUT'])
+@requires_roles('admin', 'entrenador')
+def actualizar_microciclo(current_user, micro_id):
+    """
+    Actualiza un microciclo y sus sesiones (sobrescribe las sesiones).
+    Mismo formato JSON que POST /microciclos.
+    """
+    data = request.get_json(silent=True) or {}
+    nombre = (data.get('nombre') or '').strip()
+    objetivo = (data.get('objetivo') or '').strip() or None
+    sesiones = data.get('sesiones') or []
+
+    if not nombre:
+        return jsonify({'error': 'El nombre es obligatorio'}), 400
+
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+
+        # Comprobar que existe
+        cur.execute("SELECT id FROM microciclos WHERE id = ?", (micro_id,))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Microciclo no encontrado'}), 404
+
+        now = datetime.now().isoformat(' ')
+
+        cur.execute(
+            "UPDATE microciclos SET nombre = ?, objetivo = ? WHERE id = ?",
+            (nombre, objetivo, micro_id)
+        )
+
+        # Borrar sesiones antiguas
+        cur.execute(
+            "DELETE FROM microciclos_entrenamientos WHERE microciclo_id = ?",
+            (micro_id,)
+        )
+
+        # Insertar nuevas sesiones
+        for s in sesiones:
+            dia = int(s.get('dia_relativo') or 1)
+            sesion_idx = int(s.get('sesion_indice') or 1)
+            entrenamiento_id = s.get('entrenamiento_id')
+            notas = s.get('notas')
+            orden = s.get('orden')
+            cur.execute(
+                """
+                INSERT INTO microciclos_entrenamientos
+                    (microciclo_id, dia_relativo, sesion_indice,
+                     entrenamiento_id, notas, orden, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (micro_id, dia, sesion_idx, entrenamiento_id, notas, orden, now)
+            )
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'message': 'Microciclo actualizado'}), 200
+
+    except Exception as e:
+        print("Error en actualizar_microciclo:", e)
+        return jsonify({'error': 'Error al actualizar el microciclo'}), 500
+
+
+@app.route('/microciclos/<int:micro_id>', methods=['DELETE'])
+@requires_roles('admin', 'entrenador')
+def borrar_microciclo(current_user, micro_id):
+    """
+    Elimina el microciclo y sus sesiones asociadas.
+    """
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute("DELETE FROM microciclos_entrenamientos WHERE microciclo_id = ?", (micro_id,))
+        cur.execute("DELETE FROM microciclos WHERE id = ?", (micro_id,))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'message': 'Microciclo eliminado'}), 200
+
+    except Exception as e:
+        print("Error en borrar_microciclo:", e)
+        return jsonify({'error': 'Error al eliminar el microciclo'}), 500
+
+
+# ---------- MESO CICLOS ----------
+
+@app.route('/mesociclos', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def listar_mesociclos(current_user):
+    try:
+        filas = query_db(
+            "SELECT id, nombre, objetivo FROM mesociclos ORDER BY id DESC"
+        )
+        return jsonify([dict(f) for f in filas]), 200
+    except Exception as e:
+        print("Error en listar_mesociclos:", e)
+        return jsonify({'error': 'Error al obtener mesociclos'}), 500
+
+
+@app.route('/plantillas/mesociclos', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def listar_mesociclos_plantillas(current_user):
+    try:
+        filas = query_db(
+            "SELECT id, nombre, objetivo FROM mesociclos ORDER BY id DESC"
+        )
+        return jsonify([dict(f) for f in filas]), 200
+    except Exception as e:
+        print("Error en listar_mesociclos_plantillas:", e)
+        return jsonify({'error': 'Error al obtener mesociclos'}), 500
+
+@app.route('/mesociclos/<int:meso_id>', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def obtener_mesociclo(current_user, meso_id):
+    """
+    Detalle de mesociclo, con sus microciclos asociados.
+    """
+    try:
+        meso = query_db(
+            "SELECT id, nombre, objetivo FROM mesociclos WHERE id = ?",
+            (meso_id,),
+            one=True
+        )
+        if not meso:
+            return jsonify({'error': 'Mesociclo no encontrado'}), 404
+
+        filas = query_db(
+            """
+            SELECT mm.id,
+                   mm.microciclo_id,
+                   mc.nombre AS microciclo_nombre,
+                   mm.orden,
+                   mm.notas
+            FROM mesociclos_microciclos mm
+            LEFT JOIN microciclos mc ON mc.id = mm.microciclo_id
+            WHERE mm.mesociclo_id = ?
+            ORDER BY mm.orden, mm.id
+            """,
+            (meso_id,)
+        )
+
+        data = dict(meso)
+        data['microciclos'] = [dict(f) for f in filas]
+        return jsonify(data), 200
+
+    except Exception as e:
+        print("Error en obtener_mesociclo:", e)
+        return jsonify({'error': 'Error al obtener el mesociclo'}), 500
+
+
+@app.route('/mesociclos', methods=['POST'])
+@requires_roles('admin', 'entrenador')
+def crear_mesociclo(current_user):
+    """
+    Crea mesociclo.
+
+    JSON esperado:
+    {
+      "nombre": "...",
+      "objetivo": "...",
+      "microciclos": [
+        { "microciclo_id": 2, "orden": 1, "notas": "" },
+        ...
+      ]
+    }
+    """
+    data = request.get_json(silent=True) or {}
+    nombre = (data.get('nombre') or '').strip()
+    objetivo = (data.get('objetivo') or '').strip() or None
+    microciclos = data.get('microciclos') or []
+
+    if not nombre:
+        return jsonify({'error': 'El nombre es obligatorio'}), 400
+
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        now = datetime.now().isoformat(' ')
+
+        cur.execute(
+            """
+            INSERT INTO mesociclos (macrociclo_id, nombre, fecha_inicio, fecha_fin, objetivo, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (None, nombre, None, None, objetivo, now)
+        )
+        meso_id = cur.lastrowid
+
+        for m in microciclos:
+            micro_id = m.get('microciclo_id')
+            orden = m.get('orden')
+            notas = m.get('notas')
+            cur.execute(
+                """
+                INSERT INTO mesociclos_microciclos
+                    (mesociclo_id, microciclo_id, orden, notas, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (meso_id, micro_id, orden, notas, now)
+            )
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'message': 'Mesociclo creado', 'id': meso_id}), 201
+
+    except Exception as e:
+        print("Error en crear_mesociclo:", e)
+        return jsonify({'error': 'Error al crear el mesociclo'}), 500
+
+
+@app.route('/mesociclos/<int:meso_id>', methods=['PUT'])
+@requires_roles('admin', 'entrenador')
+def actualizar_mesociclo(current_user, meso_id):
+    data = request.get_json(silent=True) or {}
+    nombre = (data.get('nombre') or '').strip()
+    objetivo = (data.get('objetivo') or '').strip() or None
+    microciclos = data.get('microciclos') or []
+
+    if not nombre:
+        return jsonify({'error': 'El nombre es obligatorio'}), 400
+
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM mesociclos WHERE id = ?", (meso_id,))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Mesociclo no encontrado'}), 404
+
+        now = datetime.now().isoformat(' ')
+
+        cur.execute(
+            "UPDATE mesociclos SET nombre = ?, objetivo = ? WHERE id = ?",
+            (nombre, objetivo, meso_id)
+        )
+
+        cur.execute("DELETE FROM mesociclos_microciclos WHERE mesociclo_id = ?", (meso_id,))
+
+        for m in microciclos:
+            micro_id = m.get('microciclo_id')
+            orden = m.get('orden')
+            notas = m.get('notas')
+            cur.execute(
+                """
+                INSERT INTO mesociclos_microciclos
+                    (mesociclo_id, microciclo_id, orden, notas, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (meso_id, micro_id, orden, notas, now)
+            )
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'message': 'Mesociclo actualizado'}), 200
+
+    except Exception as e:
+        print("Error en actualizar_mesociclo:", e)
+        return jsonify({'error': 'Error al actualizar el mesociclo'}), 500
+
+
+@app.route('/mesociclos/<int:meso_id>', methods=['DELETE'])
+@requires_roles('admin', 'entrenador')
+def borrar_mesociclo(current_user, meso_id):
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute("DELETE FROM mesociclos_microciclos WHERE mesociclo_id = ?", (meso_id,))
+        cur.execute("DELETE FROM mesociclos WHERE id = ?", (meso_id,))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'message': 'Mesociclo eliminado'}), 200
+
+    except Exception as e:
+        print("Error en borrar_mesociclo:", e)
+        return jsonify({'error': 'Error al eliminar el mesociclo'}), 500
+
+
+# ---------- MACRO CICLOS ----------
+
+@app.route('/macrociclos', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def listar_macrociclos(current_user):
+    try:
+        filas = query_db(
+            "SELECT id, nombre, objetivo FROM macrociclos ORDER BY id DESC"
+        )
+        return jsonify([dict(f) for f in filas]), 200
+    except Exception as e:
+        print("Error en listar_macrociclos:", e)
+        return jsonify({'error': 'Error al obtener macrociclos'}), 500
+
+
+@app.route('/plantillas/macrociclos', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def listar_macrociclos_plantillas(current_user):
+    try:
+        filas = query_db(
+            "SELECT id, nombre, objetivo FROM macrociclos ORDER BY id DESC"
+        )
+        return jsonify([dict(f) for f in filas]), 200
+    except Exception as e:
+        print("Error en listar_macrociclos_plantillas:", e)
+        return jsonify({'error': 'Error al obtener macrociclos'}), 500
+
+
+
+@app.route('/macrociclos/<int:macro_id>', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def obtener_macrociclo(current_user, macro_id):
+    """
+    Detalle de macrociclo, con sus mesociclos.
+    """
+    try:
+        macro = query_db(
+            "SELECT id, nombre, objetivo, fecha_inicio, fecha_fin FROM macrociclos WHERE id = ?",
+            (macro_id,),
+            one=True
+        )
+        if not macro:
+            return jsonify({'error': 'Macrociclo no encontrado'}), 404
+
+        filas = query_db(
+            """
+            SELECT mm.id,
+                   mm.mesociclo_id,
+                   m.nombre AS mesociclo_nombre,
+                   mm.orden,
+                   mm.notas
+            FROM macrociclos_mesociclos mm
+            LEFT JOIN mesociclos m ON m.id = mm.mesociclo_id
+            WHERE mm.macrociclo_id = ?
+            ORDER BY mm.orden, mm.id
+            """,
+            (macro_id,)
+        )
+
+        data = dict(macro)
+        data['mesociclos'] = [dict(f) for f in filas]
+        return jsonify(data), 200
+
+    except Exception as e:
+        print("Error en obtener_macrociclo:", e)
+        return jsonify({'error': 'Error al obtener el macrociclo'}), 500
+
+
+@app.route('/macrociclos', methods=['POST'])
+@requires_roles('admin', 'entrenador')
+def crear_macrociclo(current_user):
+    """
+    Crea un macrociclo.
+
+    JSON:
+    {
+      "nombre": "...",
+      "objetivo": "...",
+      "fecha_inicio": "2025-11-01" (opcional),
+      "fecha_fin": "2026-03-01"   (opcional),
+      "mesociclos": [
+        { "mesociclo_id": 1, "orden": 1, "notas": "" },
+        ...
+      ]
+    }
+    """
+    data = request.get_json(silent=True) or {}
+    nombre = (data.get('nombre') or '').strip()
+    objetivo = (data.get('objetivo') or '').strip() or None
+    fecha_inicio = data.get('fecha_inicio')
+    fecha_fin = data.get('fecha_fin')
+    mesociclos = data.get('mesociclos') or []
+
+    if not nombre:
+        return jsonify({'error': 'El nombre es obligatorio'}), 400
+
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        now = datetime.now().isoformat(' ')
+
+        cur.execute(
+            """
+            INSERT INTO macrociclos (nombre, fecha_inicio, fecha_fin, objetivo, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (nombre, fecha_inicio, fecha_fin, objetivo, now)
+        )
+        macro_id = cur.lastrowid
+
+        for m in mesociclos:
+            meso_id = m.get('mesociclo_id')
+            orden = m.get('orden')
+            notas = m.get('notas')
+            cur.execute(
+                """
+                INSERT INTO macrociclos_mesociclos
+                    (macrociclo_id, mesociclo_id, orden, notas, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (macro_id, meso_id, orden, notas, now)
+            )
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'message': 'Macrociclo creado', 'id': macro_id}), 201
+
+    except Exception as e:
+        print("Error en crear_macrociclo:", e)
+        return jsonify({'error': 'Error al crear el macrociclo'}), 500
+
+
+@app.route('/macrociclos/<int:macro_id>', methods=['PUT'])
+@requires_roles('admin', 'entrenador')
+def actualizar_macrociclo(current_user, macro_id):
+    data = request.get_json(silent=True) or {}
+    nombre = (data.get('nombre') or '').strip()
+    objetivo = (data.get('objetivo') or '').strip() or None
+    fecha_inicio = data.get('fecha_inicio')
+    fecha_fin = data.get('fecha_fin')
+    mesociclos = data.get('mesociclos') or []
+
+    if not nombre:
+        return jsonify({'error': 'El nombre es obligatorio'}), 400
+
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM macrociclos WHERE id = ?", (macro_id,))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Macrociclo no encontrado'}), 404
+
+        now = datetime.now().isoformat(' ')
+
+        cur.execute(
+            """
+            UPDATE macrociclos
+               SET nombre = ?, objetivo = ?, fecha_inicio = ?, fecha_fin = ?
+             WHERE id = ?
+            """,
+            (nombre, objetivo, fecha_inicio, fecha_fin, macro_id)
+        )
+
+        cur.execute("DELETE FROM macrociclos_mesociclos WHERE macrociclo_id = ?", (macro_id,))
+
+        for m in mesociclos:
+            meso_id = m.get('mesociclo_id')
+            orden = m.get('orden')
+            notas = m.get('notas')
+            cur.execute(
+                """
+                INSERT INTO macrociclos_mesociclos
+                    (macrociclo_id, mesociclo_id, orden, notas, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (macro_id, meso_id, orden, notas, now)
+            )
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'message': 'Macrociclo actualizado'}), 200
+
+    except Exception as e:
+        print("Error en actualizar_macrociclo:", e)
+        return jsonify({'error': 'Error al actualizar el macrociclo'}), 500
+
+
+@app.route('/macrociclos/<int:macro_id>', methods=['DELETE'])
+@requires_roles('admin', 'entrenador')
+def borrar_macrociclo(current_user, macro_id):
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute("DELETE FROM macrociclos_mesociclos WHERE macrociclo_id = ?", (macro_id,))
+        cur.execute("DELETE FROM macrociclos WHERE id = ?", (macro_id,))
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({'message': 'Macrociclo eliminado'}), 200
+
+    except Exception as e:
+        print("Error en borrar_macrociclo:", e)
+        return jsonify({'error': 'Error al eliminar el macrociclo'}), 500
 
 @app.route('/')
 def index():
     return redirect(url_for('static', filename='login.html'))
 
 
-def insert_entrenamiento_asignado(atleta_id, fecha, entrenamiento, ciclo_tipo=None, ciclo_id=None,
-                                  macrociclo_id=None, mesociclo_id=None, microciclo_id=None):
-    execute_db(
-        '''INSERT INTO entrenamientos_asignados (
-               atleta_id, fecha, nombre, duracion_valor, duracion_tipo,
-               calentamiento_tipo, calentamiento_valor, bloque_activacion,
-               bloque_principal, enfriamiento_tipo, enfriamiento_valor,
-               ciclo_tipo, ciclo_id, macrociclo_id, mesociclo_id, microciclo_id
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-        (
-            atleta_id,
-            fecha,
-            entrenamiento['nombre'],
-            entrenamiento['duracion_referencia'],
-            entrenamiento['tipo_duracion'],
-            None,
-            None,
-            None,
-            entrenamiento.get('descripcion'),
-            None,
-            None,
-            ciclo_tipo,
-            ciclo_id,
-            macrociclo_id,
-            mesociclo_id,
-            microciclo_id
-        )
-    )
-
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')
-def insert_entrenamiento_asignado(atleta_id, fecha, entrenamiento, ciclo_tipo=None, ciclo_id=None,
-                                  macrociclo_id=None, mesociclo_id=None, microciclo_id=None):
-    execute_db(
-        '''INSERT INTO entrenamientos_asignados (
-               atleta_id, fecha, nombre, duracion_valor, duracion_tipo,
-               calentamiento_tipo, calentamiento_valor, bloque_activacion,
-               bloque_principal, enfriamiento_tipo, enfriamiento_valor,
-               ciclo_tipo, ciclo_id, macrociclo_id, mesociclo_id, microciclo_id
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-        (
-            atleta_id,
-            fecha,
-            entrenamiento['nombre'],
-            entrenamiento['duracion_referencia'],
-            entrenamiento['tipo_duracion'],
-            None,
-            None,
-            None,
-            entrenamiento.get('descripcion'),
-            None,
-            None,
-            ciclo_tipo,
-            ciclo_id,
-            macrociclo_id,
-            mesociclo_id,
-            microciclo_id
-        )
-    )

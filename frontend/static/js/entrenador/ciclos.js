@@ -1,4 +1,6 @@
-const API = window.API_BASE || "http://127.0.0.1:5000";
+const API =
+  window.API_BASE ||
+  (window.location && window.location.origin ? window.location.origin : "http://127.0.0.1:5000");
 window.API_BASE = API;
 
 const authHeader = () =>
@@ -7,13 +9,85 @@ const authHeader = () =>
 
 const state = {
   macros: [],
+  mesociclos: [],
+  microCatalogo: [],
   entrenamientos: [],
   atletas: [],
   csrf: null,
   microSeleccionadoId: null,
+  microEditandoId: null,
+  mesoEditandoId: null,
+  macroEditandoId: null,
   entrenamientoActivoId: null,
   filtroBiblioteca: "",
+  filtroMicros: "",
+  filtroMesos: "",
+  dragPayload: null,
+  sesionesActivas: {},
+  mesoSemanasActivas: 0,
+  macroBloquesActivos: 0,
 };
+
+const DRAG_TYPES = {
+  TRAINING: "training",
+  REST: "rest",
+  MICRO: "micro",
+  MESO: "meso",
+};
+
+const MAX_SESIONES_DIA = 3;
+const DEFAULT_SEMANAS_MESO = 4;
+const MAX_SEMANAS_MESO = 6;
+const DEFAULT_BLOQUES_MACRO = 3;
+const MAX_BLOQUES_MACRO = 6;
+
+function getMicroById(id) {
+  if (!id) return null;
+  return (
+    state.microCatalogo.find((m) => Number(m.id) === Number(id)) ||
+    state.macros
+      .flatMap((macro) => macro.mesos || [])
+      .flatMap((meso) => meso.micros || [])
+      .find((m) => Number(m.id) === Number(id)) ||
+    null
+  );
+}
+
+function getMesoById(id) {
+  if (!id) return null;
+  return state.mesociclos.find((m) => Number(m.id) === Number(id)) || null;
+}
+
+function getMacroById(id) {
+  if (!id) return null;
+  return state.macros.find((m) => Number(m.id) === Number(id)) || null;
+}
+
+function isMicroBuilderVisible() {
+  return microBuilderView && !microBuilderView.classList.contains("d-none");
+}
+
+function prepareSesionesActivas(micro) {
+  const mapa = {};
+  (micro?.entrenamientos || []).forEach((item) => {
+    const dia = Number(item.dia_relativo) || 0;
+    const sesion = Number(item.sesion_indice) || 1;
+    mapa[dia] = Math.max(mapa[dia] || 0, sesion);
+  });
+  state.sesionesActivas = {};
+  DIAS_SEMANA.forEach((dia) => {
+    state.sesionesActivas[dia.id] = Math.max(mapa[dia.id] || 1, 1);
+  });
+}
+
+function addSessionForDay(dia) {
+  const dayId = Number(dia);
+  if (!dayId) return;
+  const actual = state.sesionesActivas[dayId] || 1;
+  if (actual >= MAX_SESIONES_DIA) return;
+  state.sesionesActivas[dayId] = actual + 1;
+  renderMicroBuilderGrid();
+}
 
 const DIAS_SEMANA = [
   { id: 1, label: "Lunes" },
@@ -31,11 +105,39 @@ const SESIONES_DIA = [
   { id: 3, label: "Sesión 3" },
 ];
 
+function qs(sel) {
+  return document.querySelector(sel);
+}
+
+function qsa(sel) {
+  return Array.from(document.querySelectorAll(sel));
+}
+
 let modalEntreno;
 let modalAtletas;
-
-const qs = (sel) => document.querySelector(sel);
-const qsa = (sel) => Array.from(document.querySelectorAll(sel));
+const microListView = qs("#micro-list-view");
+const microBuilderView = qs("#micro-builder-view");
+const microListContainer = qs("#micro-list");
+const microCreateBtn = qs("#micro-create-btn");
+const microBackBtn = qs("#micro-builder-back");
+const microBuilderTitle = qs("#micro-builder-title");
+const microIdField = document.getElementById("micro-id-field");
+const mesoListView = qs("#meso-list-view");
+const mesoBuilderView = qs("#meso-builder-view");
+const mesoListContainer = qs("#meso-list");
+const mesoCreateBtn = qs("#meso-create-btn");
+const mesoBackBtn = qs("#meso-builder-back");
+const mesoBuilderTitle = qs("#meso-builder-title");
+const mesoIdField = document.getElementById("meso-id-field");
+const mesoAddWeekBtn = qs("#meso-add-week-btn");
+const macroListView = qs("#macro-list-view");
+const macroBuilderView = qs("#macro-builder-view");
+const macroListContainer = qs("#macro-list");
+const macroCreateBtn = qs("#macro-create-btn");
+const macroBackBtn = qs("#macro-builder-back");
+const macroBuilderTitle = qs("#macro-builder-title");
+const macroIdField = document.getElementById("macro-id-field");
+const macroAddBlockBtn = qs("#macro-add-block-btn");
 
 async function ensureCsrf() {
   if (window.CSRF?.ensureToken) {
@@ -125,29 +227,117 @@ function pintarSelectAtletas() {
 async function cargarCiclos() {
   try {
     const macros = await apiFetch("/macrociclos");
-    for (const macro of macros) {
-      macro.mesos = await apiFetch(`/mesociclos?macrociclo_id=${macro.id}`);
-      for (const meso of macro.mesos) {
-        meso.micros = await apiFetch(`/microciclos?mesociclo_id=${meso.id}`);
-        for (const micro of meso.micros) {
-          try {
-            micro.entrenamientos = await apiFetch(`/ciclos/micro/${micro.id}/entrenamientos`);
-          } catch {
-            micro.entrenamientos = [];
-          }
-          try {
-            micro.asignaciones = await apiFetch(`/ciclos/micro/${micro.id}/asignaciones`);
-          } catch {
-            micro.asignaciones = [];
-          }
-        }
+    const planCache = new Map();
+    const fetchPlan = async (mesoId) => {
+      if (!planCache.has(mesoId)) {
+        planCache.set(
+          mesoId,
+          apiFetch(`/ciclos/meso/${mesoId}/microciclos`).catch(() => [])
+        );
       }
+      return planCache.get(mesoId);
+    };
+    let mesoCatalogo = [];
+    try {
+      mesoCatalogo = await apiFetch("/mesociclos");
+    } catch {
+      mesoCatalogo = [];
+    }
+    state.mesociclos = await Promise.all(
+      (mesoCatalogo || []).map(async (meso) => {
+        meso.plan_micros = await fetchPlan(meso.id);
+        return meso;
+      })
+    );
+    const mesoMap = new Map(
+      (state.mesociclos || []).map((meso) => [Number(meso.id), meso])
+    );
+    for (const macro of macros) {
+      try {
+        macro.plan_mesos = await apiFetch(`/ciclos/macro/${macro.id}/mesociclos`);
+      } catch {
+        macro.plan_mesos = [];
+      }
+      macro.mesos = (macro.plan_mesos || []).map((entrada) => {
+        const completo = mesoMap.get(Number(entrada.mesociclo_id));
+        if (completo) {
+          return { ...completo, relacion_macro_meso_id: entrada.id, orden_relativa: entrada.orden };
+        }
+        return {
+          id: entrada.mesociclo_id,
+          nombre: entrada.meso_nombre || "Mesociclo",
+          objetivo: entrada.meso_objetivo || "",
+          relacion_macro_meso_id: entrada.id,
+          orden_relativa: entrada.orden,
+        };
+      });
     }
     state.macros = macros;
+    try {
+      const catalogo = await apiFetch("/microciclos");
+      const enriquecidos = [];
+      for (const micro of catalogo) {
+        try {
+          micro.entrenamientos = await apiFetch(`/ciclos/micro/${micro.id}/entrenamientos`);
+        } catch {
+          micro.entrenamientos = [];
+        }
+        try {
+          micro.asignaciones = await apiFetch(`/ciclos/micro/${micro.id}/asignaciones`);
+        } catch {
+          micro.asignaciones = [];
+        }
+        enriquecidos.push(micro);
+      }
+      state.microCatalogo = enriquecidos;
+    } catch (err) {
+      console.warn("No se pudieron cargar los microciclos globales", err);
+      state.microCatalogo = [];
+    }
     renderCiclos();
     actualizarSelects();
-    renderMicroBuilderSelect();
-    renderMicroBuilderGrid();
+    renderMicroList();
+    renderMesoList();
+    renderMacroList();
+    renderBibliotecaMicros();
+    renderBibliotecaMesos();
+    if (state.microEditandoId) {
+      const micro = getMicroById(state.microEditandoId);
+      if (micro) {
+        prepareSesionesActivas(micro);
+        renderMicroBuilderGrid();
+      } else {
+        showMicroList();
+      }
+    } else if (isMicroBuilderVisible()) {
+      renderMicroBuilderGrid();
+    }
+    if (state.mesoEditandoId) {
+      const meso = getMesoById(state.mesoEditandoId);
+      if (meso) {
+        if (!state.mesoSemanasActivas) {
+          state.mesoSemanasActivas = Math.max(meso.plan_micros?.length || 0, DEFAULT_SEMANAS_MESO);
+        }
+        renderMesoBuilderGrid();
+      } else {
+        showMesoList();
+      }
+    } else if (mesoBuilderView && !mesoBuilderView.classList.contains("d-none")) {
+      renderMesoBuilderGrid();
+    }
+    if (state.macroEditandoId) {
+      const macro = getMacroById(state.macroEditandoId);
+      if (macro) {
+        if (!state.macroBloquesActivos) {
+          state.macroBloquesActivos = Math.max(macro.plan_mesos?.length || 0, DEFAULT_BLOQUES_MACRO);
+        }
+        renderMacroBuilderGrid();
+      } else {
+        showMacroList();
+      }
+    } else if (macroBuilderView && !macroBuilderView.classList.contains("d-none")) {
+      renderMacroBuilderGrid();
+    }
   } catch (err) {
     console.error("Error cargando ciclos:", err);
     toast(err.message || "No se pudieron cargar los ciclos", "danger");
@@ -156,17 +346,10 @@ async function cargarCiclos() {
 
 function actualizarSelects() {
   const macroSelect = qs("#meso-macro-select");
-  const mesoSelect = qs("#micro-meso-select");
   if (macroSelect) {
     macroSelect.innerHTML =
       '<option value="" disabled selected>Selecciona macrociclo</option>' +
       state.macros.map((m) => `<option value="${m.id}">${m.nombre}</option>`).join("");
-  }
-  if (mesoSelect) {
-    const todosMesos = state.macros.flatMap((m) => m.mesos || []);
-    mesoSelect.innerHTML =
-      '<option value="" disabled selected>Selecciona mesociclo</option>' +
-      todosMesos.map((m) => `<option value="${m.id}">${m.nombre}</option>`).join("");
   }
 }
 
@@ -228,34 +411,28 @@ function renderMesociclos(macro) {
 }
 
 function renderMicrociclos(meso) {
-  if (!meso.micros?.length) {
-    return '<p class="text-muted">No hay microciclos definidos.</p>';
+  const plan = (meso.plan_micros || []).sort(
+    (a, b) => Number(a.orden || 0) - Number(b.orden || 0)
+  );
+  if (!plan.length) {
+    return '<p class="text-muted">No hay microciclos definidos para este meso.</p>';
   }
-  return meso.micros
+  return plan
     .map(
-      (micro) => `
-      <div class="border rounded p-3 mb-3 bg-white sombra-suave">
-        <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
-          <div>
-            <strong>${micro.nombre}</strong>
-            <p class="mb-0 small text-muted">${micro.fecha_inicio} → ${micro.fecha_fin}</p>
-            <p class="mb-0 small">${micro.objetivo || ""}</p>
+      (item) => `
+        <div class="border rounded p-3 mb-3 bg-white sombra-suave">
+          <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+            <div>
+              <strong>Semana ${item.orden || "-"}</strong><br>
+              <span>${item.micro_nombre || "Microciclo"}</span>
+              <p class="mb-0 small text-muted">${item.micro_objetivo || "Sin objetivo"}</p>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+              <button class="btn btn-outline-brand btn-sm btn-open-assign-training" data-id="${item.microciclo_id}" data-tipo="micro">Añadir entrenamiento</button>
+              <button class="btn btn-outline-brand btn-sm btn-open-assign-athletes" data-id="${item.microciclo_id}" data-tipo="micro">Asignar atletas</button>
+            </div>
           </div>
-          <div class="d-flex gap-2 flex-wrap">
-            <button class="btn btn-outline-brand btn-sm btn-open-assign-training" data-id="${micro.id}" data-tipo="micro">Añadir entrenamiento</button>
-            <button class="btn btn-outline-brand btn-sm btn-open-assign-athletes" data-id="${micro.id}" data-tipo="micro">Asignar atletas</button>
-          </div>
-        </div>
-        <div class="mt-3">
-          <h6>Entrenamientos</h6>
-          ${micro.entrenamientos?.length ? renderListaEntrenamientos(micro.entrenamientos) : '<p class="text-muted">Sin entrenamientos asociados.</p>'}
-        </div>
-        <div class="mt-3">
-          <h6>Asignaciones a atletas</h6>
-          ${micro.asignaciones?.length ? renderListaAsignaciones(micro.asignaciones) : '<p class="text-muted">Todavía no se ha asignado a ningún atleta.</p>'}
-        </div>
-      </div>
-    `
+        </div>`
     )
     .join("");
 }
@@ -320,66 +497,588 @@ function entrenamientosFiltrados() {
 }
 
 function renderBibliotecaEntrenamientos() {
-  const contenedor = qs("#biblioteca-entrenamientos");
-  if (!contenedor) return;
+  const contenedores = ["#biblioteca-entrenamientos", "#biblioteca-entrenamientos-panel"]
+    .map((sel) => qs(sel))
+    .filter(Boolean);
+  if (!contenedores.length) return;
   const lista = entrenamientosFiltrados();
-  if (!lista.length) {
-    contenedor.innerHTML = '<p class="text-muted small mb-0">No se encontraron entrenamientos.</p>';
-    return;
-  }
-  contenedor.innerHTML = lista
-    .map(
-      (ent) => `
-        <div class="micro-library__item ${Number(state.entrenamientoActivoId) === Number(ent.id) ? "active" : ""}" data-entrenamiento-id="${ent.id}">
+  let html = lista.length
+    ? lista
+        .map(
+          (ent) => `
+        <div class="micro-library__item ${
+          Number(state.entrenamientoActivoId) === Number(ent.id) ? "active" : ""
+        }" data-entrenamiento-id="${ent.id}" data-drag-type="${DRAG_TYPES.TRAINING}" draggable="true">
           <p class="micro-library__title mb-1">${ent.nombre}</p>
           <p class="micro-library__meta mb-0">
             ${ent.tipo || "Sin tipo"} ${ent.categoria ? `· ${ent.categoria}` : ""}
           </p>
         </div>
       `
+        )
+        .join("")
+    : '<p class="text-muted small mb-3">No se encontraron entrenamientos.</p>';
+
+  const descansoCard = `
+    <div class="micro-library__item micro-library__item--rest" data-drag-type="${DRAG_TYPES.REST}" draggable="true">
+      <p class="micro-library__title mb-1">Descanso</p>
+      <p class="micro-library__meta mb-0">Arrastra para marcar un día libre.</p>
+    </div>`;
+
+  contenedores.forEach((contenedor) => {
+    contenedor.innerHTML = html + descansoCard;
+    setupLibraryDrag(contenedor);
+  });
+}
+
+function microsFiltrados() {
+  const term = (state.filtroMicros || "").trim().toLowerCase();
+  let lista = state.microCatalogo || [];
+  if (term) {
+    lista = lista.filter((micro) => {
+      const texto = `${micro.nombre || ""} ${micro.objetivo || ""}`.toLowerCase();
+      return texto.includes(term);
+    });
+  }
+  return lista.sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""));
+}
+
+function renderBibliotecaMicros() {
+  const contenedor = qs("#meso-micro-library");
+  if (!contenedor) return;
+  const lista = microsFiltrados();
+  if (!lista.length) {
+    contenedor.innerHTML =
+      '<p class="text-muted small mb-0">No se encontraron microciclos. Crea algunos en la pestaña Microciclos.</p>';
+    return;
+  }
+  contenedor.innerHTML = lista
+    .map(
+      (micro) => `
+      <div class="micro-library__item" data-drag-type="${DRAG_TYPES.MICRO}" data-micro-id="${micro.id}" draggable="true">
+        <p class="micro-library__title mb-1">${micro.nombre}</p>
+        <p class="micro-library__meta mb-0">${micro.objetivo || "Sin objetivo"}</p>
+      </div>
+    `
     )
     .join("");
+  setupLibraryDrag(contenedor);
+}
+
+function mesociclosFiltrados() {
+  const term = (state.filtroMesos || "").trim().toLowerCase();
+  let lista = state.mesociclos || [];
+  if (term) {
+    lista = lista.filter((meso) => {
+      const texto = `${meso.nombre || ""} ${meso.objetivo || ""}`.toLowerCase();
+      return texto.includes(term);
+    });
+  }
+  return lista.sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""));
+}
+
+function renderBibliotecaMesos() {
+  const contenedor = qs("#macro-meso-library");
+  if (!contenedor) return;
+  const lista = mesociclosFiltrados();
+  if (!lista.length) {
+    contenedor.innerHTML =
+      '<p class="text-muted small mb-0">No hay mesociclos disponibles. Crea algunos primero.</p>';
+    return;
+  }
+  contenedor.innerHTML = lista
+    .map(
+      (meso) => `
+      <div class="micro-library__item" data-drag-type="${DRAG_TYPES.MESO}" data-meso-id="${meso.id}" draggable="true">
+        <p class="micro-library__title mb-1">${meso.nombre}</p>
+        <p class="micro-library__meta mb-0">${meso.objetivo || "Sin objetivo"}</p>
+      </div>
+    `
+    )
+    .join("");
+  setupLibraryDrag(contenedor);
+}
+
+function setupLibraryDrag(container) {
+  container.querySelectorAll(".micro-library__item").forEach((item) => {
+    item.addEventListener("dragstart", handleLibraryDragStart);
+    item.addEventListener("dragend", handleLibraryDragEnd);
+  });
+}
+
+function handleLibraryDragStart(e) {
+  const item = e.currentTarget;
+  const tipo = item.dataset.dragType || DRAG_TYPES.TRAINING;
+  state.dragPayload = {
+    tipo,
+  };
+  if (tipo === DRAG_TYPES.TRAINING && item.dataset.entrenamientoId) {
+    state.dragPayload.entrenamientoId = item.dataset.entrenamientoId || null;
+    state.entrenamientoActivoId = Number(item.dataset.entrenamientoId);
+  }
+  if (tipo === DRAG_TYPES.MICRO && item.dataset.microId) {
+    state.dragPayload.microId = item.dataset.microId;
+  }
+  if (tipo === DRAG_TYPES.MESO && item.dataset.mesoId) {
+    state.dragPayload.mesoId = item.dataset.mesoId;
+  }
+  item.classList.add("dragging");
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", tipo);
+  }
+}
+
+function handleLibraryDragEnd(e) {
+  e.currentTarget.classList.remove("dragging");
+  state.dragPayload = null;
 }
 
 function todosLosMicrociclos() {
+  if (state.microCatalogo?.length) {
+    return state.microCatalogo;
+  }
   return state.macros.flatMap((macro) =>
     (macro.mesos || []).flatMap((meso) => meso.micros || [])
   );
 }
 
-function microSeleccionado() {
-  const id = Number(state.microSeleccionadoId);
-  if (!id) return null;
-  return todosLosMicrociclos().find((micro) => Number(micro.id) === id) || null;
+function microResumenSemana(micro) {
+  if (!micro?.entrenamientos?.length) {
+    return '<p class="text-muted small mb-0">Todavía no has planificado esta semana.</p>';
+  }
+  const mapa = {};
+  micro.entrenamientos.forEach((item) => {
+    const dia = Number(item.dia_relativo) || 0;
+    if (!mapa[dia]) mapa[dia] = [];
+    mapa[dia].push(item);
+  });
+  const dias = DIAS_SEMANA.map((dia) => {
+    const slots = (mapa[dia.id] || []).sort(
+      (a, b) => Number(a.sesion_indice || 0) - Number(b.sesion_indice || 0)
+    );
+    if (!slots.length) {
+      return `
+        <div class="micro-card__day">
+          <span>${dia.label}</span>
+          <span class="text-muted small">Sin asignar</span>
+        </div>`;
+    }
+    const chips = slots
+      .map((slot) => {
+        if (!slot.entrenamiento_id) {
+          return '<span class="micro-card__chip micro-card__chip--rest">Descanso</span>';
+        }
+        const nombre = slot.entrenamiento_nombre || "Entrenamiento";
+        return `<span class="micro-card__chip">${nombre}</span>`;
+      })
+      .join("");
+    return `
+      <div class="micro-card__day">
+        <span>${dia.label}</span>
+        <div class="micro-card__chips">${chips}</div>
+      </div>`;
+  }).join("");
+  return `<div class="micro-card__week">${dias}</div>`;
 }
 
-function renderMicroBuilderSelect() {
-  const select = qs("#micro-plan-select");
-  if (!select) return;
-  const micros = todosLosMicrociclos();
-  if (!micros.length) {
-    select.innerHTML =
-      '<option value="" selected disabled>No hay microciclos disponibles</option>';
-    state.microSeleccionadoId = null;
+function renderMicroList() {
+  if (!microListContainer) return;
+  const lista = todosLosMicrociclos();
+  if (!lista.length) {
+    microListContainer.innerHTML =
+      '<div class="app-card text-center py-4"><p class="mb-1 fw-semibold">Todavía no tienes microciclos guardados</p><p class="text-muted small mb-3">Utiliza el botón "Nuevo microciclo" para crear tu primera semana tipo.</p><button class="btn btn-primary btn-sm" id="micro-empty-create">Crear microciclo</button></div>';
+    qs("#micro-empty-create")?.addEventListener("click", () => showMicroBuilder());
     return;
   }
-  if (!micros.some((m) => Number(m.id) === Number(state.microSeleccionadoId))) {
-    state.microSeleccionadoId = micros[0]?.id ?? null;
+  microListContainer.innerHTML = lista
+    .sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""))
+    .map(
+      (micro) => `
+      <article class="micro-card" data-id="${micro.id}">
+        <div class="d-flex justify-content-between align-items-start gap-2 micro-card__header">
+          <div>
+            <h4 class="mb-1">${micro.nombre}</h4>
+            <p class="text-muted small mb-0">${micro.objetivo || "Sin objetivo específico"}</p>
+          </div>
+          <div class="micro-card__actions">
+            <button class="btn btn-outline-primary btn-sm" data-action="edit-micro" data-id="${micro.id}">Editar</button>
+            <button class="btn btn-outline-danger btn-sm" data-action="delete-micro" data-id="${micro.id}">Eliminar</button>
+          </div>
+        </div>
+        <hr class="my-3">
+        ${microResumenSemana(micro)}
+      </article>`
+    )
+    .join("");
+}
+
+function mesoResumenSemanas(meso) {
+  const plan = (meso?.plan_micros || []).sort(
+    (a, b) => Number(a.orden || 0) - Number(b.orden || 0)
+  );
+  if (!plan.length) {
+    return '<p class="text-muted small mb-0">Todavía no has asignado microciclos a este meso.</p>';
   }
-  const placeholderSelected = state.microSeleccionadoId ? "" : "selected";
-  select.innerHTML =
-    `<option value="" disabled ${placeholderSelected}>Selecciona un microciclo</option>` +
-    micros
-      .map(
-        (micro) =>
-          `<option value="${micro.id}" ${
-            Number(micro.id) === Number(state.microSeleccionadoId) ? "selected" : ""
-          }>${micro.nombre}</option>`
-      )
-      .join("");
-  if (state.microSeleccionadoId) {
-    select.value = state.microSeleccionadoId;
+  return `
+    <div class="meso-card__weeks">
+      ${plan
+        .map(
+          (item) => `
+          <div class="meso-card__week-chip">
+            <span class="meso-card__week-label">Semana ${item.orden || "-"}</span>
+            <p class="mb-0">${item.micro_nombre || "Microciclo"}</p>
+            <small class="text-muted">${item.micro_objetivo || "Sin objetivo"}</small>
+          </div>
+        `
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderMesoList() {
+  if (!mesoListContainer) return;
+  const lista = state.mesociclos || [];
+  if (!lista.length) {
+    mesoListContainer.innerHTML =
+      '<div class="app-card text-center py-4"><p class="mb-1 fw-semibold">No tienes mesociclos creados aún</p><p class="text-muted small mb-3">Crea un nuevo mesociclo y compónlo con tus microciclos tipo.</p><button class="btn btn-primary btn-sm" id="meso-empty-create">Crear mesociclo</button></div>';
+    qs("#meso-empty-create")?.addEventListener("click", () => showMesoBuilder());
+    return;
   }
+  mesoListContainer.innerHTML = lista
+    .sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""))
+    .map(
+      (meso) => `
+      <article class="meso-card" data-id="${meso.id}">
+        <div class="d-flex justify-content-between align-items-start gap-2">
+          <div>
+            <h4 class="mb-1">${meso.nombre}</h4>
+            <p class="text-muted small mb-0">${meso.objetivo || "Sin objetivo"}</p>
+          </div>
+          <div class="meso-card__actions">
+            <button class="btn btn-outline-primary btn-sm" data-action="edit-meso" data-id="${meso.id}">Editar</button>
+            <button class="btn btn-outline-danger btn-sm" data-action="delete-meso" data-id="${meso.id}">Eliminar</button>
+          </div>
+        </div>
+        <hr class="my-3">
+        ${mesoResumenSemanas(meso)}
+      </article>`
+    )
+    .join("");
+}
+
+function macroResumenBloques(macro) {
+  const plan = (macro?.plan_mesos || []).sort(
+    (a, b) => Number(a.orden || 0) - Number(b.orden || 0)
+  );
+  if (!plan.length) {
+    return '<p class="text-muted small mb-0">Aún no has asignado mesociclos a este bloque.</p>';
+  }
+  return `
+    <div class="macro-card__blocks">
+      ${plan
+        .map(
+          (item) => `
+          <div class="macro-card__block-chip">
+            <span class="macro-card__block-label">Bloque ${item.orden || "-"}</span>
+            <p class="mb-0">${item.meso_nombre || "Mesociclo"}</p>
+            <small class="text-muted">${item.meso_objetivo || "Sin objetivo"}</small>
+          </div>`
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function renderMacroList() {
+  if (!macroListContainer) return;
+  const lista = state.macros || [];
+  if (!lista.length) {
+    macroListContainer.innerHTML =
+      '<div class="app-card text-center py-4"><p class="mb-1 fw-semibold">Todavía no tienes macrociclos</p><p class="text-muted small mb-3">Utiliza el botón "Nuevo macrociclo" para crear un bloque largo.</p><button class="btn btn-primary btn-sm" id="macro-empty-create">Crear macrociclo</button></div>';
+    qs("#macro-empty-create")?.addEventListener("click", () => showMacroBuilder());
+    return;
+  }
+  macroListContainer.innerHTML = lista
+    .sort((a, b) => (a.nombre || "").localeCompare(b.nombre || ""))
+    .map(
+      (macro) => `
+      <article class="macro-card" data-id="${macro.id}">
+        <div class="d-flex justify-content-between align-items-start gap-2">
+          <div>
+            <h4 class="mb-1">${macro.nombre}</h4>
+            <p class="text-muted small mb-0">${macro.objetivo_general || "Sin objetivo"}</p>
+          </div>
+          <div class="macro-card__actions">
+            <button class="btn btn-outline-primary btn-sm" data-action="edit-macro" data-id="${macro.id}">Editar</button>
+            <button class="btn btn-outline-danger btn-sm" data-action="delete-macro" data-id="${macro.id}">Eliminar</button>
+          </div>
+        </div>
+        <hr class="my-3">
+        ${macroResumenBloques(macro)}
+      </article>`
+    )
+    .join("");
+}
+
+function populateMacroForm(macro = null) {
+  const form = qs("#form-macro");
+  if (!form) return;
+  form.reset();
+  if (macroIdField) {
+    macroIdField.value = macro?.id ? String(macro.id) : "";
+  }
+  const nombreInput = form.querySelector('[name="nombre"]');
+  const objetivoInput = form.querySelector('[name="objetivo_general"]');
+  if (nombreInput) nombreInput.value = macro?.nombre || "";
+  if (objetivoInput) objetivoInput.value = macro?.objetivo_general || "";
+}
+
+function showMacroList() {
+  if (macroListView) macroListView.classList.remove("d-none");
+  if (macroBuilderView) macroBuilderView.classList.add("d-none");
+  state.macroEditandoId = null;
+  state.macroBloquesActivos = 0;
+  populateMacroForm(null);
+  const grid = qs("#macro-block-grid");
+  if (grid) {
+    grid.innerHTML =
+      '<p class="text-muted mb-0">Selecciona un macrociclo para editar su secuencia de mesociclos.</p>';
+  }
+}
+
+function showMacroBuilder(macroId = null) {
+  if (macroListView) macroListView.classList.add("d-none");
+  if (macroBuilderView) macroBuilderView.classList.remove("d-none");
+  const macro = macroId ? getMacroById(macroId) : null;
+  if (macroId && !macro) {
+    toast("No se pudo cargar el macrociclo seleccionado", "danger");
+    showMacroList();
+    return;
+  }
+  state.macroEditandoId = macro ? Number(macro.id) : null;
+  if (macro) {
+    if (macroBuilderTitle) macroBuilderTitle.textContent = `Editando ${macro.nombre}`;
+    populateMacroForm(macro);
+    state.macroBloquesActivos = Math.max(
+      macro.plan_mesos?.length || 0,
+      DEFAULT_BLOQUES_MACRO
+    );
+  } else {
+    if (macroBuilderTitle) macroBuilderTitle.textContent = "Nuevo macrociclo";
+    populateMacroForm(null);
+    state.macroBloquesActivos = DEFAULT_BLOQUES_MACRO;
+  }
+  renderMacroBuilderGrid();
+}
+
+function renderMacroBuilderGrid() {
+  const grid = qs("#macro-block-grid");
+  if (!grid) return;
+  const macroId = state.macroEditandoId;
+  if (!macroId) {
+    grid.innerHTML =
+      '<p class="text-muted mb-0">Guarda o selecciona un macrociclo para comenzar a planificar su secuencia.</p>';
+    return;
+  }
+  const macro = getMacroById(macroId);
+  if (!macro) {
+    grid.innerHTML = '<p class="text-muted mb-0">Este macrociclo ya no existe.</p>';
+    return;
+  }
+  const plan = (macro.plan_mesos || []).reduce((acc, item) => {
+    acc[Number(item.orden) || 0] = item;
+    return acc;
+  }, {});
+  const bloques = Math.max(state.macroBloquesActivos || DEFAULT_BLOQUES_MACRO, DEFAULT_BLOQUES_MACRO);
+  const slots = Array.from({ length: Math.min(bloques, MAX_BLOQUES_MACRO) }, (_, idx) => {
+    const bloque = idx + 1;
+    const registro = plan[bloque];
+    const filled = Boolean(registro);
+    return `
+      <div class="macro-slot ${filled ? "macro-slot--filled" : ""}" data-macro="${macro.id}" data-orden="${bloque}" data-relacion="${registro?.id || ""}">
+        <div class="macro-slot__header">
+          <p class="mb-0 fw-semibold">Bloque ${bloque}</p>
+          ${
+            filled
+              ? `<button type="button" class="btn btn-sm btn-outline-danger btn-macro-slot-remove" data-macro="${macro.id}" data-detalle="${registro.id}">Quitar</button>`
+              : ""
+          }
+        </div>
+        ${
+          filled
+            ? `<div class="macro-slot__body">
+                <strong>${registro.meso_nombre || "Mesociclo"}</strong>
+                <p class="text-muted small mb-0">${registro.meso_objetivo || "Sin objetivo"}</p>
+              </div>`
+            : '<p class="macro-slot__placeholder mb-0">Arrastra un mesociclo para ocupar este bloque.</p>'
+        }
+      </div>
+    `;
+  }).join("");
+  grid.innerHTML = slots;
+  grid.querySelectorAll(".macro-slot").forEach(setupMacroSlotDnD);
+}
+
+function addMacroBlock() {
+  const nuevo = (state.macroBloquesActivos || DEFAULT_BLOQUES_MACRO) + 1;
+  if (nuevo > MAX_BLOQUES_MACRO) return;
+  state.macroBloquesActivos = nuevo;
+  renderMacroBuilderGrid();
+}
+
+function populateMesoForm(meso = null) {
+  const form = qs("#form-meso");
+  if (!form) return;
+  form.reset();
+  if (mesoIdField) {
+    mesoIdField.value = meso?.id ? String(meso.id) : "";
+  }
+  const nombreInput = form.querySelector('[name="nombre"]');
+  const objetivoInput = form.querySelector('[name="objetivo"]');
+  if (nombreInput) nombreInput.value = meso?.nombre || "";
+  if (objetivoInput) objetivoInput.value = meso?.objetivo || "";
+}
+
+function showMesoList() {
+  if (mesoListView) mesoListView.classList.remove("d-none");
+  if (mesoBuilderView) mesoBuilderView.classList.add("d-none");
+  state.mesoEditandoId = null;
+  state.mesoSemanasActivas = 0;
+  populateMesoForm(null);
+  const grid = qs("#meso-weeks-grid");
+  if (grid) {
+    grid.innerHTML =
+      '<p class="text-muted mb-0">Selecciona un mesociclo para ver y editar su secuencia de semanas.</p>';
+  }
+}
+
+function showMesoBuilder(mesoId = null) {
+  if (mesoListView) mesoListView.classList.add("d-none");
+  if (mesoBuilderView) mesoBuilderView.classList.remove("d-none");
+  const meso = mesoId ? getMesoById(mesoId) : null;
+  if (mesoId && !meso) {
+    toast("No se pudo cargar el mesociclo seleccionado", "danger");
+    showMesoList();
+    return;
+  }
+  state.mesoEditandoId = meso ? Number(meso.id) : null;
+  if (meso) {
+    if (mesoBuilderTitle) mesoBuilderTitle.textContent = `Editando ${meso.nombre}`;
+    populateMesoForm(meso);
+    state.mesoSemanasActivas = Math.max(meso.plan_micros?.length || 0, DEFAULT_SEMANAS_MESO);
+  } else {
+    if (mesoBuilderTitle) mesoBuilderTitle.textContent = "Nuevo mesociclo";
+    populateMesoForm(null);
+    state.mesoSemanasActivas = DEFAULT_SEMANAS_MESO;
+  }
+  renderMesoBuilderGrid();
+}
+
+function renderMesoBuilderGrid() {
+  const grid = qs("#meso-weeks-grid");
+  if (!grid) return;
+  const mesoId = state.mesoEditandoId;
+  if (!mesoId) {
+    grid.innerHTML =
+      '<p class="text-muted mb-0">Guarda o selecciona un mesociclo para comenzar a planificar sus semanas.</p>';
+    return;
+  }
+  const meso = getMesoById(mesoId);
+  if (!meso) {
+    grid.innerHTML = '<p class="text-muted mb-0">Este mesociclo ya no existe.</p>';
+    return;
+  }
+  const plan = (meso.plan_micros || []).reduce((acc, item) => {
+    acc[Number(item.orden) || 0] = item;
+    return acc;
+  }, {});
+  const semanas = Math.max(state.mesoSemanasActivas || DEFAULT_SEMANAS_MESO, DEFAULT_SEMANAS_MESO);
+  const slots = Array.from({ length: Math.min(semanas, MAX_SEMANAS_MESO) }, (_, idx) => {
+    const semana = idx + 1;
+    const registro = plan[semana];
+    const filled = Boolean(registro);
+    return `
+      <div class="meso-slot ${filled ? "meso-slot--filled" : ""}" data-meso="${meso.id}" data-orden="${semana}" data-relacion="${registro?.id || ""}">
+        <div class="meso-slot__header">
+          <p class="mb-0 fw-semibold">Semana ${semana}</p>
+          ${
+            filled
+              ? `<button type="button" class="btn btn-sm btn-outline-danger btn-meso-slot-remove" data-meso="${meso.id}" data-detalle="${registro.id}">Quitar</button>`
+              : ""
+          }
+        </div>
+        ${
+          filled
+            ? `<div class="meso-slot__body">
+                <strong>${registro.micro_nombre || "Microciclo"}</strong>
+                <p class="text-muted small mb-0">${registro.micro_objetivo || "Sin objetivo definido"}</p>
+              </div>`
+            : '<p class="meso-slot__placeholder mb-0">Arrastra un microciclo para asignarlo a esta semana.</p>'
+        }
+      </div>
+    `;
+  }).join("");
+  grid.innerHTML = slots;
+  grid.querySelectorAll(".meso-slot").forEach(setupMesoSlotDnD);
+}
+
+function addMesoWeek() {
+  const nueva = (state.mesoSemanasActivas || DEFAULT_SEMANAS_MESO) + 1;
+  if (nueva > MAX_SEMANAS_MESO) return;
+  state.mesoSemanasActivas = nueva;
+  renderMesoBuilderGrid();
+}
+
+function populateMicroForm(micro = null) {
+  const form = qs("#form-micro");
+  if (!form) return;
+  form.reset();
+  const nombreInput = form.querySelector('[name="nombre"]');
+  const objetivoInput = form.querySelector('[name="objetivo"]');
+  if (nombreInput) nombreInput.value = micro?.nombre || "";
+  if (objetivoInput) objetivoInput.value = micro?.objetivo || "";
+  if (microIdField) {
+    microIdField.value = micro?.id ? String(micro.id) : "";
+  }
+}
+
+function showMicroList() {
+  if (microListView) microListView.classList.remove("d-none");
+  if (microBuilderView) microBuilderView.classList.add("d-none");
+  state.microEditandoId = null;
+  state.sesionesActivas = {};
+  populateMicroForm(null);
+  const grid = qs("#micro-week-grid");
+  if (grid) {
+    grid.innerHTML =
+      '<p class="text-muted mb-0">Selecciona un microciclo para revisar su semana estándar.</p>';
+  }
+}
+
+function showMicroBuilder(microId = null) {
+  if (microListView) microListView.classList.add("d-none");
+  if (microBuilderView) microBuilderView.classList.remove("d-none");
+
+  const micro = microId ? getMicroById(microId) : null;
+  if (microId && !micro) {
+    toast("No se pudo cargar el microciclo seleccionado", "danger");
+    showMicroList();
+    return;
+  }
+
+  state.microEditandoId = micro ? Number(micro.id) : null;
+  if (micro) {
+    if (microBuilderTitle) microBuilderTitle.textContent = `Editando ${micro.nombre}`;
+    populateMicroForm(micro);
+    prepareSesionesActivas(micro);
+  } else {
+    if (microBuilderTitle) microBuilderTitle.textContent = "Nuevo microciclo";
+    populateMicroForm(null);
+    state.sesionesActivas = {};
+  }
+  renderMicroBuilderGrid();
 }
 
 function labelSesion(sesion) {
@@ -390,43 +1089,70 @@ function labelSesion(sesion) {
 function renderMicroBuilderGrid() {
   const grid = qs("#micro-week-grid");
   if (!grid) return;
-  const micro = microSeleccionado();
-  if (!micro) {
-    grid.innerHTML = '<p class="text-muted">Selecciona un microciclo para comenzar.</p>';
+  const microId = state.microEditandoId;
+  if (!microId) {
+    grid.innerHTML =
+      '<p class="text-muted mb-0">Guarda o selecciona un microciclo para comenzar a planificar su semana estándar.</p>';
     return;
+  }
+  const micro = getMicroById(microId);
+  if (!micro) {
+    grid.innerHTML = '<p class="text-muted mb-0">Este microciclo ya no existe.</p>';
+    return;
+  }
+
+  if (!Object.keys(state.sesionesActivas || {}).length) {
+    prepareSesionesActivas(micro);
   }
 
   const mapa = {};
   (micro.entrenamientos || []).forEach((item) => {
     const dia = Number(item.dia_relativo) || 0;
     const sesion = Number(item.sesion_indice) || 1;
-    if (!mapa[dia]) {
-      mapa[dia] = {};
-    }
+    if (!mapa[dia]) mapa[dia] = {};
     mapa[dia][sesion] = item;
+    state.sesionesActivas[dia] = Math.max(state.sesionesActivas[dia] || 1, sesion);
   });
 
   const diaHtml = DIAS_SEMANA.map((dia) => {
-    const slots = SESIONES_DIA.map((sesion) => {
-      const registro = mapa[dia.id]?.[sesion.id];
+    const sesionesCount = Math.max(state.sesionesActivas[dia.id] || 1, 1);
+    const slots = Array.from({ length: sesionesCount }, (_, idx) => {
+      const sesion = idx + 1;
+      const registro = mapa[dia.id]?.[sesion];
       const filled = Boolean(registro);
-      const entrenamientoNombre = registro?.entrenamiento_nombre || "Vacío";
-      const notas = registro?.notas ? `<p class="small text-muted mb-2">${registro.notas}</p>` : "";
+      const isRest =
+        filled &&
+        (!registro.entrenamiento_id ||
+          (registro.notas || "").toLowerCase().includes("descanso"));
+      const entrenamientoNombre = isRest
+        ? "Descanso"
+        : registro?.entrenamiento_nombre || "Entrenamiento";
+      const notas =
+        registro?.notas && !isRest
+          ? `<p class="small text-muted mb-2">${registro.notas}</p>`
+          : "";
       return `
-        <div class="micro-slot ${filled ? "filled" : "empty"}" data-dia="${dia.id}" data-sesion="${sesion.id}">
-          <div class="micro-slot__label">${labelSesion(sesion.id)}</div>
-          <p class="micro-slot__training">${entrenamientoNombre}</p>
-          ${notas}
+        <div class="micro-slot ${filled ? "filled" : "empty"} ${
+        isRest ? "micro-slot--rest" : ""
+      }"
+          data-dia="${dia.id}"
+          data-sesion="${sesion}"
+          data-micro="${micro.id}"
+          data-registro="${registro?.id || ""}"
+          data-entrenamiento="${registro?.entrenamiento_id || ""}">
+          <div class="micro-slot__label">${labelSesion(sesion)}</div>
+          ${
+            filled
+              ? `<p class="micro-slot__training">${entrenamientoNombre}</p>${notas}`
+              : `<p class="micro-slot__placeholder mb-2">Arrastra un entrenamiento o marca descanso</p>`
+          }
           <div class="micro-slot__actions">
-            <button
-              class="btn btn-sm btn-outline-brand btn-slot-assign"
+            <button class="btn btn-sm btn-outline-secondary btn-slot-rest"
               data-micro="${micro.id}"
               data-dia="${dia.id}"
-              data-sesion="${sesion.id}"
-              data-registro="${registro?.id || ""}"
-              data-entrenamiento="${registro?.entrenamiento_id || ""}"
-            >
-              ${filled ? "Reemplazar" : "Asignar"}
+              data-sesion="${sesion}"
+              data-registro="${registro?.id || ""}">
+              Descanso
             </button>
             ${
               filled
@@ -437,45 +1163,102 @@ function renderMicroBuilderGrid() {
         </div>
       `;
     }).join("");
+    const addButton =
+      sesionesCount < MAX_SESIONES_DIA
+        ? `<button class="btn btn-link btn-add-session" data-dia="${dia.id}">+ Añadir sesión</button>`
+        : "";
     return `
       <div class="micro-day-card">
         <p class="micro-day-card__title">${dia.label}</p>
         ${slots}
+        ${addButton}
       </div>
     `;
   }).join("");
 
-  const sinDia = (micro.entrenamientos || []).filter((item) => !item.dia_relativo);
-  const sinDiaHtml = sinDia.length
-    ? `<div class="micro-day-card full-width">
-        <p class="micro-day-card__title">Entrenamientos sin día asignado</p>
-        <ul class="list-group small mb-3">
-          ${sinDia
-            .map(
-              (item) => `
-            <li class="list-group-item d-flex justify-content-between align-items-center gap-2 flex-wrap">
-              <span>${item.entrenamiento_nombre || "Entrenamiento"} · ${labelSesion(
-                item.sesion_indice || 1
-              )}</span>
-              <div class="d-flex gap-2">
-                <button class="btn btn-sm btn-outline-brand btn-slot-assign" data-micro="${micro.id}" data-dia="" data-sesion="${
-                item.sesion_indice || 1
-              }" data-registro="${item.id}" data-entrenamiento="${item.entrenamiento_id}">
-                  Asignar día
-                </button>
-                <button class="btn btn-sm btn-outline-danger btn-slot-clear" data-micro="${micro.id}" data-registro="${item.id}">
-                  Eliminar
-                </button>
-              </div>
-            </li>`
-            )
-            .join("")}
-        </ul>
-        <div class="alert alert-warning small mb-0">Asigna estos entrenamientos a un día concreto para generar calendarios consistentes.</div>
-      </div>`
-    : "";
+  grid.innerHTML = diaHtml;
+  grid.querySelectorAll(".micro-slot").forEach(setupSlotDnD);
+}
 
-  grid.innerHTML = diaHtml + sinDiaHtml;
+function setupSlotDnD(slot) {
+  slot.addEventListener("dragover", (e) => {
+    if (
+      !state.dragPayload ||
+      (state.dragPayload.tipo !== DRAG_TYPES.TRAINING &&
+        state.dragPayload.tipo !== DRAG_TYPES.REST)
+    ) {
+      return;
+    }
+    e.preventDefault();
+    slot.classList.add("micro-slot--dropping");
+  });
+  slot.addEventListener("dragleave", () => {
+    slot.classList.remove("micro-slot--dropping");
+  });
+  slot.addEventListener("drop", (e) => {
+    if (
+      !state.dragPayload ||
+      (state.dragPayload.tipo !== DRAG_TYPES.TRAINING &&
+        state.dragPayload.tipo !== DRAG_TYPES.REST)
+    ) {
+      return;
+    }
+    e.preventDefault();
+    slot.classList.remove("micro-slot--dropping");
+    const payload = state.dragPayload;
+    state.dragPayload = null;
+    if (payload.tipo === DRAG_TYPES.REST) {
+      asignarDescansoEnSlot(slot.dataset);
+    } else if (payload.entrenamientoId) {
+      asignarEntrenamientoEnSlot(slot.dataset, payload.entrenamientoId);
+    }
+  });
+}
+
+function setupMacroSlotDnD(slot) {
+  slot.addEventListener("dragover", (e) => {
+    if (!state.dragPayload || state.dragPayload.tipo !== DRAG_TYPES.MESO) return;
+    e.preventDefault();
+    slot.classList.add("macro-slot--dropping");
+  });
+  slot.addEventListener("dragleave", () => {
+    slot.classList.remove("macro-slot--dropping");
+  });
+  slot.addEventListener("drop", (e) => {
+    if (!state.dragPayload || state.dragPayload.tipo !== DRAG_TYPES.MESO) return;
+    e.preventDefault();
+    slot.classList.remove("macro-slot--dropping");
+    const payload = state.dragPayload;
+    state.dragPayload = null;
+    if (payload.mesoId) {
+      asignarMesoEnBloque(slot.dataset, payload.mesoId);
+    }
+  });
+}
+
+function setupMesoSlotDnD(slot) {
+  slot.addEventListener("dragover", (e) => {
+    if (!state.dragPayload || state.dragPayload.tipo !== DRAG_TYPES.MICRO) {
+      return;
+    }
+    e.preventDefault();
+    slot.classList.add("meso-slot--dropping");
+  });
+  slot.addEventListener("dragleave", () => {
+    slot.classList.remove("meso-slot--dropping");
+  });
+  slot.addEventListener("drop", (e) => {
+    if (!state.dragPayload || state.dragPayload.tipo !== DRAG_TYPES.MICRO) {
+      return;
+    }
+    e.preventDefault();
+    slot.classList.remove("meso-slot--dropping");
+    const payload = state.dragPayload;
+    state.dragPayload = null;
+    if (payload.microId) {
+      asignarMicroEnSemana(slot.dataset, payload.microId);
+    }
+  });
 }
 
 function setupTabs() {
@@ -501,66 +1284,217 @@ function setupTabs() {
 }
 
 function setupMicroBuilder() {
-  qs("#micro-plan-select")?.addEventListener("change", (e) => {
-    state.microSeleccionadoId = Number(e.target.value);
-    renderMicroBuilderGrid();
-  });
-
-  qs("#micro-week-grid")?.addEventListener("click", (e) => {
-    const assignBtn = e.target.closest(".btn-slot-assign");
-    if (assignBtn) {
-      abrirModalParaSlot(assignBtn.dataset);
+  const grid = qs("#micro-week-grid");
+  grid?.addEventListener("click", (e) => {
+    const restBtn = e.target.closest(".btn-slot-rest");
+    if (restBtn) {
+      asignarDescansoEnSlot(restBtn.dataset);
       return;
     }
     const clearBtn = e.target.closest(".btn-slot-clear");
     if (clearBtn) {
       eliminarSlot(clearBtn.dataset);
+      return;
+    }
+    const addBtn = e.target.closest(".btn-add-session");
+    if (addBtn) {
+      addSessionForDay(addBtn.dataset.dia);
     }
   });
 }
 
+function setupMesoBuilder() {
+  const grid = qs("#meso-weeks-grid");
+  grid?.addEventListener("click", (e) => {
+    const removeBtn = e.target.closest(".btn-meso-slot-remove");
+    if (removeBtn) {
+      eliminarMicroSemana(removeBtn.dataset);
+    }
+  });
+  mesoAddWeekBtn?.addEventListener("click", () => addMesoWeek());
+}
+
+function setupMacroBuilder() {
+  const grid = qs("#macro-block-grid");
+  grid?.addEventListener("click", (e) => {
+    const removeBtn = e.target.closest(".btn-macro-slot-remove");
+    if (removeBtn) {
+      eliminarMesoDelMacro(removeBtn.dataset);
+    }
+  });
+  macroAddBlockBtn?.addEventListener("click", () => addMacroBlock());
+}
+
 function setupBibliotecaHandlers() {
-  qs("#input-buscar-entrenamiento")?.addEventListener("input", (e) => {
+  const input = qs("#input-buscar-entrenamiento");
+  input?.addEventListener("input", (e) => {
     state.filtroBiblioteca = e.target.value;
     renderBibliotecaEntrenamientos();
   });
 
   qs("#btn-limpiar-entrenamiento")?.addEventListener("click", () => {
+    state.filtroBiblioteca = "";
     state.entrenamientoActivoId = null;
+    if (input) input.value = "";
     renderBibliotecaEntrenamientos();
   });
 
   qs("#biblioteca-entrenamientos")?.addEventListener("click", (e) => {
-    const item = e.target.closest(".micro-library__item");
+    const item = e.target.closest(".micro-library__item[data-entrenamiento-id]");
     if (!item) return;
-    const id = item.dataset.entrenamientoId;
+    const id = Number(item.dataset.entrenamientoId);
     state.entrenamientoActivoId =
-      Number(state.entrenamientoActivoId) === Number(id) ? null : Number(id);
+      Number(state.entrenamientoActivoId) === id ? null : id;
     renderBibliotecaEntrenamientos();
+  });
+
+  const mesoSearch = qs("#meso-micro-search");
+  mesoSearch?.addEventListener("input", (e) => {
+    state.filtroMicros = e.target.value;
+    renderBibliotecaMicros();
+  });
+
+  qs("#meso-micro-clear")?.addEventListener("click", () => {
+    state.filtroMicros = "";
+    if (mesoSearch) mesoSearch.value = "";
+    renderBibliotecaMicros();
+  });
+
+  const macroSearch = qs("#macro-meso-search");
+  macroSearch?.addEventListener("input", (e) => {
+    state.filtroMesos = e.target.value;
+    renderBibliotecaMesos();
+  });
+
+  qs("#macro-meso-clear")?.addEventListener("click", () => {
+    state.filtroMesos = "";
+    if (macroSearch) macroSearch.value = "";
+    renderBibliotecaMesos();
   });
 }
 
-function abrirModalParaSlot(dataset) {
-  const dia = dataset.dia || "";
-  const sesion = dataset.sesion || "1";
-  qs("#ciclo-target-id").value = dataset.micro;
-  qs("#ciclo-target-tipo").value = "micro";
-  qs("#slot-existing-id").value = dataset.registro || "";
-  qs("#input-dia-relativo").value = dia;
-  qs("#input-sesion-indice").value = sesion;
+function setupMicroListInteractions() {
+  microCreateBtn?.addEventListener("click", () => showMicroBuilder());
+  microBackBtn?.addEventListener("click", () => showMicroList());
 
-  const selectEntreno = qs("#select-entrenamiento-ciclo");
-  if (dataset.entrenamiento) {
-    selectEntreno.value = dataset.entrenamiento;
-  } else if (state.entrenamientoActivoId) {
-    selectEntreno.value = state.entrenamientoActivoId;
-  } else {
-    selectEntreno.selectedIndex = 0;
+  microListContainer?.addEventListener("click", (e) => {
+    const editBtn = e.target.closest("[data-action='edit-micro']");
+    if (editBtn) {
+      showMicroBuilder(Number(editBtn.dataset.id));
+      return;
+    }
+    const deleteBtn = e.target.closest("[data-action='delete-micro']");
+    if (deleteBtn) {
+      eliminarMicro(deleteBtn.dataset.id);
+      return;
+    }
+    const card = e.target.closest(".micro-card[data-id]");
+    if (card && !e.target.closest(".micro-card__actions")) {
+      showMicroBuilder(Number(card.dataset.id));
+    }
+  });
+}
+
+function setupMacroListInteractions() {
+  macroCreateBtn?.addEventListener("click", () => showMacroBuilder());
+  macroBackBtn?.addEventListener("click", () => showMacroList());
+
+  macroListContainer?.addEventListener("click", (e) => {
+    const editBtn = e.target.closest("[data-action='edit-macro']");
+    if (editBtn) {
+      showMacroBuilder(Number(editBtn.dataset.id));
+      return;
+    }
+    const deleteBtn = e.target.closest("[data-action='delete-macro']");
+    if (deleteBtn) {
+      eliminarMacro(deleteBtn.dataset.id);
+      return;
+    }
+    const card = e.target.closest(".macro-card[data-id]");
+    if (card && !e.target.closest(".macro-card__actions")) {
+      showMacroBuilder(Number(card.dataset.id));
+    }
+  });
+}
+
+function setupMesoListInteractions() {
+  mesoCreateBtn?.addEventListener("click", () => showMesoBuilder());
+  mesoBackBtn?.addEventListener("click", () => showMesoList());
+
+  mesoListContainer?.addEventListener("click", (e) => {
+    const editBtn = e.target.closest("[data-action='edit-meso']");
+    if (editBtn) {
+      showMesoBuilder(Number(editBtn.dataset.id));
+      return;
+    }
+    const deleteBtn = e.target.closest("[data-action='delete-meso']");
+    if (deleteBtn) {
+      eliminarMeso(deleteBtn.dataset.id);
+      return;
+    }
+    const card = e.target.closest(".meso-card[data-id]");
+    if (card && !e.target.closest(".meso-card__actions")) {
+      showMesoBuilder(Number(card.dataset.id));
+    }
+  });
+}
+
+async function asignarEntrenamientoEnSlot(dataset, entrenamientoId) {
+  const microId = Number(dataset?.micro);
+  if (!microId || !entrenamientoId) return;
+  const dia = dataset.dia ? Number(dataset.dia) : null;
+  const sesion = dataset.sesion ? Number(dataset.sesion) : 1;
+  try {
+    if (dataset.registro) {
+      await apiFetch(`/ciclos/micro/${microId}/entrenamientos/${dataset.registro}`, {
+        method: "DELETE",
+      });
+    }
+    await apiFetch(`/ciclos/micro/${microId}/entrenamientos`, {
+      method: "POST",
+      body: JSON.stringify({
+        entrenamiento_id: entrenamientoId,
+        dia_relativo: dia,
+        sesion_indice: sesion,
+        notas: null,
+        orden: dia && sesion ? `${dia}${sesion}` : null,
+      }),
+    });
+    toast("Entrenamiento asignado");
+    await cargarCiclos();
+    showMicroBuilder(microId);
+  } catch (err) {
+    toast(err.message, "danger");
   }
-  qs("#input-orden").value =
-    dia && sesion ? `${parseInt(dia, 10)}${parseInt(sesion, 10)}` : "";
-  qs("#input-notas-entrenamiento").value = "";
-  modalEntreno?.show();
+}
+
+async function asignarDescansoEnSlot(dataset) {
+  const microId = Number(dataset?.micro);
+  if (!microId) return;
+  const dia = dataset.dia ? Number(dataset.dia) : null;
+  const sesion = dataset.sesion ? Number(dataset.sesion) : 1;
+  try {
+    if (dataset.registro) {
+      await apiFetch(`/ciclos/micro/${microId}/entrenamientos/${dataset.registro}`, {
+        method: "DELETE",
+      });
+    }
+    await apiFetch(`/ciclos/micro/${microId}/entrenamientos`, {
+      method: "POST",
+      body: JSON.stringify({
+        entrenamiento_id: null,
+        dia_relativo: dia,
+        sesion_indice: sesion,
+        notas: "DESCANSO",
+        orden: dia && sesion ? `${dia}${sesion}` : null,
+      }),
+    });
+    toast("Descanso asignado");
+    await cargarCiclos();
+    showMicroBuilder(microId);
+  } catch (err) {
+    toast(err.message, "danger");
+  }
 }
 
 async function eliminarSlot(dataset) {
@@ -571,7 +1505,94 @@ async function eliminarSlot(dataset) {
       method: "DELETE",
     });
     toast("Bloque eliminado");
-    cargarCiclos();
+    await cargarCiclos();
+    if (state.microEditandoId) {
+      showMicroBuilder(state.microEditandoId);
+    }
+  } catch (err) {
+    toast(err.message, "danger");
+  }
+}
+
+async function asignarMesoEnBloque(dataset, mesoId) {
+  const macroId = Number(dataset?.macro);
+  if (!macroId || !mesoId) return;
+  const orden = dataset?.orden ? Number(dataset.orden) : null;
+  try {
+    if (dataset.relacion) {
+      await apiFetch(`/ciclos/macro/${macroId}/mesociclos/${dataset.relacion}`, {
+        method: "DELETE",
+      });
+    }
+    await apiFetch(`/ciclos/macro/${macroId}/mesociclos`, {
+      method: "POST",
+      body: JSON.stringify({
+        mesociclo_id: mesoId,
+        orden,
+      }),
+    });
+    toast("Mesociclo asignado");
+    await cargarCiclos();
+    showMacroBuilder(macroId);
+  } catch (err) {
+    toast(err.message, "danger");
+  }
+}
+
+async function eliminarMesoDelMacro(dataset) {
+  const macroId = Number(dataset?.macro);
+  const detalleId = dataset?.detalle;
+  if (!macroId || !detalleId) return;
+  if (!confirm("¿Quitar este mesociclo del macrociclo?")) return;
+  try {
+    await apiFetch(`/ciclos/macro/${macroId}/mesociclos/${detalleId}`, {
+      method: "DELETE",
+    });
+    toast("Bloque liberado");
+    await cargarCiclos();
+    showMacroBuilder(macroId);
+  } catch (err) {
+    toast(err.message, "danger");
+  }
+}
+
+async function asignarMicroEnSemana(dataset, microId) {
+  const mesoId = Number(dataset?.meso);
+  if (!mesoId || !microId) return;
+  const orden = dataset?.orden ? Number(dataset.orden) : null;
+  try {
+    if (dataset.relacion) {
+      await apiFetch(`/ciclos/meso/${mesoId}/microciclos/${dataset.relacion}`, {
+        method: "DELETE",
+      });
+    }
+    await apiFetch(`/ciclos/meso/${mesoId}/microciclos`, {
+      method: "POST",
+      body: JSON.stringify({
+        microciclo_id: microId,
+        orden,
+      }),
+    });
+    toast("Microciclo añadido a la semana");
+    await cargarCiclos();
+    showMesoBuilder(mesoId);
+  } catch (err) {
+    toast(err.message, "danger");
+  }
+}
+
+async function eliminarMicroSemana(dataset) {
+  const mesoId = Number(dataset?.meso);
+  const detalleId = dataset?.detalle;
+  if (!mesoId || !detalleId) return;
+  if (!confirm("¿Quitar este microciclo del meso?")) return;
+  try {
+    await apiFetch(`/ciclos/meso/${mesoId}/microciclos/${detalleId}`, {
+      method: "DELETE",
+    });
+    toast("Semana liberada");
+    await cargarCiclos();
+    showMesoBuilder(mesoId);
   } catch (err) {
     toast(err.message, "danger");
   }
@@ -582,11 +1603,36 @@ function setupForms() {
   formMacro?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(formMacro).entries());
+    const payload = {
+      nombre: (data.nombre || "").trim(),
+      objetivo_general: (data.objetivo_general || "").trim() || null,
+    };
+    if (!payload.nombre) {
+      toast("El nombre del macrociclo es obligatorio", "warning");
+      return;
+    }
+    const macroId = data.macro_id || state.macroEditandoId;
     try {
-      await apiFetch("/macrociclos", { method: "POST", body: JSON.stringify(data) });
-      formMacro.reset();
-      toast("Macrociclo creado");
-      cargarCiclos();
+      if (macroId) {
+        await apiFetch(`/macrociclos/${macroId}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
+        toast("Macrociclo actualizado");
+        await cargarCiclos();
+        showMacroBuilder(macroId);
+      } else {
+        const resp = await apiFetch("/macrociclos", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        const nuevoId = resp?.id;
+        toast("Macrociclo creado");
+        await cargarCiclos();
+        if (nuevoId) {
+          showMacroBuilder(nuevoId);
+        }
+      }
     } catch (err) {
       toast(err.message, "danger");
     }
@@ -596,11 +1642,36 @@ function setupForms() {
   formMeso?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const data = Object.fromEntries(new FormData(formMeso).entries());
+    const payload = {
+      nombre: (data.nombre || "").trim(),
+      objetivo: (data.objetivo || "").trim() || null,
+    };
+    if (!payload.nombre) {
+      toast("El nombre del mesociclo es obligatorio", "warning");
+      return;
+    }
+    const mesoId = data.meso_id || state.mesoEditandoId;
     try {
-      await apiFetch("/mesociclos", { method: "POST", body: JSON.stringify(data) });
-      formMeso.reset();
-      toast("Mesociclo creado");
-      cargarCiclos();
+      if (mesoId) {
+        await apiFetch(`/mesociclos/${mesoId}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
+        toast("Mesociclo actualizado");
+        await cargarCiclos();
+        showMesoBuilder(mesoId);
+      } else {
+        const resp = await apiFetch("/mesociclos", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        toast("Mesociclo creado");
+        await cargarCiclos();
+        const nuevoId = resp?.id;
+        if (nuevoId) {
+          showMesoBuilder(nuevoId);
+        }
+      }
     } catch (err) {
       toast(err.message, "danger");
     }
@@ -609,12 +1680,35 @@ function setupForms() {
   const formMicro = qs("#form-micro");
   formMicro?.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const data = Object.fromEntries(new FormData(formMicro).entries());
+    const formData = Object.fromEntries(new FormData(formMicro).entries());
+    const payload = {
+      nombre: (formData.nombre || "").trim(),
+      objetivo: (formData.objetivo || "").trim() || null,
+    };
+    if (!payload.nombre) {
+      toast("El nombre del microciclo es obligatorio", "warning");
+      return;
+    }
+    const microId = formData.micro_id || state.microEditandoId;
     try {
-      await apiFetch("/microciclos", { method: "POST", body: JSON.stringify(data) });
-      formMicro.reset();
-      toast("Microciclo creado");
-      cargarCiclos();
+      if (microId) {
+        await apiFetch(`/microciclos/${microId}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
+        toast("Microciclo actualizado");
+        await cargarCiclos();
+        showMicroBuilder(microId);
+      } else {
+        const resp = await apiFetch("/microciclos", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        const nuevoId = resp?.id;
+        toast("Microciclo creado");
+        await cargarCiclos();
+        showMicroBuilder(nuevoId);
+      }
     } catch (err) {
       toast(err.message, "danger");
     }
@@ -773,12 +1867,70 @@ async function actualizarAsignacion(tipo, cicloId, asignacionId, estado) {
   }
 }
 
-document.addEventListener("DOMContentLoaded", async () => {
+async function eliminarMacro(id) {
+  if (!id) return;
+  if (!confirm("¿Eliminar este macrociclo y su planificación?")) return;
+  try {
+    await apiFetch(`/macrociclos/${id}`, { method: "DELETE" });
+    toast("Macrociclo eliminado");
+    if (Number(state.macroEditandoId) === Number(id)) {
+      showMacroList();
+    }
+    await cargarCiclos();
+  } catch (err) {
+    toast(err.message, "danger");
+  }
+}
+
+async function eliminarMeso(id) {
+  if (!id) return;
+  if (!confirm("¿Eliminar este mesociclo y su planificación?")) return;
+  try {
+    await apiFetch(`/mesociclos/${id}`, { method: "DELETE" });
+    toast("Mesociclo eliminado");
+    if (Number(state.mesoEditandoId) === Number(id)) {
+      showMesoList();
+    }
+    await cargarCiclos();
+  } catch (err) {
+    toast(err.message, "danger");
+  }
+}
+
+async function eliminarMicro(id) {
+  if (!id) return;
+  if (!confirm("¿Eliminar este microciclo y su planificación semanal?")) return;
+  try {
+    await apiFetch(`/microciclos/${id}`, { method: "DELETE" });
+    toast("Microciclo eliminado");
+    if (Number(state.microEditandoId) === Number(id)) {
+      showMicroList();
+    }
+    await cargarCiclos();
+  } catch (err) {
+    toast(err.message, "danger");
+  }
+}
+
+async function init() {
   setupTabs();
   await cargarCatalogos();
   setupForms();
   setupModalHandlers();
   setupMicroBuilder();
+  setupMesoBuilder();
+  setupMacroBuilder();
+  setupMicroListInteractions();
+  setupMesoListInteractions();
+  setupMacroListInteractions();
   setupBibliotecaHandlers();
   cargarCiclos();
-});
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}
+
+export { init };

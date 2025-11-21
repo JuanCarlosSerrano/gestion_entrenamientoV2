@@ -1,8 +1,17 @@
 (function (global) {
-  const DEFAULT_API_BASE = 'http://127.0.0.1:5000';
+  const resolveOrigin = () => {
+    if (!global.location || !global.location.origin || global.location.origin === 'null') {
+      return null;
+    }
+    return global.location.origin.replace(/\/+$/, '');
+  };
+
+  const DEFAULT_API_BASE = resolveOrigin() || 'http://127.0.0.1:5000';
 
   if (!global.API_BASE) {
     global.API_BASE = DEFAULT_API_BASE;
+  } else if (global.API_BASE.endsWith('/')) {
+    global.API_BASE = global.API_BASE.replace(/\/+$/, '');
   }
 
   const API_BASE = global.API_BASE;

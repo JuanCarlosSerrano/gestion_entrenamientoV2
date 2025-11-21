@@ -1,6 +1,8 @@
 // frontend/js/entrenador/atletas.js
 
-const API_BASE = window.API_BASE || "http://127.0.0.1:5000";
+const API_BASE =
+  window.API_BASE ||
+  (window.location && window.location.origin ? window.location.origin : "http://127.0.0.1:5000");
 window.API_BASE = API_BASE;
 
 const getCsrfToken = () =>
@@ -68,24 +70,41 @@ function mostrarConfirmacion(mensaje, onConfirm) {
   modal.show();
 }
 
+/*
+  Implementación mínima y segura de Atletas:
+  - Si existe window.Atletas.init (legacy global), la invoca.
+  - No intenta cargar ficheros adicionales para evitar 404.
+  - Exporta default y named export `init` para compatibilidad con main.js.
+*/
+async function initAtletas() {
+  try {
+    if (window.Atletas && typeof window.Atletas.init === 'function') {
+      console.info('Atletas: usando implementación global legacy (window.Atletas.init).');
+      return await window.Atletas.init();
+    }
+
+    // Inicialización ligera por defecto (no rompe la app)
+    console.info('Atletas: no hay implementación global. Ejecutando init vacía (noop).');
+    // Si quieres aquí puedes inicializar elementos DOM mínimos para evitar más errores.
+    // Ejemplo: comprobar existencia del contenedor y establecer estado vacío.
+    const container = document.querySelector('.atletas-lista') || document.getElementById('atletas-lista');
+    if (container) {
+      container.innerHTML = container.innerHTML || '<div class="text-muted small">No hay datos de atletas (stub).</div>';
+    }
+
+    return Promise.resolve();
+  } catch (err) {
+    console.error('Atletas.init: error durante la inicialización:', err);
+    return Promise.reject(err);
+  }
+}
+
+// Exportaciones compatibles
+export default { init: initAtletas };
+export { initAtletas as init };
+
 document.addEventListener("DOMContentLoaded", () => {
   const contenedor = document.getElementById("atletas-cards");
-
-  // Elementos del modal Editar Atleta
-  const modalEditarEl = document.getElementById("modalEditarAtleta");
-  const modalEditar = bootstrap.Modal.getOrCreateInstance(modalEditarEl);
-
-  const formEditar = document.getElementById("form-editar-atleta");
-  const inputId = document.getElementById("edit-atleta-id");
-  const inputNombre = document.getElementById("edit-nombre");
-  const inputApellidos = document.getElementById("edit-apellidos");
-  const inputEmail = document.getElementById("edit-email");
-  const inputTelefono = document.getElementById("edit-telefono");
-  const inputFecha = document.getElementById("edit-fecha-nacimiento");
-  const inputCategoria = document.getElementById("edit-categoria");
-  const inputGrupo = document.getElementById("edit-grupo");
-  const inputSubgrupo = document.getElementById("edit-subgrupo");
-  const btnEliminarAtleta = document.getElementById("btn-eliminar-atleta");
 
   // 1️⃣ Cargar lista de atletas
   async function cargarAtletas() {
@@ -145,11 +164,9 @@ document.addEventListener("DOMContentLoaded", () => {
               <a href="calendario.html?atletaId=${a.id}" class="btn btn-sm btn-success">
                 Ver Calendario
               </a>
-              <button class="btn btn-sm btn-primary btn-editar-atleta" data-id="${
-                a.id
-              }">
+              <a class="btn btn-sm btn-primary" href="perfil_atleta.html?atletaId=${a.id}">
                 Editar
-              </button>
+              </a>
             </div>
           </div>
         </div>
@@ -157,146 +174,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       contenedor.appendChild(col);
     });
-
-    // Asignar eventos a botones Editar
-    contenedor
-      .querySelectorAll(".btn-editar-atleta")
-      .forEach((btn) =>
-        btn.addEventListener("click", () =>
-          abrirModalEdicion(btn.getAttribute("data-id"))
-        )
-      );
   }
-
-  // 3️⃣ Abrir modal con datos del atleta
-  async function abrirModalEdicion(atletaId) {
-    try {
-      const res = await fetch(`${API_BASE}/atletas/${atletaId}`, {
-        method: "GET",
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        console.error("Error al cargar atleta:", res.status);
-        mostrarMensaje("No se pudo cargar los datos del atleta", "danger");
-        return;
-      }
-
-      const a = await res.json();
-
-      inputId.value = a.id;
-      inputNombre.value = a.nombre || "";
-      inputApellidos.value = a.apellidos || "";
-      inputEmail.value = a.email || "";
-      inputTelefono.value = a.telefono || "";
-      inputFecha.value = a.fecha_nacimiento || "";
-      inputCategoria.value = a.categoria || "";
-      inputGrupo.value = a.grupo || "";
-      inputSubgrupo.value = a.subgrupo || "";
-
-      modalEditar.show();
-    } catch (err) {
-      console.error("Error de red al cargar atleta:", err);
-      mostrarMensaje("Error al cargar atleta", "danger");
-    }
-  }
-
-  // 4️⃣ Guardar cambios (PUT /atletas/:id)
-  formEditar.addEventListener("submit", async (e) => {
-    e.preventDefault();
-
-    const atletaId = inputId.value;
-    if (!atletaId) {
-      mostrarMensaje("Atleta no válido", "danger");
-      return;
-    }
-
-    const payload = {
-      nombre: inputNombre.value.trim(),
-      apellidos: inputApellidos.value.trim(),
-      email: inputEmail.value.trim(),
-      telefono: inputTelefono.value.trim(),
-      fecha_nacimiento: inputFecha.value || null,
-      categoria: inputCategoria.value.trim(),
-      grupo: inputGrupo.value.trim(),
-      subgrupo: inputSubgrupo.value.trim(),
-    };
-
-    try {
-      const res = await fetch(`${API_BASE}/atletas/${atletaId}`, {
-        method: "PUT",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRF-Token": getCsrfToken(),
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        console.error("Error al actualizar atleta:", res.status, data);
-        mostrarMensaje(
-          data.error || "Error al actualizar atleta",
-          "danger"
-        );
-        return;
-      }
-
-      mostrarMensaje(
-        data.message || "Atleta actualizado correctamente",
-        "success"
-      );
-      modalEditar.hide();
-      cargarAtletas();
-    } catch (err) {
-      console.error("Error de red al actualizar atleta:", err);
-      mostrarMensaje("Error al actualizar atleta", "danger");
-    }
-  });
-
-  // 5️⃣ Eliminar atleta (DELETE /atletas/:id)
-  btnEliminarAtleta.addEventListener("click", () => {
-    const atletaId = inputId.value;
-    if (!atletaId) return;
-
-    mostrarConfirmacion(
-      "¿Seguro que deseas eliminar este atleta? Esta acción no se puede deshacer.",
-      async () => {
-        try {
-          const res = await fetch(`${API_BASE}/atletas/${atletaId}`, {
-            method: "DELETE",
-            credentials: "include",
-            headers: {
-              "X-CSRF-Token": getCsrfToken(),
-            },
-          });
-
-          const data = await res.json().catch(() => ({}));
-
-          if (!res.ok) {
-            console.error("Error al eliminar atleta:", res.status, data);
-            mostrarMensaje(
-              data.error || "Error al eliminar atleta",
-              "danger"
-            );
-            return;
-          }
-
-          mostrarMensaje(
-            data.message || "Atleta eliminado correctamente",
-            "success"
-          );
-          modalEditar.hide();
-          cargarAtletas();
-        } catch (err) {
-          console.error("Error de red al eliminar atleta:", err);
-          mostrarMensaje("Error al eliminar atleta", "danger");
-        }
-      }
-    );
-  });
 
   // 🚀 Inicializar
   cargarAtletas();

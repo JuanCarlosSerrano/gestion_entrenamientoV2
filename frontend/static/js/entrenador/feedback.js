@@ -1,4 +1,6 @@
-const API = window.API_BASE || "http://127.0.0.1:5000";
+const API =
+  window.API_BASE ||
+  (window.location && window.location.origin ? window.location.origin : "http://127.0.0.1:5000");
 window.API_BASE = API;
 
 const getCsrfToken = () =>
@@ -9,6 +11,43 @@ const getCsrfToken = () =>
 const authHeader = () =>
   "Basic " +
   btoa(`${localStorage.getItem("userEmail")}:${localStorage.getItem("userPassword")}`);
+
+const renderTablaBloques = (bloques = []) => {
+  if (!Array.isArray(bloques) || !bloques.length) {
+    return '<p class="text-muted small mb-0">Este entrenamiento no tiene bloques configurados.</p>';
+  }
+  const filas = bloques
+    .map((bloque, idx) => {
+      const descripcion = `${bloque.repeticiones || 1} x ${bloque.distancia_m || "-"}${
+        bloque.distancia_m ? " m" : ""
+      }${bloque.zona ? ` · Zona ${bloque.zona}` : ""}`;
+      return `
+        <tr>
+          <td>${idx + 1}</td>
+          <td>${descripcion}</td>
+          <td>${bloque.tiempo_min_texto || bloque.tiempo_max_texto || "-"}</td>
+          <td>${bloque.resultado_tiempo_texto || "Sin registro"}</td>
+        </tr>`;
+    })
+    .join("");
+  return `
+    <div class="mt-3">
+      <h6>Detalle del entrenamiento</h6>
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead class="table-light">
+            <tr>
+              <th>#</th>
+              <th>Bloque</th>
+              <th>Tiempo objetivo</th>
+              <th>Tiempo real</th>
+            </tr>
+          </thead>
+          <tbody>${filas}</tbody>
+        </table>
+      </div>
+    </div>`;
+};
 
 document.addEventListener("DOMContentLoaded", async () => {
   async function cargarFeedbacks() {
@@ -89,6 +128,16 @@ window.abrirModalFeedback = async function (feedbackId) {
     const fb = await res.json();
 
     if (res.ok) {
+      const tablaBloques = renderTablaBloques(fb.bloques);
+      const respuestaHtml = fb.respuesta
+        ? `<div class="mt-3 p-3 bg-success-subtle border-start border-success border-3"><strong>Respuesta enviada:</strong><br>${fb.respuesta}</div>`
+        : `
+          <div class="mb-3">
+            <label for="respuesta" class="form-label">Responder:</label>
+            <textarea class="form-control" id="respuesta" rows="3"></textarea>
+          </div>
+          <button class="btn btn-primary" onclick="enviarRespuesta(${fb.id})">Enviar respuesta</button>`;
+
       document.getElementById('modal-feedback-body').innerHTML = `
         <p><strong>Atleta:</strong> ${fb.atleta}</p>
         <p><strong>Entrenamiento:</strong> ${fb.entrenamiento_nombre || '-'}</p>
@@ -100,12 +149,8 @@ window.abrirModalFeedback = async function (feedbackId) {
         ${fb.enlace ? `<p><strong>Enlace:</strong> <a href="${fb.enlace}" target="_blank" rel="noopener">${fb.enlace}</a></p>` : ''}
         <p><strong>Fecha del feedback:</strong> ${new Date(fb.fecha).toLocaleString()}</p>
         <p><strong>Estado:</strong> ${fb.leido ? 'Leído' : 'No leído'}</p>
-        ${fb.respuesta ? `<div class="mt-3 p-3 bg-success-subtle border-start border-success border-3"><strong>Respuesta enviada:</strong><br>${fb.respuesta}</div>` : `
-        <div class="mb-3">
-          <label for="respuesta" class="form-label">Responder:</label>
-          <textarea class="form-control" id="respuesta" rows="3"></textarea>
-        </div>
-        <button class="btn btn-primary" onclick="enviarRespuesta(${fb.id})">Enviar respuesta</button>`}
+        ${tablaBloques}
+        ${respuestaHtml}
       `;
 
       const btnLeido = document.getElementById('btn-marcar-leido');
