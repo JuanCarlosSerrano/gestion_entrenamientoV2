@@ -1268,7 +1268,7 @@ async function loadMicroList() {
   microListEl.innerHTML = '<p class="text-muted">Cargando microciclos...</p>';
 
   try {
-    const res = await fetch(`${API_BASE}/plantillas/microciclos`, {
+    const res = await fetch(`${API_BASE}/microciclos`, {
       headers: {
         'Content-Type': 'application/json',
         Authorization: authHeader()
@@ -1278,7 +1278,7 @@ async function loadMicroList() {
 
     // Si el endpoint no existe aún, no lo tratamos como error grave
     if (res.status === 404) {
-      console.info('Endpoint /plantillas/microciclos no existe todavía. Microciclos desactivados.');
+      console.info('Endpoint /microciclos no existe todavía. Microciclos desactivados.');
       microPlantillas = [];
       renderMicroList();
       return;
@@ -1543,12 +1543,47 @@ const macroCreateBtn = document.getElementById('macro-create-btn');
 let mesoPlantillas = [];
 let macroPlantillas = [];
 
+// --- MESOCICLOS ---
+
+async function hydrateMesoMicrociclos() {
+  if (!mesoPlantillas.length) return;
+
+  const csrf = await ensureCsrfToken();
+
+  const promises = mesoPlantillas.map(async (meso) => {
+    // si ya tiene microciclos cargados, no repetimos
+    if (Array.isArray(meso.microciclos) && meso.microciclos.length) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/mesociclos/${meso.id}`, {
+        headers: {
+          Authorization: authHeader(),
+          ...(csrf ? { 'X-CSRF-Token': csrf } : {})
+        },
+        credentials: 'include'
+      });
+
+      if (!res.ok) return;
+
+      const data = await res.json().catch(() => null);
+      if (!data) return;
+
+      meso.microciclos = Array.isArray(data.microciclos) ? data.microciclos : [];
+      if (data.objetivo !== undefined) meso.objetivo = data.objetivo;
+    } catch (err) {
+      console.warn('No se pudieron hidratar microciclos del mesociclo', meso.id, err);
+    }
+  });
+
+  await Promise.all(promises);
+}
+
 async function loadMesoList() {
   if (!mesoListEl) return;
   mesoListEl.innerHTML = '<p class="text-muted">Cargando mesociclos...</p>';
 
   try {
-    const res = await fetch(`${API_BASE}/plantillas/mesociclos`, {
+    const res = await fetch(`${API_BASE}/mesociclos`, {
       headers: {
         'Content-Type': 'application/json',
         Authorization: authHeader()
@@ -1557,7 +1592,7 @@ async function loadMesoList() {
     });
 
     if (res.status === 404) {
-      console.info('Endpoint /plantillas/mesociclos no existe todavía. Mesociclos desactivados.');
+      console.info('Endpoint /mesociclos no existe todavía. Mesociclos desactivados.');
       mesoPlantillas = [];
       renderMesoList();
       return;
@@ -1566,6 +1601,10 @@ async function loadMesoList() {
     if (!res.ok) throw new Error('Error al cargar mesociclos');
 
     mesoPlantillas = await res.json();
+
+    // 🔹 pedimos para cada meso la lista de microciclos
+    await hydrateMesoMicrociclos();
+
     renderMesoList();
   } catch (err) {
     console.warn('loadMesoList warning', err);
@@ -1590,36 +1629,68 @@ function renderMesoList() {
     const card = document.createElement('div');
     card.className = 'meso-card';
 
+    // HEADER
     const header = document.createElement('div');
     header.className = 'd-flex justify-content-between align-items-center';
     const title = document.createElement('strong');
     title.textContent = meso.nombre;
     header.appendChild(title);
 
+    const semanas = (meso.microciclos || []).length;
     const count = document.createElement('span');
     count.className = 'badge text-bg-secondary';
-    count.textContent = `${(meso.microciclos || []).length} semanas`;
+    count.textContent = `${semanas} ${semanas === 1 ? 'semana' : 'semanas'}`;
     header.appendChild(count);
 
     card.appendChild(header);
 
-    if (meso.descripcion) {
+    if (meso.objetivo) {
       const p = document.createElement('div');
       p.className = 'small text-muted mt-1';
-      p.textContent = meso.descripcion;
+      p.textContent = meso.objetivo;
       card.appendChild(p);
     }
 
+    // LISTADO RESUMIDO DE MICROCICLOS
+    const lista = document.createElement('div');
+    lista.className = 'meso-micro-list mt-2';
+
+    if (!semanas) {
+      const empty = document.createElement('div');
+      empty.className = 'text-muted small';
+      empty.textContent = 'Este mesociclo aún no tiene semanas añadidas.';
+      lista.appendChild(empty);
+    } else {
+      (meso.microciclos || []).forEach((m) => {
+        const row = document.createElement('div');
+        row.className = 'meso-micro-row d-flex justify-content-between align-items-center';
+
+        const left = document.createElement('span');
+        left.className = 'meso-micro-name';
+        left.textContent = m.microciclo_nombre || `Semana ${m.orden || ''}`;
+
+        const badge = document.createElement('span');
+        badge.className = 'badge rounded-pill text-bg-light';
+        badge.textContent = `Semana ${m.orden ?? '-'}`;
+
+        row.append(left, badge);
+        lista.appendChild(row);
+      });
+    }
+
+    card.appendChild(lista);
     mesoListEl.appendChild(card);
   });
 }
+
+// --- MACROCICLOS ---
 
 async function loadMacroList() {
   if (!macroListEl) return;
   macroListEl.innerHTML = '<p class="text-muted">Cargando macrociclos...</p>';
 
   try {
-    const res = await fetch(`${API_BASE}/plantillas/macrociclos`, {
+    const res = await fetch(`${API_BASE}/macrociclos`, {
       headers: {
         'Content-Type': 'application/json',
         Authorization: authHeader()
@@ -1628,7 +1699,7 @@ async function loadMacroList() {
     });
 
     if (res.status === 404) {
-      console.info('Endpoint /plantillas/macrociclos no existe todavía. Macrociclos desactivados.');
+      console.info('Endpoint /macrociclos no existe todavía. Macrociclos desactivados.');
       macroPlantillas = [];
       renderMacroList();
       return;
@@ -1637,6 +1708,7 @@ async function loadMacroList() {
     if (!res.ok) throw new Error('Error al cargar macrociclos');
 
     macroPlantillas = await res.json();
+    // (si más adelante quieres detallar cada macrociclo, aquí pondríamos un hydrateMacroMesociclos())
     renderMacroList();
   } catch (err) {
     console.warn('loadMacroList warning', err);
@@ -1667,20 +1739,14 @@ function renderMacroList() {
     title.textContent = macro.nombre;
     header.appendChild(title);
 
-    const weeks = macro.duracion_semanas || (macro.mesociclos || []).length * 4 || '?';
+    // de momento no sabemos cuántas semanas reales tiene, así que 0
     const badge = document.createElement('span');
     badge.className = 'badge text-bg-secondary';
-    badge.textContent = `${weeks} semanas`;
+    const semanas = macro.duracion_semanas || 0;
+    badge.textContent = `${semanas} ${semanas === 1 ? 'semana' : 'semanas'}`;
     header.appendChild(badge);
 
     card.appendChild(header);
-
-    if (macro.descripcion) {
-      const p = document.createElement('div');
-      p.className = 'small text-muted mt-1';
-      p.textContent = macro.descripcion;
-      card.appendChild(p);
-    }
 
     macroListEl.appendChild(card);
   });
@@ -1702,6 +1768,7 @@ function initMesoMacroUI() {
     alert('La creación/edición visual de macrociclos se añadirá después. De momento sólo está el listado.');
   });
 }
+
 
 // ===================== INIT GLOBAL =====================
 

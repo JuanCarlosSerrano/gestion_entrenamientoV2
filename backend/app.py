@@ -518,32 +518,145 @@ def actualizar_perfil(current_user):
         return jsonify({"error": "No se pudo actualizar el perfil"}), 500
 
 # --- Rutas para Entrenamientos ---
-
 @app.route('/entrenamientos', methods=['POST'])
-@requires_roles('admin', 'entrenador')  # Admin y Entrenador pueden crear entrenamientos
+@requires_roles('admin', 'entrenador')
 def crear_entrenamiento(current_user):
-    data = request.get_json()
-    nombre = data.get('nombre')
-    duracion_valor = data.get('duracion_valor')
-    duracion_tipo = data.get('duracion_tipo')
-    calentamiento_tipo = data.get('calentamiento_tipo')
-    calentamiento_valor = data.get('calentamiento_valor')
-    bloque_activacion = data.get('bloque_activacion')
-    bloque_principal = data.get('bloque_principal')
-    enfriamiento_tipo = data.get('enfriamiento_tipo')
-    enfriamiento_valor = data.get('enfriamiento_valor')
+    data = request.get_json(silent=True) or {}
 
-    if not nombre or not bloque_principal:
-        return jsonify({'error': 'Nombre y bloque_principal son obligatorios'}), 400
+    nombre = (data.get('nombre') or '').strip()
+    objetivo = (data.get('objetivo') or '').strip() or None
+    notas = (data.get('notas') or '').strip() or None
+    pasos = data.get('pasos') or []
+
+    if not nombre:
+        return jsonify({'error': 'El nombre del entrenamiento es obligatorio'}), 400
+    if not isinstance(pasos, list) or not pasos:
+        return jsonify({'error': 'Debe incluir al menos un bloque (paso) en el entrenamiento'}), 400
+
+    conn = get_db()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
 
     try:
-        execute_db(
-            'INSERT INTO entrenamientos (nombre, duracion_valor, duracion_tipo, calentamiento_tipo, calentamiento_valor, bloque_activacion, bloque_principal, enfriamiento_tipo, enfriamiento_valor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            (nombre, duracion_valor, duracion_tipo, calentamiento_tipo, calentamiento_valor, bloque_activacion,
-             bloque_principal, enfriamiento_tipo, enfriamiento_valor)
+        # ====== 1) Generar bloque_principal (resumen) ======
+        def describe_step_py(step):
+            partes = []
+            tipo = (step.get('tipo_paso') or '').lower()
+
+            if tipo == 'warmup':
+                partes.append('Calentamiento')
+            elif tipo == 'interval':
+                partes.append('Intervalos')
+            elif tipo == 'rest':
+                partes.append('Recuperación')
+            elif tipo == 'cooldown':
+                partes.append('Enfriamiento')
+            elif tipo == 'repeat':
+                reps = step.get('repeticiones') or 1
+                partes.append(f'{reps}× bloque')
+            else:
+                partes.append('Bloque')
+
+            val = (str(step.get('objetivo_valor') or '')).strip()
+            unidad = (step.get('unidad') or '').strip()
+            if val:
+                partes.append(f'{val}{unidad}')
+
+            zona = (step.get('zona') or '').strip()
+            if zona:
+                partes.append(zona if zona.upper().startswith('Z') else f'Z{zona}')
+
+            return ' '.join(partes).strip()
+
+        resumen_partes = []
+
+        def flatten_steps(steps):
+            for s in steps:
+                desc = describe_step_py(s)
+                if desc:
+                    resumen_partes.append(desc)
+                sub = s.get('subpasos') or []
+                if sub:
+                    flatten_steps(sub)
+
+        flatten_steps(pasos)
+        bloque_principal = ' · '.join(resumen_partes) or None
+
+        # ====== 2) Insertar en entrenamientos ======
+        cur.execute(
+            """
+            INSERT INTO entrenamientos (nombre, objetivo, notas, bloque_principal)
+            VALUES (?, ?, ?, ?)
+            """,
+            (nombre, objetivo, notas, bloque_principal)
         )
-        return jsonify({'message': 'Entrenamiento creado exitosamente'}), 201
-    except sqlite3.IntegrityError:
+        entrenamiento_id = cur.lastrowid
+
+        # ====== 3) Insertar pasos en entrenamientos_detalle ======
+        now = datetime.now().isoformat(' ')
+        orden_counter = 1
+
+        def insert_step(step, parent_id=None):
+            nonlocal orden_counter
+
+            tipo_paso = step.get('tipo_paso') or 'custom'
+            repeticiones = step.get('repeticiones')
+            objetivo_tipo = step.get('objetivo_tipo')
+            objetivo_valor = step.get('objetivo_valor')
+            unidad = step.get('unidad')
+            zona = step.get('zona')
+            recuperacion_valor = step.get('recuperacion_valor')
+            recuperacion_unidad = step.get('recuperacion_unidad')
+            intensidad = step.get('intensidad')
+            descripcion = step.get('descripcion')
+
+            cur.execute(
+                """
+                INSERT INTO entrenamientos_detalle
+                    (entrenamiento_id, tipo_paso, repeticiones,
+                     objetivo_tipo, objetivo_valor, unidad, zona,
+                     recuperacion_valor, recuperacion_unidad,
+                     intensidad, descripcion, parent_id, orden)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    entrenamiento_id,
+                    tipo_paso,
+                    repeticiones,
+                    objetivo_tipo,
+                    objetivo_valor,
+                    unidad,
+                    zona,
+                    recuperacion_valor,
+                    recuperacion_unidad,
+                    intensidad,
+                    descripcion,
+                    parent_id,
+                    orden_counter
+                )
+            )
+
+            this_id = cur.lastrowid
+            orden_counter += 1
+
+            for sub in step.get('subpasos') or []:
+                insert_step(sub, this_id)
+
+        # Insertar todos los pasos raíz
+        for step in pasos:
+            insert_step(step, None)
+
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return jsonify({
+            'message': 'Entrenamiento creado exitosamente',
+            'id': entrenamiento_id
+        }), 201
+
+    except Exception as e:
+        print("Error en crear_entrenamiento:", e)
         return jsonify({'error': 'Error al crear el entrenamiento'}), 500
 
 
@@ -1575,12 +1688,12 @@ from datetime import datetime  # ya lo tienes arriba, si no, añádelo
 
 # ---------- MICRO CICLOS ----------
 
-@app.route('/plantillas/microciclos', methods=['GET'])
+@app.route('/microciclos', methods=['GET'])
 @requires_roles('admin', 'entrenador')
 def listar_microciclos_plantillas(current_user):
     """
     Alias para compatibilidad con el frontend:
-    /plantillas/microciclos -> mismo resultado que /microciclos
+    /microciclos -> mismo resultado que /microciclos
     """
     try:
         filas = query_db(
@@ -1876,14 +1989,49 @@ def listar_mesociclos(current_user):
         return jsonify({'error': 'Error al obtener mesociclos'}), 500
 
 
-@app.route('/plantillas/mesociclos', methods=['GET'])
+@app.route('/mesociclos', methods=['GET'])
 @requires_roles('admin', 'entrenador')
 def listar_mesociclos_plantillas(current_user):
+    """
+    Devuelve los mesociclos incluyendo los microciclos asociados,
+    tal como el frontend necesita.
+    """
     try:
-        filas = query_db(
+        # Datos base de mesociclos
+        meso_rows = query_db(
             "SELECT id, nombre, objetivo FROM mesociclos ORDER BY id DESC"
         )
-        return jsonify([dict(f) for f in filas]), 200
+
+        resultado = []
+
+        for meso in meso_rows:
+            meso_id = meso["id"]
+
+            # Traer microciclos ligados
+            micro_rows = query_db(
+                """
+                SELECT mm.id,
+                       mm.microciclo_id,
+                       mc.nombre AS microciclo_nombre,
+                       mm.orden,
+                       mm.notas
+                FROM mesociclos_microciclos mm
+                LEFT JOIN microciclos mc ON mc.id = mm.microciclo_id
+                WHERE mm.mesociclo_id = ?
+                ORDER BY mm.orden, mm.id
+                """,
+                (meso_id,)
+            )
+
+            resultado.append({
+                "id": meso_id,
+                "nombre": meso["nombre"],
+                "objetivo": meso["objetivo"],
+                "microciclos": [dict(r) for r in micro_rows]
+            })
+
+        return jsonify(resultado), 200
+
     except Exception as e:
         print("Error en listar_mesociclos_plantillas:", e)
         return jsonify({'error': 'Error al obtener mesociclos'}), 500
@@ -2063,32 +2211,17 @@ def borrar_mesociclo(current_user, meso_id):
 
 # ---------- MACRO CICLOS ----------
 
-@app.route('/macrociclos', methods=['GET'])
-@requires_roles('admin', 'entrenador')
-def listar_macrociclos(current_user):
-    try:
-        filas = query_db(
-            "SELECT id, nombre, objetivo FROM macrociclos ORDER BY id DESC"
-        )
-        return jsonify([dict(f) for f in filas]), 200
-    except Exception as e:
-        print("Error en listar_macrociclos:", e)
-        return jsonify({'error': 'Error al obtener macrociclos'}), 500
-
-
-@app.route('/plantillas/macrociclos', methods=['GET'])
-@requires_roles('admin', 'entrenador')
-def listar_macrociclos_plantillas(current_user):
-    try:
-        filas = query_db(
-            "SELECT id, nombre FROM macrociclos ORDER BY id DESC"
-        )
-        return jsonify([dict(f) for f in filas]), 200
-    except Exception as e:
-        print("Error en listar_macrociclos_plantillas:", e)
-        return jsonify({'error': 'Error al obtener macrociclos'}), 500
-
-
+# @app.route('/macrociclos', methods=['GET'])
+# @requires_roles('admin', 'entrenador')
+# def listar_macrociclos(current_user):
+#    try:
+#        filas = query_db(
+#            "SELECT id, nombre, objetivo FROM macrociclos ORDER BY id DESC"
+#        )
+#        return jsonify([dict(f) for f in filas]), 200
+#    except Exception as e:
+#        print("Error en listar_macrociclos:", e)
+#        return jsonify({'error': 'Error al obtener macrociclos'}), 500
 
 @app.route('/macrociclos/<int:macro_id>', methods=['GET'])
 @requires_roles('admin', 'entrenador')
@@ -2128,6 +2261,27 @@ def obtener_macrociclo(current_user, macro_id):
         print("Error en obtener_macrociclo:", e)
         return jsonify({'error': 'Error al obtener el macrociclo'}), 500
 
+@app.route('/macrociclos', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def listar_macrociclos(current_user):
+    """
+    Lista simple de macrociclos.
+    El frontend solo necesita id, nombre y fechas.
+    """
+    try:
+        filas = query_db(
+            "SELECT id, nombre, fecha_inicio, fecha_fin FROM macrociclos ORDER BY id DESC"
+        )
+        return jsonify([dict(f) for f in filas]), 200
+
+    except Exception as e:
+        print("Error en listar_macrociclos:", e)
+
+        # Si aún no existe tabla, devolvemos lista vacía (para evitar errores)
+        if "no such table: macrociclos" in str(e):
+            return jsonify([]), 200
+
+        return jsonify({'error': 'Error al obtener macrociclos'}), 500
 
 @app.route('/macrociclos', methods=['POST'])
 @requires_roles('admin', 'entrenador')
