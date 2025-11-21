@@ -568,7 +568,6 @@ def obtener_entrenamiento(current_user, id):
 def actualizar_entrenamiento(current_user, id):
     data = request.get_json()
     nombre = data.get('nombre')
-    duracion_valor = data.get('duracion_valor')
     duracion_tipo = data.get('duracion_tipo')
     calentamiento_tipo = data.get('calentamiento_tipo')
     calentamiento_valor = data.get('calentamiento_valor')
@@ -1359,22 +1358,6 @@ from datetime import datetime  # ya lo tienes arriba, si no, añádelo
 
 # ---------- MICRO CICLOS ----------
 
-@app.route('/microciclos', methods=['GET'])
-@requires_roles('admin', 'entrenador')
-def listar_microciclos(current_user):
-    """
-    Devuelve la lista de microciclos (plantillas de 1 semana).
-    """
-    try:
-        filas = query_db(
-            "SELECT id, nombre, objetivo FROM microciclos ORDER BY id DESC"
-        )
-        return jsonify([dict(f) for f in filas]), 200
-    except Exception as e:
-        print("Error en listar_microciclos:", e)
-        return jsonify({'error': 'Error al obtener microciclos'}), 500
-
-
 @app.route('/plantillas/microciclos', methods=['GET'])
 @requires_roles('admin', 'entrenador')
 def listar_microciclos_plantillas(current_user):
@@ -1392,45 +1375,50 @@ def listar_microciclos_plantillas(current_user):
         return jsonify({'error': 'Error al obtener microciclos'}), 500
 
 
-@app.route('/microciclos/<int:micro_id>', methods=['GET'])
-@requires_roles('admin', 'entrenador')
-def obtener_microciclo(current_user, micro_id):
-    """
-    Detalle de un microciclo, incluyendo sus sesiones por día.
-    """
-    try:
-        micro = query_db(
-            "SELECT id, nombre, objetivo FROM microciclos WHERE id = ?",
-            (micro_id,),
-            one=True
+@app.route("/microciclos", methods=["GET"])
+@requires_roles("entrenador", "admin")
+def listar_microciclos(current_user):
+    db = get_db()
+
+    micros = db.execute(
+        """
+        SELECT id, mesociclo_id, nombre, objetivo, created_at
+        FROM microciclos
+        ORDER BY created_at DESC
+        """
+    ).fetchall()
+
+    # Contamos sesiones por microciclo
+    sesiones = db.execute(
+        """
+        SELECT microciclo_id, dia_relativo, COUNT(*) AS total
+        FROM microciclos_entrenamientos
+        GROUP BY microciclo_id, dia_relativo
+        """
+    ).fetchall()
+
+    resumen_por_micro = {}
+    for r in sesiones:
+        mid = r["microciclo_id"]
+        if mid not in resumen_por_micro:
+            resumen_por_micro[mid] = {}
+        resumen_por_micro[mid][r["dia_relativo"]] = r["total"]
+
+    data = []
+    for m in micros:
+        resumen = resumen_por_micro.get(m["id"], {})
+        data.append(
+            {
+                "id": m["id"],
+                "mesociclo_id": m["mesociclo_id"],
+                "nombre": m["nombre"],
+                "objetivo": m["objetivo"],
+                "created_at": m["created_at"],
+                "resumen_sesiones": resumen,  # {1:2, 2:1, ...}
+            }
         )
-        if not micro:
-            return jsonify({'error': 'Microciclo no encontrado'}), 404
 
-        sesiones = query_db(
-            """
-            SELECT me.id,
-                   me.dia_relativo,
-                   me.sesion_indice,
-                   me.entrenamiento_id,
-                   e.nombre AS entrenamiento_nombre,
-                   me.notas,
-                   me.orden
-            FROM microciclos_entrenamientos AS me
-            LEFT JOIN entrenamientos e ON e.id = me.entrenamiento_id
-            WHERE me.microciclo_id = ?
-            ORDER BY me.dia_relativo, me.sesion_indice, me.orden, me.id
-            """,
-            (micro_id,)
-        )
-
-        data = dict(micro)
-        data['sesiones'] = [dict(s) for s in sesiones]
-        return jsonify(data), 200
-
-    except Exception as e:
-        print("Error en obtener_microciclo:", e)
-        return jsonify({'error': 'Error al obtener el microciclo'}), 500
+    return jsonify(data)
 
 
 @app.route('/microciclos', methods=['POST'])
@@ -1591,6 +1579,70 @@ def borrar_microciclo(current_user, micro_id):
         print("Error en borrar_microciclo:", e)
         return jsonify({'error': 'Error al eliminar el microciclo'}), 500
 
+@app.route("/microciclos/<int:micro_id>/entrenamientos", methods=["GET"])
+@requires_roles("entrenador", "admin")
+def listar_entrenamientos_microciclo(current_user, micro_id):
+    db = get_db()
+
+    # Comprobamos que el microciclo existe
+    micro = db.execute(
+        """
+        SELECT id, mesociclo_id, nombre, objetivo, created_at
+        FROM microciclos
+        WHERE id = ?
+        """,
+        (micro_id,),
+    ).fetchone()
+
+    if micro is None:
+        return jsonify({"error": "Microciclo no encontrado"}), 404
+
+    rows = db.execute(
+        """
+        SELECT
+            me.id,
+            me.microciclo_id,
+            me.dia_relativo,
+            me.sesion_indice,
+            me.entrenamiento_id,
+            me.orden,
+            e.nombre   AS entrenamiento_nombre,
+            e.objetivo AS entrenamiento_objetivo
+        FROM microciclos_entrenamientos AS me
+        LEFT JOIN entrenamientos AS e
+               ON e.id = me.entrenamiento_id
+        WHERE me.microciclo_id = ?
+        ORDER BY me.dia_relativo, me.sesion_indice, me.orden
+        """,
+        (micro_id,),
+    ).fetchall()
+
+    detalles = []
+    for r in rows:
+        detalles.append(
+            {
+                "id": r["id"],
+                "microciclo_id": r["microciclo_id"],
+                "dia_relativo": r["dia_relativo"],
+                "sesion_indice": r["sesion_indice"],
+                "entrenamiento_id": r["entrenamiento_id"],
+                "orden": r["orden"],
+                "entrenamiento_nombre": r["entrenamiento_nombre"],
+                "entrenamiento_objetivo": r["entrenamiento_objetivo"],
+            }
+        )
+
+    # Respuesta con el microciclo + sus entrenamientos
+    return jsonify(
+        {
+            "id": micro["id"],
+            "mesociclo_id": micro["mesociclo_id"],
+            "nombre": micro["nombre"],
+            "objetivo": micro["objetivo"],
+            "created_at": micro["created_at"],
+            "detalles": detalles,
+        }
+    )
 
 # ---------- MESO CICLOS ----------
 
@@ -1812,7 +1864,7 @@ def listar_macrociclos(current_user):
 def listar_macrociclos_plantillas(current_user):
     try:
         filas = query_db(
-            "SELECT id, nombre, objetivo FROM macrociclos ORDER BY id DESC"
+            "SELECT id, nombre FROM macrociclos ORDER BY id DESC"
         )
         return jsonify([dict(f) for f in filas]), 200
     except Exception as e:
@@ -1829,7 +1881,7 @@ def obtener_macrociclo(current_user, macro_id):
     """
     try:
         macro = query_db(
-            "SELECT id, nombre, objetivo, fecha_inicio, fecha_fin FROM macrociclos WHERE id = ?",
+            "SELECT id, nombre, fecha_inicio, fecha_fin FROM macrociclos WHERE id = ?",
             (macro_id,),
             one=True
         )
@@ -1869,7 +1921,6 @@ def crear_macrociclo(current_user):
     JSON:
     {
       "nombre": "...",
-      "objetivo": "...",
       "fecha_inicio": "2025-11-01" (opcional),
       "fecha_fin": "2026-03-01"   (opcional),
       "mesociclos": [
@@ -1880,7 +1931,6 @@ def crear_macrociclo(current_user):
     """
     data = request.get_json(silent=True) or {}
     nombre = (data.get('nombre') or '').strip()
-    objetivo = (data.get('objetivo') or '').strip() or None
     fecha_inicio = data.get('fecha_inicio')
     fecha_fin = data.get('fecha_fin')
     mesociclos = data.get('mesociclos') or []
@@ -1895,10 +1945,10 @@ def crear_macrociclo(current_user):
 
         cur.execute(
             """
-            INSERT INTO macrociclos (nombre, fecha_inicio, fecha_fin, objetivo, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO macrociclos (nombre, fecha_inicio, fecha_fin, created_at)
+            VALUES (?, ?, ?, ?)
             """,
-            (nombre, fecha_inicio, fecha_fin, objetivo, now)
+            (nombre, fecha_inicio, fecha_fin, now)
         )
         macro_id = cur.lastrowid
 
@@ -1930,7 +1980,6 @@ def crear_macrociclo(current_user):
 def actualizar_macrociclo(current_user, macro_id):
     data = request.get_json(silent=True) or {}
     nombre = (data.get('nombre') or '').strip()
-    objetivo = (data.get('objetivo') or '').strip() or None
     fecha_inicio = data.get('fecha_inicio')
     fecha_fin = data.get('fecha_fin')
     mesociclos = data.get('mesociclos') or []
@@ -1953,10 +2002,10 @@ def actualizar_macrociclo(current_user, macro_id):
         cur.execute(
             """
             UPDATE macrociclos
-               SET nombre = ?, objetivo = ?, fecha_inicio = ?, fecha_fin = ?
+               SET nombre = ?, fecha_inicio = ?, fecha_fin = ?
              WHERE id = ?
             """,
-            (nombre, objetivo, fecha_inicio, fecha_fin, macro_id)
+            (nombre, fecha_inicio, fecha_fin, macro_id)
         )
 
         cur.execute("DELETE FROM macrociclos_mesociclos WHERE macrociclo_id = ?", (macro_id,))

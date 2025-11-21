@@ -1472,3 +1472,382 @@ form .form-label {
     padding: 0.25rem 0.5rem;
   }
 }
+/* ====== Look & feel general de la página de entrenamientos ====== */
+
+body {
+  background: #f5f7fb;
+}
+
+/* Contenedor principal de la página (si usas .container de Bootstrap ya está) */
+.page-entrenamientos {
+  padding: 1.5rem 0 2.5rem;
+}
+
+/* ====== LISTA PRINCIPAL DE ENTRENAMIENTOS (arriba) ====== */
+
+#entrenamientos-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.25rem;
+  align-items: stretch;
+  margin-top: 1.25rem;
+}
+
+/* Tarjeta de entrenamiento “gorda” */
+.training-card {
+  background: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #e1e4f2;
+  padding: 1rem 1.15rem;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.05);
+  display: flex;
+  flex-direction: column;
+  min-height: 160px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.training-card--active {
+  border-color: #2563eb;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.18);
+}
+
+.training-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 26px rgba(15, 23, 42, 0.12);
+}
+
+/* Cabecera de la tarjeta */
+.training-card__header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-bottom: 0.4rem;
+}
+
+.training-card__header h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0;
+  color: #0f172a;
+}
+
+.training-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.training-card__meta span::before {
+  content: "• ";
+}
+
+/* Resumen (bloque principal) */
+.training-card__summary {
+  font-size: 0.85rem;
+  color: #4b5563;
+  margin-top: 0.3rem;
+  margin-bottom: 0.75rem;
+}
+
+/* Botones de acción (Editar, Duplicar, Eliminar) */
+.training-card__actions {
+  margin-top: auto;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.training-card__actions .btn {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+}
+
+/* ====== BIBLIOTECA DE ENTRENAMIENTOS (zona del pantallazo) ====== */
+
+/* Contenedor de la biblioteca */
+#biblioteca-entrenamientos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 1rem;
+  margin-top: 1.25rem;
+}
+
+/* Tarjeta “caja” arrastrable de biblioteca */
+.training-lib-card {
+  background: #ffffff;
+  border-radius: 12px;
+  border: 1px dashed #cbd5f5;
+  padding: 0.85rem 1rem;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  cursor: grab;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease,
+    background-color 0.12s ease;
+}
+
+.training-lib-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 22px rgba(15, 23, 42, 0.08);
+  border-color: #2563eb;
+  background: #f9fafb;
+}
+
+.training-lib-card:active {
+  cursor: grabbing;
+  transform: scale(0.98);
+}
+
+/* Título del entrenamiento de biblioteca */
+.training-lib-card strong {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+/* “Objetivo” debajo del título */
+.training-lib-card .small,
+.training-lib-card div.small {
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+/* Campo de búsqueda y botón limpiar de la biblioteca */
+#input-buscar-entrenamiento {
+  border-radius: 999px;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  border: 1px solid #d1d5db;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) inset;
+}
+
+#input-buscar-entrenamiento:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.35);
+  outline: none;
+}
+
+#btn-limpiar-entrenamiento {
+  border-radius: 999px;
+  padding-inline: 1rem;
+}
+
+/* ====== CABECERA “Biblioteca de entrenamientos” ====== */
+
+.biblioteca-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.biblioteca-header h2,
+.biblioteca-header h3 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0;
+  color: #0f172a;
+}
+
+.biblioteca-header p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+/* Si envuelves esa sección en una tarjeta grande */
+.biblioteca-card {
+  background: #ffffff;
+  border-radius: 18px;
+  border: 1px solid #e5e7eb;
+  padding: 1.25rem 1.5rem 1.5rem;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
+}
+
+/* ====== RESPONSIVE ====== */
+
+@media (max-width: 768px) {
+  #entrenamientos-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #biblioteca-entrenamientos {
+    grid-template-columns: 1fr;
+  }
+
+  .training-card {
+    padding: 0.9rem 1rem;
+  }
+}
+/* Columna del día */
+.micro-day-column {
+  background: #ffffff;
+  border-radius: 18px;
+  padding: 16px 14px 14px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Cabecera con nombre completo */
+.micro-day-header-full {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: #0f172a;
+}
+
+/* Zona droppable */
+.micro-day-body {
+  min-height: 90px;
+  border-radius: 14px;
+  border: 1px dashed rgba(148, 163, 184, 0.9);
+  background: #f9fafb;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.micro-day-body--drag-over {
+  background: #eff6ff;
+  border-color: #2563eb;
+}
+
+/* Tarjeta de sesión dentro del día */
+.micro-session-card {
+  position: relative;
+  border-radius: 12px;
+  padding: 8px 12px;
+  background: #ffffff;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.06);
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: grab;
+}
+
+.micro-session-card:active {
+  cursor: grabbing;
+}
+
+.micro-session-card--rest {
+  background: #f1f5f9;
+  box-shadow: none;
+  border: 1px dashed rgba(148, 163, 184, 0.9);
+}
+
+.micro-session-title {
+  font-weight: 500;
+  color: #0f172a;
+}
+
+.micro-session-subtitle {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.micro-session-remove {
+  padding: 0 4px;
+  line-height: 1;
+}
+
+/* Footer del día (botón descanso) */
+.micro-day-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.micro-rest-btn {
+  font-size: 0.75rem;
+  padding-inline: 10px;
+  padding-block: 4px;
+  border-radius: 999px;
+}
+/* Tarjetas de microciclos */
+.micro-list-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.25rem;
+}
+
+.micro-card {
+  background-color: #ffffff;
+  border-radius: 18px;
+  padding: 1rem 1.25rem;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.micro-card-header strong {
+  font-size: 0.95rem;
+}
+
+.micro-card-header .small {
+  margin-top: 2px;
+}
+
+/* Semana dentro de cada micro */
+.micro-card-week {
+  margin-top: 0.5rem;
+}
+
+.micro-week-row {
+  font-size: 0.8rem;
+  padding: 2px 0;
+}
+
+.micro-week-day {
+  font-weight: 500;
+  color: #0f172a;
+  min-width: 70px;
+}
+
+/* Píldoras de sesión */
+.micro-week-sessions {
+  min-height: 1.3rem;
+}
+
+.micro-pill {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.1rem 0.6rem;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.micro-pill--default {
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+}
+
+.micro-pill--rest {
+  background: rgba(251, 146, 60, 0.18);
+  color: #b45309;
+}
+/* Que la biblioteca y la semana tengan altura fija y scroll interno */
+.micro-library {
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+.micro-week-grid {
+  min-height: 480px;
+}
+
+/* Opcional: que las columnas del builder se peguen bien al alto */
+#micro-builder-view .app-card.h-100 {
+  display: flex;
+  flex-direction: column;
+}
+
+#micro-builder-view .micro-week-grid {
+  flex: 1 1 auto;
+}

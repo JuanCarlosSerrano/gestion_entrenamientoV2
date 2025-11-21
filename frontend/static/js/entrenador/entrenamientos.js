@@ -52,6 +52,8 @@ let entrenamientosData = [];
 let builderState = [];
 let currentEntrenamientoId = null;
 
+// ===================== UTILS BÁSICOS =====================
+
 function authHeader() {
   const email = localStorage.getItem('userEmail') || '';
   const password = localStorage.getItem('userPassword') || '';
@@ -103,6 +105,19 @@ function normalizeRecoveryValue(value, unidad) {
   }
   return num;
 }
+
+async function ensureCsrfToken() {
+  if (window.CSRF?.ensureToken) {
+    try {
+      return await window.CSRF.ensureToken(true);
+    } catch (err) {
+      console.warn('No se pudo obtener token CSRF', err);
+    }
+  }
+  return localStorage.getItem('csrfToken');
+}
+
+// ===================== CONSTRUCTOR DE ENTRENAMIENTOS =====================
 
 function createStep(tipo = 'interval') {
   const base = {
@@ -207,6 +222,76 @@ function renderPreview() {
   });
 }
 
+function buildSelectField(label, options, value, onChange, defaultValue = null, wrapperClass = '') {
+  const wrapper = document.createElement('div');
+  wrapper.className = ['mb-3', wrapperClass].filter(Boolean).join(' ').trim();
+  const fieldLabel = document.createElement('label');
+  fieldLabel.className = 'form-label';
+  fieldLabel.textContent = label;
+  wrapper.appendChild(fieldLabel);
+  const select = document.createElement('select');
+  select.className = 'form-select';
+  options.forEach((option) => {
+    const opt = document.createElement('option');
+    opt.value = option.value;
+    opt.textContent = option.label;
+    if (
+      option.value === value ||
+      ((value === null || value === undefined || value === '') &&
+        defaultValue !== null &&
+        option.value === defaultValue)
+    ) {
+      opt.selected = true;
+    }
+    select.appendChild(opt);
+  });
+  select.addEventListener('change', (event) => onChange(event.target.value));
+  wrapper.appendChild(select);
+  return wrapper;
+}
+
+function buildNumberField(label, value, onChange, wrapperClass = '', options = {}) {
+  const wrapper = document.createElement('div');
+  wrapper.className = ['mb-3', wrapperClass].filter(Boolean).join(' ').trim();
+  const fieldLabel = document.createElement('label');
+  fieldLabel.className = 'form-label';
+  fieldLabel.textContent = label;
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.step = options.step ?? '0.1';
+  if (options.min !== undefined) {
+    input.min = String(options.min);
+  }
+  if (options.max !== undefined) {
+    input.max = String(options.max);
+  }
+  input.className = 'form-control';
+  if (value !== null && value !== undefined) {
+    input.value = value;
+  }
+  input.addEventListener('input', (event) => {
+    const parsed = parseFloat(event.target.value);
+    onChange(Number.isFinite(parsed) ? parsed : null);
+  });
+  wrapper.append(fieldLabel, input);
+  return wrapper;
+}
+
+function buildTextField(label, value, onChange, wrapperClass = '') {
+  const wrapper = document.createElement('div');
+  wrapper.className = ['mb-3', wrapperClass].filter(Boolean).join(' ').trim();
+  const fieldLabel = document.createElement('label');
+  fieldLabel.className = 'form-label';
+  fieldLabel.textContent = label;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'form-control';
+  input.value = value || '';
+  input.addEventListener('input', (event) => onChange(event.target.value));
+  wrapper.append(fieldLabel, input);
+  return wrapper;
+}
+
 function renderBuilder() {
   if (!builderStepsContainer) return;
   builderStepsContainer.innerHTML = '';
@@ -218,48 +303,6 @@ function renderBuilder() {
     builderModeLabel.textContent = currentEntrenamientoId ? `Editando #${currentEntrenamientoId}` : 'Nuevo';
     builderModeLabel.className = `badge ${currentEntrenamientoId ? 'text-bg-warning' : 'text-bg-secondary'}`;
   }
-}
-
-function toggleBuilder(show) {
-  if (!listaColumn || !builderColumn) return;
-  if (show) {
-    listaColumn.classList.add('d-none');
-    listaColumn.classList.remove('col-lg-12');
-    listaColumn.classList.add('col-lg-5');
-
-    builderColumn.classList.remove('d-none');
-    builderColumn.classList.remove('col-lg-7');
-    builderColumn.classList.add('col-lg-12');
-  } else {
-    builderColumn.classList.add('d-none');
-    builderColumn.classList.remove('col-lg-12');
-    builderColumn.classList.add('col-lg-7');
-
-    listaColumn.classList.remove('d-none');
-    listaColumn.classList.remove('col-lg-5');
-    listaColumn.classList.add('col-lg-12');
-  }
-}
-
-function activateMainTab(tab) {
-  if (!mainTabButtons.length || !mainTabPanels.length) return;
-  mainTabButtons.forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.mainTabBtn === tab);
-  });
-  mainTabPanels.forEach((panel) => {
-    const isActive = panel.dataset.mainTabPanel === tab;
-    panel.classList.toggle('active', isActive);
-    panel.toggleAttribute('hidden', !isActive);
-  });
-}
-
-function setupMainTabs() {
-  if (!mainTabButtons.length) return;
-  mainTabButtons.forEach((btn) => {
-    btn.addEventListener('click', () => activateMainTab(btn.dataset.mainTabBtn));
-  });
-  // pestaña inicial
-  activateMainTab('entrenamientos');
 }
 
 function buildStepCard(step, siblings, index) {
@@ -344,17 +387,24 @@ function buildStepCard(step, siblings, index) {
     body.appendChild(rowTop);
   } else {
     rowTop.appendChild(
-      buildSelectField('Objetivo', OBJETIVO_TIPOS, step.objetivo_tipo || 'distancia', (value) => {
-        step.objetivo_tipo = value;
-        if (!value || value === 'libre') {
-          step.unidad = null;
-        } else if (value === 'distancia' && !step.unidad) {
-          step.unidad = 'm';
-        } else if (value === 'tiempo' && !step.unidad) {
-          step.unidad = 'min';
-        }
-        renderBuilder();
-      }, 'distancia', 'col-md-6')
+      buildSelectField(
+        'Objetivo',
+        OBJETIVO_TIPOS,
+        step.objetivo_tipo || 'distancia',
+        (value) => {
+          step.objetivo_tipo = value;
+          if (!value || value === 'libre') {
+            step.unidad = null;
+          } else if (value === 'distancia' && !step.unidad) {
+            step.unidad = 'm';
+          } else if (value === 'tiempo' && !step.unidad) {
+            step.unidad = 'min';
+          }
+          renderBuilder();
+        },
+        'distancia',
+        'col-md-6'
+      )
     );
     body.appendChild(rowTop);
 
@@ -434,76 +484,6 @@ function buildStepCard(step, siblings, index) {
   return card;
 }
 
-function buildSelectField(label, options, value, onChange, defaultValue = null, wrapperClass = '') {
-  const wrapper = document.createElement('div');
-  wrapper.className = ['mb-3', wrapperClass].filter(Boolean).join(' ').trim();
-  const fieldLabel = document.createElement('label');
-  fieldLabel.className = 'form-label';
-  fieldLabel.textContent = label;
-  wrapper.appendChild(fieldLabel);
-  const select = document.createElement('select');
-  select.className = 'form-select';
-  options.forEach((option) => {
-    const opt = document.createElement('option');
-    opt.value = option.value;
-    opt.textContent = option.label;
-    if (
-      option.value === value ||
-      ((value === null || value === undefined || value === '') &&
-        defaultValue !== null &&
-        option.value === defaultValue)
-    ) {
-      opt.selected = true;
-    }
-    select.appendChild(opt);
-  });
-  select.addEventListener('change', (event) => onChange(event.target.value));
-  wrapper.appendChild(select);
-  return wrapper;
-}
-
-function buildNumberField(label, value, onChange, wrapperClass = '', options = {}) {
-  const wrapper = document.createElement('div');
-  wrapper.className = ['mb-3', wrapperClass].filter(Boolean).join(' ').trim();
-  const fieldLabel = document.createElement('label');
-  fieldLabel.className = 'form-label';
-  fieldLabel.textContent = label;
-  const input = document.createElement('input');
-  input.type = 'number';
-  input.step = options.step ?? '0.1';
-  if (options.min !== undefined) {
-    input.min = String(options.min);
-  }
-  if (options.max !== undefined) {
-    input.max = String(options.max);
-  }
-  input.className = 'form-control';
-  if (value !== null && value !== undefined) {
-    input.value = value;
-  }
-  input.addEventListener('input', (event) => {
-    const parsed = parseFloat(event.target.value);
-    onChange(Number.isFinite(parsed) ? parsed : null);
-  });
-  wrapper.append(fieldLabel, input);
-  return wrapper;
-}
-
-function buildTextField(label, value, onChange, wrapperClass = '') {
-  const wrapper = document.createElement('div');
-  wrapper.className = ['mb-3', wrapperClass].filter(Boolean).join(' ').trim();
-  const fieldLabel = document.createElement('label');
-  fieldLabel.className = 'form-label';
-  fieldLabel.textContent = label;
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'form-control';
-  input.value = value || '';
-  input.addEventListener('input', (event) => onChange(event.target.value));
-  wrapper.append(fieldLabel, input);
-  return wrapper;
-}
-
 function normalizeSteps(steps) {
   return steps.map((step) => ({
     tipo_paso: step.tipo_paso,
@@ -521,17 +501,6 @@ function normalizeSteps(steps) {
     descripcion: step.descripcion ?? null,
     subpasos: step.subpasos ? normalizeSteps(step.subpasos) : []
   }));
-}
-
-async function ensureCsrfToken() {
-  if (window.CSRF?.ensureToken) {
-    try {
-      return await window.CSRF.ensureToken(true);
-    } catch (err) {
-      console.warn('No se pudo obtener token CSRF', err);
-    }
-  }
-  return localStorage.getItem('csrfToken');
 }
 
 function collectPayload() {
@@ -648,7 +617,7 @@ function renderEntrenamientos() {
     const pasos = entrenamiento.pasos || [];
     summary.textContent = pasos.length
       ? pasos.map(describeStep).join(' · ')
-      : (entrenamiento.bloque_principal || '-');
+      : entrenamiento.bloque_principal || '-';
     card.appendChild(summary);
 
     const actions = document.createElement('div');
@@ -705,11 +674,32 @@ async function fetchEntrenamientos() {
     }
     entrenamientosData = await response.json();
     renderEntrenamientos();
-    // cuando tengamos entrenamientos, refrescamos biblioteca de microciclos si existe
+    // refrescamos biblioteca de microciclos si existe
     renderMicroLibrary();
   } catch (error) {
     console.error(error);
     alert('Error al obtener la lista de entrenamientos');
+  }
+}
+
+function toggleBuilder(show) {
+  if (!listaColumn || !builderColumn) return;
+  if (show) {
+    listaColumn.classList.add('d-none');
+    listaColumn.classList.remove('col-lg-12');
+    listaColumn.classList.add('col-lg-5');
+
+    builderColumn.classList.remove('d-none');
+    builderColumn.classList.remove('col-lg-7');
+    builderColumn.classList.add('col-lg-12');
+  } else {
+    builderColumn.classList.add('d-none');
+    builderColumn.classList.remove('col-lg-12');
+    builderColumn.classList.add('col-lg-7');
+
+    listaColumn.classList.remove('d-none');
+    listaColumn.classList.remove('col-lg-5');
+    listaColumn.classList.add('col-lg-12');
   }
 }
 
@@ -738,16 +728,39 @@ function startEditing(id) {
   toggleBuilder(true);
 }
 
+// ===================== PESTAÑAS PRINCIPALES =====================
+
+function activateMainTab(tab) {
+  if (!mainTabButtons.length || !mainTabPanels.length) return;
+  mainTabButtons.forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.mainTabBtn === tab);
+  });
+  mainTabPanels.forEach((panel) => {
+    const isActive = panel.dataset.mainTabPanel === tab;
+    panel.classList.toggle('active', isActive);
+    panel.toggleAttribute('hidden', !isActive);
+  });
+}
+
+function setupMainTabs() {
+  if (!mainTabButtons.length) return;
+  mainTabButtons.forEach((btn) => {
+    btn.addEventListener('click', () => activateMainTab(btn.dataset.mainTabBtn));
+  });
+  // pestaña inicial
+  activateMainTab('entrenamientos');
+}
+
 // ===================== MICROCICLOS (plantillas) =====================
 
 const WEEK_DAYS = [
-  { dia: 1, label: 'Lun' },
-  { dia: 2, label: 'Mar' },
-  { dia: 3, label: 'Mié' },
-  { dia: 4, label: 'Jue' },
-  { dia: 5, label: 'Vie' },
-  { dia: 6, label: 'Sáb' },
-  { dia: 7, label: 'Dom' }
+  { dia: 1, label: 'Lunes' },
+  { dia: 2, label: 'Martes' },
+  { dia: 3, label: 'Miércoles' },
+  { dia: 4, label: 'Jueves' },
+  { dia: 5, label: 'Viernes' },
+  { dia: 6, label: 'Sábado' },
+  { dia: 7, label: 'Domingo' }
 ];
 
 const microListEl = document.getElementById('micro-list');
@@ -759,7 +772,8 @@ const microBuilderTitle = document.getElementById('micro-builder-title');
 const microWeekGrid = document.getElementById('micro-week-grid');
 const microForm = document.getElementById('form-micro');
 const microIdField = document.getElementById('micro-id-field');
-const microNombreInput = microForm?.elements['nombre'] || document.querySelector('#form-micro input[name="nombre"]');
+const microNombreInput =
+  microForm?.elements['nombre'] || document.querySelector('#form-micro input[name="nombre"]');
 const microObjetivoInput =
   microForm?.elements['objetivo'] || document.querySelector('#form-micro textarea[name="objetivo"]');
 
@@ -833,20 +847,29 @@ function renderMicroWeekGrid() {
     col.className = 'micro-day-column';
     col.dataset.diaSemana = String(dia);
 
+    // Cabecera del día (nombre completo)
     const header = document.createElement('div');
-    header.className = 'micro-day-header';
+    header.className = 'micro-day-header-full';
     header.textContent = label;
     col.appendChild(header);
 
+    // Contenedor de sesiones (zona droppable)
     const body = document.createElement('div');
     body.className = 'micro-day-body';
 
     body.addEventListener('dragover', (ev) => {
       ev.preventDefault();
+      body.classList.add('micro-day-body--drag-over');
+    });
+
+    body.addEventListener('dragleave', () => {
+      body.classList.remove('micro-day-body--drag-over');
     });
 
     body.addEventListener('drop', (ev) => {
       ev.preventDefault();
+      body.classList.remove('micro-day-body--drag-over');
+
       const idFromData = ev.dataTransfer?.getData('text/plain');
       const entId = dragEntrenamientoId || (idFromData ? parseInt(idFromData, 10) : null);
       if (!entId) return;
@@ -860,7 +883,7 @@ function renderMicroWeekGrid() {
       const ent = entrenamientosData.find((e) => e.id === entId);
       microSemana[dia].push({
         entrenamiento_id: entId,
-        nombre: ent ? ent.nombre : `Ent. #${entId}`
+        nombre: ent ? ent.nombre : `Entrenamiento #${entId}`
       });
 
       dragEntrenamientoId = null;
@@ -871,12 +894,21 @@ function renderMicroWeekGrid() {
     });
 
     const sesiones = microSemana[dia] || [];
+
     if (!sesiones.length) {
-      const placeholder = document.createElement('div');
-      placeholder.className = 'micro-day-placeholder text-muted';
-      placeholder.textContent = 'Arrastra aquí entrenamientos';
-      body.appendChild(placeholder);
+      // Día sin sesiones -> se muestra como descanso por defecto
+      const restCard = document.createElement('div');
+      restCard.className = 'micro-session-card micro-session-card--rest';
+      const title = document.createElement('div');
+      title.className = 'micro-session-title';
+      title.textContent = 'Descanso';
+      const subtitle = document.createElement('div');
+      subtitle.className = 'micro-session-subtitle';
+      subtitle.textContent = 'Arrastra aquí un entrenamiento si quieres sesión.';
+      restCard.append(title, subtitle);
+      body.appendChild(restCard);
     } else {
+      // Sesiones asignadas al día
       sesiones.forEach((sesion, idx) => {
         const item = document.createElement('div');
         item.className = 'micro-session-card';
@@ -892,7 +924,8 @@ function renderMicroWeekGrid() {
           ev.dataTransfer?.setData('text/plain', String(sesion.entrenamiento_id));
         });
 
-        const labelNode = document.createElement('span');
+        const labelNode = document.createElement('div');
+        labelNode.className = 'micro-session-title';
         labelNode.textContent = sesion.nombre;
         item.appendChild(labelNode);
 
@@ -911,42 +944,83 @@ function renderMicroWeekGrid() {
     }
 
     col.appendChild(body);
+
+    // Botón para marcar el día como descanso (vacía el día)
+    const footer = document.createElement('div');
+    footer.className = 'micro-day-footer';
+
+    const restBtn = document.createElement('button');
+    restBtn.type = 'button';
+    restBtn.className = 'btn btn-sm btn-outline-secondary micro-rest-btn';
+    restBtn.textContent = sesiones.length ? 'Marcar día como descanso' : 'Día de descanso';
+    restBtn.addEventListener('click', () => {
+      microSemana[dia] = [];
+      renderMicroWeekGrid();
+    });
+
+    footer.appendChild(restBtn);
+    col.appendChild(footer);
+
     microWeekGrid.appendChild(col);
   });
 }
 
-function openMicroBuilder(micro = null) {
+
+async function openMicroBuilder(micro = null) {
   if (!microListView || !microBuilderView) return;
 
-  if (micro) {
-    // Editar
-    microIdField.value = micro.id;
-    if (microNombreInput) microNombreInput.value = micro.nombre || '';
-    if (microObjetivoInput) microObjetivoInput.value = micro.descripcion || '';
-    if (microBuilderTitle) {
-      microBuilderTitle.textContent = `Editar microciclo: ${micro.nombre}`;
+  // --- NUEVO: si micro existe pero NO trae detalles -> cargarlos del backend ---
+  let microCompleto = micro;
+  if (micro && (!micro.detalles || !micro.detalles.length)) {
+    try {
+      const csrf = await ensureCsrfToken();
+      const res = await fetch(`${API_BASE}/microciclos/${micro.id}/entrenamientos`, {
+        headers: {
+          Authorization: authHeader(),
+          ...(csrf ? { 'X-CSRF-Token': csrf } : {})
+        },
+        credentials: 'include'
+      });
+
+      if (res.ok) {
+        microCompleto = await res.json();
+      } else {
+        console.warn("No se pudieron cargar detalles del microciclo", micro.id);
+      }
+    } catch (err) {
+      console.error("Error cargando detalles del microciclo:", err);
     }
+  }
+
+  // --- Cargar datos del micro ---
+  if (microCompleto) {
+    microIdField.value = microCompleto.id;
+    if (microNombreInput) microNombreInput.value = microCompleto.nombre || '';
+    if (microObjetivoInput) microObjetivoInput.value = microCompleto.descripcion || microCompleto.objetivo || '';
+    if (microBuilderTitle) {
+      microBuilderTitle.textContent = `Editar microciclo: ${microCompleto.nombre}`;
+    }
+
     resetMicroSemana();
 
-    (micro.detalles || []).forEach((det) => {
-      const dia = det.dia_semana || 1;
+    (microCompleto.detalles || []).forEach((det) => {
+      const dia = det.dia_semana || det.dia_relativo || 1;
       if (!microSemana[dia]) microSemana[dia] = [];
       microSemana[dia].push({
         entrenamiento_id: det.entrenamiento_id,
-        nombre: det.entrenamiento_nombre || `Ent. #${det.entrenamiento_id}`
+        nombre: det.entrenamiento_nombre || `Entrenamiento #${det.entrenamiento_id}`
       });
     });
   } else {
-    // Nuevo
+    // --- Nuevo microciclo ---
     microIdField.value = '';
     if (microNombreInput) microNombreInput.value = '';
     if (microObjetivoInput) microObjetivoInput.value = '';
-    if (microBuilderTitle) {
-      microBuilderTitle.textContent = 'Nuevo microciclo estándar';
-    }
+    if (microBuilderTitle) microBuilderTitle.textContent = 'Nuevo microciclo estándar';
     resetMicroSemana();
   }
 
+  // Render
   renderMicroWeekGrid();
   renderMicroLibrary();
 
@@ -954,12 +1028,43 @@ function openMicroBuilder(micro = null) {
   microBuilderView.classList.remove('d-none');
 }
 
+
 function closeMicroBuilder() {
   if (!microListView || !microBuilderView) return;
   microBuilderView.classList.add('d-none');
   microListView.classList.remove('d-none');
-  // por si acaso
   resetMicroSemana();
+}
+async function hydrateMicroDetalles() {
+  if (!microPlantillas.length) return;
+
+  const csrf = await ensureCsrfToken();
+
+  const promises = microPlantillas.map(async (micro) => {
+    // si ya tiene detalles, no hacemos nada
+    if (micro.detalles && micro.detalles.length) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/microciclos/${micro.id}/entrenamientos`, {
+        headers: {
+          Authorization: authHeader(),
+          ...(csrf ? { 'X-CSRF-Token': csrf } : {})
+        },
+        credentials: 'include'
+      });
+
+      if (!res.ok) return;
+
+      const data = await res.json().catch(() => null);
+      if (data && Array.isArray(data.detalles)) {
+        micro.detalles = data.detalles;
+      }
+    } catch (err) {
+      console.warn('No se pudieron hidratar detalles del microciclo', micro.id, err);
+    }
+  });
+
+  await Promise.all(promises);
 }
 
 async function loadMicroList() {
@@ -979,13 +1084,17 @@ async function loadMicroList() {
     if (res.status === 404) {
       console.info('Endpoint /plantillas/microciclos no existe todavía. Microciclos desactivados.');
       microPlantillas = [];
-      renderMicroList(); // mostrará el mensaje "Todavía no hay microciclos estándar creados."
+      renderMicroList();
       return;
     }
 
     if (!res.ok) throw new Error('Error al cargar microciclos');
 
     microPlantillas = await res.json();
+
+    // 🔹 NUEVO: rellenar detalles (entrenos) de cada microciclo
+    await hydrateMicroDetalles();
+
     renderMicroList();
   } catch (err) {
     console.warn('loadMicroList warning', err);
@@ -993,7 +1102,6 @@ async function loadMicroList() {
       '<p class="text-muted small">Los microciclos aún no están disponibles (ruta backend pendiente).</p>';
   }
 }
-
 
 function renderMicroList() {
   if (!microListEl) return;
@@ -1011,11 +1119,22 @@ function renderMicroList() {
     const card = document.createElement('div');
     card.className = 'micro-card';
 
+    // ----- HEADER -----
     const header = document.createElement('div');
     header.className = 'micro-card-header d-flex justify-content-between align-items-center';
 
-    const title = document.createElement('strong');
-    title.textContent = micro.nombre;
+    const title = document.createElement('div');
+    const nameEl = document.createElement('strong');
+    nameEl.textContent = micro.nombre;
+    title.appendChild(nameEl);
+
+    if (micro.descripcion || micro.objetivo) {
+      const subtitle = document.createElement('div');
+      subtitle.className = 'small text-muted';
+      subtitle.textContent = micro.descripcion || micro.objetivo || '';
+      title.appendChild(subtitle);
+    }
+
     header.appendChild(title);
 
     const actions = document.createElement('div');
@@ -1030,37 +1149,66 @@ function renderMicroList() {
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.className = 'btn btn-sm btn-outline-danger';
-    delBtn.textContent = 'Borrar';
+    delBtn.textContent = 'Eliminar';
     delBtn.addEventListener('click', () => deleteMicro(micro.id));
 
     actions.append(editBtn, delBtn);
     header.appendChild(actions);
     card.appendChild(header);
 
+    // ----- BODY -----
     const body = document.createElement('div');
     body.className = 'micro-card-body';
 
-    if (micro.descripcion) {
-      const p = document.createElement('div');
-      p.className = 'small text-muted mb-1';
-      p.textContent = micro.descripcion;
-      body.appendChild(p);
-    }
+    // Layout de semana con “píldoras” por día
+    const weekWrapper = document.createElement('div');
+    weekWrapper.className = 'micro-card-week';
 
-    const summary = document.createElement('div');
-    summary.className = 'small';
-    const byDay = {};
+    // Agrupamos entrenos por día
+    const sesionesPorDia = {};
     (micro.detalles || []).forEach((d) => {
-      const dia = d.dia_semana || 1;
-      byDay[dia] = (byDay[dia] || 0) + 1;
+      const dia = d.dia_semana || d.dia_relativo || 1;
+      if (!sesionesPorDia[dia]) sesionesPorDia[dia] = [];
+      sesionesPorDia[dia].push(d);
     });
-    const parts = WEEK_DAYS.map(({ dia, label }) => {
-      const n = byDay[dia] || 0;
-      return `${label}:${n}`;
-    });
-    summary.textContent = parts.join(' · ');
-    body.appendChild(summary);
 
+    WEEK_DAYS.forEach(({ dia, label }) => {
+      const row = document.createElement('div');
+      row.className = 'micro-week-row d-flex justify-content-between align-items-start gap-2';
+
+      const dayLabel = document.createElement('div');
+      dayLabel.className = 'micro-week-day';
+      dayLabel.textContent = label;
+      row.appendChild(dayLabel);
+
+      const sessionsContainer = document.createElement('div');
+      sessionsContainer.className = 'micro-week-sessions d-flex flex-wrap gap-1 justify-content-end';
+
+      const sesiones = sesionesPorDia[dia] || [];
+
+      if (!sesiones.length) {
+        // Día de descanso
+        const pill = document.createElement('span');
+        pill.className = 'micro-pill micro-pill--rest';
+        pill.textContent = 'Descanso';
+        sessionsContainer.appendChild(pill);
+      } else {
+        sesiones.forEach((s) => {
+          const pill = document.createElement('span');
+          const nombreEnt = s.entrenamiento_nombre || 'Sesión';
+          const esDescanso = /descanso/i.test(nombreEnt);
+
+          pill.className = 'micro-pill ' + (esDescanso ? 'micro-pill--rest' : 'micro-pill--default');
+          pill.textContent = nombreEnt;
+          sessionsContainer.appendChild(pill);
+        });
+      }
+
+      row.appendChild(sessionsContainer);
+      weekWrapper.appendChild(row);
+    });
+
+    body.appendChild(weekWrapper);
     card.appendChild(body);
     microListEl.appendChild(card);
   });
@@ -1078,30 +1226,32 @@ async function saveMicro(event) {
     return;
   }
 
-  const detalles = [];
+  // Construimos "sesiones" tal y como lo espera el backend
+  const sesiones = [];
   let ordenGlobal = 1;
+
   WEEK_DAYS.forEach(({ dia }) => {
     (microSemana[dia] || []).forEach((sesion, idx) => {
       if (!sesion.entrenamiento_id) return;
-      detalles.push({
+      sesiones.push({
         entrenamiento_id: sesion.entrenamiento_id,
-        dia_semana: dia,
-        sesion: 1, // por ahora 1 sesión por día, el orden va aparte
+        dia_relativo: dia,          // 👈 backend espera esto
+        sesion_indice: idx + 1,     // 👈 backend espera esto
+        notas: sesion.notas || null,
         orden: ordenGlobal++
       });
     });
   });
 
-  if (!detalles.length) {
+  if (!sesiones.length) {
     alert('Añade al menos un entrenamiento en la semana');
     return;
   }
 
   const payload = {
     nombre,
-    descripcion: objetivo || null,
-    tipo_semana: null,
-    detalles
+    objetivo: objetivo || null,  // 👈 backend lee "objetivo"
+    sesiones                     // 👈 backend lee "sesiones"
   };
 
   const csrf = await ensureCsrfToken();
@@ -1109,8 +1259,8 @@ async function saveMicro(event) {
   const isEdit = !!id;
 
   const url = isEdit
-    ? `${API_BASE}/plantillas/microciclos/${id}`
-    : `${API_BASE}/plantillas/microciclos`;
+    ? `${API_BASE}/microciclos/${id}`
+    : `${API_BASE}/microciclos`;
   const method = isEdit ? 'PUT' : 'POST';
 
   try {
@@ -1139,11 +1289,12 @@ async function saveMicro(event) {
   }
 }
 
+
 async function deleteMicro(id) {
   if (!confirm('¿Eliminar este microciclo estándar?')) return;
   const csrf = await ensureCsrfToken();
   try {
-    const res = await fetch(`${API_BASE}/plantillas/microciclos/${id}`, {
+    const res = await fetch(`${API_BASE}/microciclos/${id}`, {
       method: 'DELETE',
       headers: {
         Authorization: authHeader(),
@@ -1170,7 +1321,13 @@ function initMicroUI() {
 
   microCreateBtn?.addEventListener('click', () => openMicroBuilder(null));
   microBuilderBackBtn?.addEventListener('click', () => closeMicroBuilder());
-  microForm?.addEventListener('submit', saveMicro);
+
+  // Opción 1: solo botón explícito
+  const btnGuardarMicro = document.getElementById('btn-guardar-microciclo');
+  btnGuardarMicro?.addEventListener('click', (ev) => saveMicro(ev));
+
+  // (Si quieres permitir también Enter dentro del form, puedes mantener esto:)
+  // microForm?.addEventListener('submit', saveMicro);
 
   inputBuscarEntrenamiento?.addEventListener('input', () => renderMicroLibrary());
   btnLimpiarEntrenamiento?.addEventListener('click', () => {
@@ -1178,6 +1335,7 @@ function initMicroUI() {
     renderMicroLibrary();
   });
 }
+
 
 // ===================== MESOCICLOS / MACROCICLOS (esqueleto básico) =====================
 
@@ -1205,7 +1363,7 @@ async function loadMesoList() {
     if (res.status === 404) {
       console.info('Endpoint /plantillas/mesociclos no existe todavía. Mesociclos desactivados.');
       mesoPlantillas = [];
-      renderMesoList(); // mostrará "Todavía no hay mesociclos creados."
+      renderMesoList();
       return;
     }
 
@@ -1219,7 +1377,6 @@ async function loadMesoList() {
       '<p class="text-muted small">Los mesociclos aún no están disponibles (ruta backend pendiente).</p>';
   }
 }
-
 
 function renderMesoList() {
   if (!mesoListEl) return;
@@ -1277,7 +1434,7 @@ async function loadMacroList() {
     if (res.status === 404) {
       console.info('Endpoint /plantillas/macrociclos no existe todavía. Macrociclos desactivados.');
       macroPlantillas = [];
-      renderMacroList(); // mostrará "Todavía no hay macrociclos creados."
+      renderMacroList();
       return;
     }
 
