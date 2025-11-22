@@ -1534,24 +1534,260 @@ function initMicroUI() {
 
 
 // ===================== MESOCICLOS / MACROCICLOS (esqueleto básico) =====================
+// ===================== MESOCICLOS / MACROCICLOS =====================
 
 const mesoListEl = document.getElementById('meso-list');
 const mesoCreateBtn = document.getElementById('meso-create-btn');
+
+const mesoListView = document.getElementById('meso-list-view');
+const mesoBuilderView = document.getElementById('meso-builder-view');
+const mesoBuilderTitle = document.getElementById('meso-builder-title');
+const mesoBuilderBackBtn = document.getElementById('meso-builder-back');
+
+const mesoMicroLibrary = document.getElementById('meso-micro-library');
+const mesoMicroSearch = document.getElementById('meso-micro-search');
+const mesoMicroClear = document.getElementById('meso-micro-clear');
+
+const mesoWeeksGrid = document.getElementById('meso-weeks-grid');
+const mesoAddWeekBtn = document.getElementById('meso-add-week-btn');
+
+const formMeso = document.getElementById('form-meso');
+const mesoIdField = document.getElementById('meso-id-field');
+const mesoNombreInput = formMeso?.elements['nombre'];
+const mesoObjetivoInput = formMeso?.elements['objetivo'];
+
 const macroListEl = document.getElementById('macro-list');
 const macroCreateBtn = document.getElementById('macro-create-btn');
 
 let mesoPlantillas = [];
 let macroPlantillas = [];
 
-// --- MESOCICLOS ---
+// Estado del builder de mesociclo: array de semanas
+// cada posición es: null o { microciclo_id, nombre, notas }
+let mesoSemana = [];
+let dragMicroId = null;
 
+// ---------- MESOCICLOS ----------
+
+function resetMesoSemana() {
+  mesoSemana = [];
+}
+
+function renderMesoMicroLibrary() {
+  if (!mesoMicroLibrary) return;
+  mesoMicroLibrary.innerHTML = '';
+
+  if (!microPlantillas || !microPlantillas.length) {
+    const empty = document.createElement('p');
+    empty.className = 'text-muted small';
+    empty.textContent = 'Crea primero microciclos en la pestaña Microciclos.';
+    mesoMicroLibrary.appendChild(empty);
+    return;
+  }
+
+  const filtro = (mesoMicroSearch?.value || '').toLowerCase();
+
+  microPlantillas
+    .filter((m) => !filtro || m.nombre.toLowerCase().includes(filtro))
+    .forEach((micro) => {
+      const card = document.createElement('div');
+      card.className = 'training-lib-card';
+      card.draggable = true;
+      card.dataset.microcicloId = String(micro.id);
+
+      card.addEventListener('dragstart', (ev) => {
+        dragMicroId = micro.id;
+        ev.dataTransfer?.setData('text/plain', String(micro.id));
+      });
+
+      const title = document.createElement('strong');
+      title.textContent = micro.nombre;
+      card.appendChild(title);
+
+      if (micro.descripcion || micro.objetivo) {
+        const p = document.createElement('div');
+        p.className = 'small text-muted';
+        p.textContent = micro.descripcion || micro.objetivo || '';
+        card.appendChild(p);
+      }
+
+      mesoMicroLibrary.appendChild(card);
+    });
+}
+
+function renderMesoWeeksGrid() {
+  if (!mesoWeeksGrid) return;
+  mesoWeeksGrid.innerHTML = '';
+
+  if (!mesoSemana.length) {
+    const empty = document.createElement('div');
+    empty.className = 'text-muted small';
+    empty.textContent = 'Añade semanas con el botón "Añadir semana" y arrastra microciclos aquí.';
+    mesoWeeksGrid.appendChild(empty);
+    return;
+  }
+
+  mesoSemana.forEach((slot, index) => {
+    const weekCard = document.createElement('div');
+    weekCard.className = 'meso-week-card';
+    weekCard.dataset.weekIndex = String(index);
+
+    const header = document.createElement('div');
+    header.className = 'meso-week-header d-flex justify-content-between align-items-center';
+
+    const title = document.createElement('strong');
+    title.textContent = `Semana ${index + 1}`;
+    header.appendChild(title);
+
+    const actions = document.createElement('div');
+    actions.className = 'meso-week-actions d-flex gap-1';
+
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'btn btn-sm btn-outline-secondary';
+    clearBtn.textContent = slot ? 'Quitar microciclo' : 'Vaciar semana';
+    clearBtn.addEventListener('click', () => {
+      mesoSemana[index] = null;
+      renderMesoWeeksGrid();
+    });
+    actions.appendChild(clearBtn);
+
+    const deleteWeekBtn = document.createElement('button');
+    deleteWeekBtn.type = 'button';
+    deleteWeekBtn.className = 'btn btn-sm btn-outline-danger';
+    deleteWeekBtn.textContent = 'Eliminar semana';
+    deleteWeekBtn.addEventListener('click', () => {
+      mesoSemana.splice(index, 1);
+      renderMesoWeeksGrid();
+    });
+    actions.appendChild(deleteWeekBtn);
+
+    header.appendChild(actions);
+    weekCard.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'meso-week-body';
+
+    body.addEventListener('dragover', (ev) => {
+      ev.preventDefault();
+      body.classList.add('meso-week-body--drag-over');
+    });
+
+    body.addEventListener('dragleave', () => {
+      body.classList.remove('meso-week-body--drag-over');
+    });
+
+    body.addEventListener('drop', (ev) => {
+      ev.preventDefault();
+      body.classList.remove('meso-week-body--drag-over');
+
+      const idFromData = ev.dataTransfer?.getData('text/plain');
+      const microId = dragMicroId || (idFromData ? parseInt(idFromData, 10) : null);
+      if (!microId) return;
+
+      const micro = microPlantillas.find((m) => m.id === microId);
+      mesoSemana[index] = {
+        microciclo_id: microId,
+        nombre: micro ? micro.nombre : `Microciclo #${microId}`,
+        notas: null
+      };
+
+      dragMicroId = null;
+      renderMesoWeeksGrid();
+    });
+
+    if (!slot) {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'text-muted small';
+      placeholder.textContent = 'Arrastra un microciclo desde la biblioteca de la izquierda.';
+      body.appendChild(placeholder);
+    } else {
+      const pill = document.createElement('div');
+      pill.className = 'micro-pill micro-pill--default';
+      pill.textContent = slot.nombre;
+      body.appendChild(pill);
+    }
+
+    weekCard.appendChild(body);
+    mesoWeeksGrid.appendChild(weekCard);
+  });
+}
+
+async function openMesoBuilder(meso = null) {
+  if (!mesoListView || !mesoBuilderView) return;
+
+  let mesoCompleto = meso;
+
+  // Si viene desde la lista, nos aseguramos de que tiene microciclos
+  if (meso && (!meso.microciclos || !meso.microciclos.length)) {
+    try {
+      const csrf = await ensureCsrfToken();
+      const res = await fetch(`${API_BASE}/mesociclos/${meso.id}`, {
+        headers: {
+          Authorization: authHeader(),
+          ...(csrf ? { 'X-CSRF-Token': csrf } : {})
+        },
+        credentials: 'include'
+      });
+
+      if (res.ok) {
+        mesoCompleto = await res.json();
+      }
+    } catch (err) {
+      console.warn('No se pudo cargar detalle del mesociclo', meso.id, err);
+    }
+  }
+
+  if (mesoCompleto) {
+    // Editar existente
+    mesoIdField.value = mesoCompleto.id;
+    if (mesoNombreInput) mesoNombreInput.value = mesoCompleto.nombre || '';
+    if (mesoObjetivoInput) mesoObjetivoInput.value = mesoCompleto.objetivo || mesoCompleto.objetivo_general || '';
+    if (mesoBuilderTitle) {
+      mesoBuilderTitle.textContent = `Editar mesociclo: ${mesoCompleto.nombre}`;
+    }
+
+    resetMesoSemana();
+    const lista = (mesoCompleto.microciclos || []).slice().sort((a, b) => (a.orden || 0) - (b.orden || 0));
+    lista.forEach((item) => {
+      mesoSemana.push({
+        microciclo_id: item.microciclo_id,
+        nombre: item.microciclo_nombre || `Microciclo #${item.microciclo_id}`,
+        notas: item.notas || null
+      });
+    });
+  } else {
+    // Nuevo mesociclo
+    mesoIdField.value = '';
+    if (mesoNombreInput) mesoNombreInput.value = '';
+    if (mesoObjetivoInput) mesoObjetivoInput.value = '';
+    if (mesoBuilderTitle) {
+      mesoBuilderTitle.textContent = 'Nuevo mesociclo';
+    }
+    resetMesoSemana();
+  }
+
+  renderMesoWeeksGrid();
+  renderMesoMicroLibrary();
+
+  mesoListView.classList.add('d-none');
+  mesoBuilderView.classList.remove('d-none');
+}
+
+function closeMesoBuilder() {
+  if (!mesoListView || !mesoBuilderView) return;
+  mesoBuilderView.classList.add('d-none');
+  mesoListView.classList.remove('d-none');
+  resetMesoSemana();
+}
+
+// hidratar mesociclos con sus microciclos
 async function hydrateMesoMicrociclos() {
   if (!mesoPlantillas.length) return;
 
   const csrf = await ensureCsrfToken();
 
   const promises = mesoPlantillas.map(async (meso) => {
-    // si ya tiene microciclos cargados, no repetimos
     if (Array.isArray(meso.microciclos) && meso.microciclos.length) return;
 
     try {
@@ -1602,7 +1838,6 @@ async function loadMesoList() {
 
     mesoPlantillas = await res.json();
 
-    // 🔹 pedimos para cada meso la lista de microciclos
     await hydrateMesoMicrociclos();
 
     renderMesoList();
@@ -1629,11 +1864,24 @@ function renderMesoList() {
     const card = document.createElement('div');
     card.className = 'meso-card';
 
-    // HEADER
+    card.addEventListener('click', () => openMesoBuilder(meso));
+
     const header = document.createElement('div');
     header.className = 'd-flex justify-content-between align-items-center';
-    const title = document.createElement('strong');
-    title.textContent = meso.nombre;
+
+    const title = document.createElement('div');
+
+    const nameEl = document.createElement('strong');
+    nameEl.textContent = meso.nombre;
+    title.appendChild(nameEl);
+
+    if (meso.objetivo) {
+      const subtitle = document.createElement('div');
+      subtitle.className = 'small text-muted';
+      subtitle.textContent = meso.objetivo;
+      title.appendChild(subtitle);
+    }
+
     header.appendChild(title);
 
     const semanas = (meso.microciclos || []).length;
@@ -1644,14 +1892,7 @@ function renderMesoList() {
 
     card.appendChild(header);
 
-    if (meso.objetivo) {
-      const p = document.createElement('div');
-      p.className = 'small text-muted mt-1';
-      p.textContent = meso.objetivo;
-      card.appendChild(p);
-    }
-
-    // LISTADO RESUMIDO DE MICROCICLOS
+    // listado rápido de semanas
     const lista = document.createElement('div');
     lista.className = 'meso-micro-list mt-2';
 
@@ -1679,11 +1920,118 @@ function renderMesoList() {
     }
 
     card.appendChild(lista);
+
+    // Botón eliminar (sin abrir el builder al pulsarlo)
+    const footer = document.createElement('div');
+    footer.className = 'd-flex justify-content-end mt-2';
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'btn btn-sm btn-outline-danger';
+    delBtn.textContent = 'Eliminar';
+    delBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      deleteMeso(meso.id);
+    });
+
+    footer.appendChild(delBtn);
+    card.appendChild(footer);
+
     mesoListEl.appendChild(card);
   });
 }
 
-// --- MACROCICLOS ---
+async function saveMeso(event) {
+  event?.preventDefault();
+  if (!formMeso) return;
+
+  const nombre = (mesoNombreInput?.value || '').trim();
+  const objetivo = (mesoObjetivoInput?.value || '').trim();
+
+  if (!nombre) {
+    alert('El nombre del mesociclo es obligatorio');
+    return;
+  }
+
+  const microciclos = [];
+  let orden = 1;
+  mesoSemana.forEach((slot) => {
+    if (!slot || !slot.microciclo_id) return;
+    microciclos.push({
+      microciclo_id: slot.microciclo_id,
+      orden: orden++,
+      notas: slot.notas || null
+    });
+  });
+
+  if (!microciclos.length) {
+    alert('Añade al menos un microciclo al mesociclo');
+    return;
+  }
+
+  const payload = {
+    nombre,
+    objetivo: objetivo || null,
+    microciclos
+  };
+
+  const csrf = await ensureCsrfToken();
+  const id = mesoIdField?.value;
+  const isEdit = !!id;
+
+  const url = isEdit ? `${API_BASE}/mesociclos/${id}` : `${API_BASE}/mesociclos`;
+  const method = isEdit ? 'PUT' : 'POST';
+
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: authHeader(),
+        ...(csrf ? { 'X-CSRF-Token': csrf } : {})
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || 'No se pudo guardar el mesociclo');
+    }
+
+    alert(isEdit ? 'Mesociclo actualizado' : 'Mesociclo creado');
+    await loadMesoList();
+    closeMesoBuilder();
+  } catch (err) {
+    console.error('saveMeso error', err);
+    alert(err.message || 'Error al guardar el mesociclo');
+  }
+}
+
+async function deleteMeso(id) {
+  if (!confirm('¿Eliminar este mesociclo?')) return;
+  const csrf = await ensureCsrfToken();
+  try {
+    const res = await fetch(`${API_BASE}/mesociclos/${id}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: authHeader(),
+        ...(csrf ? { 'X-CSRF-Token': csrf } : {})
+      },
+      credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || 'No se pudo eliminar el mesociclo');
+    }
+    await loadMesoList();
+  } catch (err) {
+    console.error('deleteMeso error', err);
+    alert(err.message || 'Error al eliminar el mesociclo');
+  }
+}
+
+// ---------- MACROCICLOS (igual que antes, simple listado) ----------
 
 async function loadMacroList() {
   if (!macroListEl) return;
@@ -1708,7 +2056,6 @@ async function loadMacroList() {
     if (!res.ok) throw new Error('Error al cargar macrociclos');
 
     macroPlantillas = await res.json();
-    // (si más adelante quieres detallar cada macrociclo, aquí pondríamos un hydrateMacroMesociclos())
     renderMacroList();
   } catch (err) {
     console.warn('loadMacroList warning', err);
@@ -1735,18 +2082,25 @@ function renderMacroList() {
 
     const header = document.createElement('div');
     header.className = 'd-flex justify-content-between align-items-center';
+
     const title = document.createElement('strong');
     title.textContent = macro.nombre;
     header.appendChild(title);
 
-    // de momento no sabemos cuántas semanas reales tiene, así que 0
+    const semanas = macro.duracion_semanas || 0;
     const badge = document.createElement('span');
     badge.className = 'badge text-bg-secondary';
-    const semanas = macro.duracion_semanas || 0;
     badge.textContent = `${semanas} ${semanas === 1 ? 'semana' : 'semanas'}`;
     header.appendChild(badge);
 
     card.appendChild(header);
+
+    if (macro.objetivo_general) {
+      const p = document.createElement('div');
+      p.className = 'small text-muted mt-1';
+      p.textContent = macro.objetivo_general;
+      card.appendChild(p);
+    }
 
     macroListEl.appendChild(card);
   });
@@ -1760,9 +2114,30 @@ function initMesoMacroUI() {
     loadMacroList();
   }
 
-  mesoCreateBtn?.addEventListener('click', () => {
-    alert('La creación/edición visual de mesociclos se añadirá después. De momento sólo está el listado.');
+  // Nuevo mesociclo
+  mesoCreateBtn?.addEventListener('click', () => openMesoBuilder(null));
+
+  // Volver al listado
+  mesoBuilderBackBtn?.addEventListener('click', () => closeMesoBuilder());
+
+  // Guardar mesociclo
+  formMeso?.addEventListener('submit', saveMeso);
+
+  // Añadir semana
+  mesoAddWeekBtn?.addEventListener('click', () => {
+    mesoSemana.push(null);
+    renderMesoWeeksGrid();
   });
+
+  // Buscador de microciclos para el builder
+  mesoMicroSearch?.addEventListener('input', () => renderMesoMicroLibrary());
+  mesoMicroClear?.addEventListener('click', () => {
+    if (mesoMicroSearch) mesoMicroSearch.value = '';
+    renderMesoMicroLibrary();
+  });
+
+  // Botones de creación "futuros" para macro
+  mesoCreateBtn?.addEventListener('click', () => openMesoBuilder(null));
 
   macroCreateBtn?.addEventListener('click', () => {
     alert('La creación/edición visual de macrociclos se añadirá después. De momento sólo está el listado.');

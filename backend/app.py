@@ -2078,19 +2078,6 @@ def obtener_mesociclo(current_user, meso_id):
 @app.route('/mesociclos', methods=['POST'])
 @requires_roles('admin', 'entrenador')
 def crear_mesociclo(current_user):
-    """
-    Crea mesociclo.
-
-    JSON esperado:
-    {
-      "nombre": "...",
-      "objetivo": "...",
-      "microciclos": [
-        { "microciclo_id": 2, "orden": 1, "notas": "" },
-        ...
-      ]
-    }
-    """
     data = request.get_json(silent=True) or {}
     nombre = (data.get('nombre') or '').strip()
     objetivo = (data.get('objetivo') or '').strip() or None
@@ -2098,37 +2085,37 @@ def crear_mesociclo(current_user):
 
     if not nombre:
         return jsonify({'error': 'El nombre es obligatorio'}), 400
+    if not microciclos:
+        return jsonify({'error': 'Añade al menos un microciclo'}), 400
 
     try:
         conn = get_db()
         cur = conn.cursor()
-        now = datetime.now().isoformat(' ')
 
         cur.execute(
-            """
-            INSERT INTO mesociclos (macrociclo_id, nombre, fecha_inicio, fecha_fin, objetivo, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (None, nombre, None, None, objetivo, now)
+            "INSERT INTO mesociclos (nombre, objetivo) VALUES (?, ?)",
+            (nombre, objetivo)
         )
         meso_id = cur.lastrowid
 
         for m in microciclos:
             micro_id = m.get('microciclo_id')
-            orden = m.get('orden')
+            orden = int(m.get('orden') or 1)
             notas = m.get('notas')
+            if not micro_id:
+                continue
             cur.execute(
                 """
-                INSERT INTO mesociclos_microciclos
-                    (mesociclo_id, microciclo_id, orden, notas, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO mesociclos_microciclos (mesociclo_id, microciclo_id, orden, notas)
+                VALUES (?, ?, ?, ?)
                 """,
-                (meso_id, micro_id, orden, notas, now)
+                (meso_id, micro_id, orden, notas)
             )
 
         conn.commit()
         cur.close()
         conn.close()
+
         return jsonify({'message': 'Mesociclo creado', 'id': meso_id}), 201
 
     except Exception as e:
@@ -2146,42 +2133,47 @@ def actualizar_mesociclo(current_user, meso_id):
 
     if not nombre:
         return jsonify({'error': 'El nombre es obligatorio'}), 400
+    if not microciclos:
+        return jsonify({'error': 'Añade al menos un microciclo'}), 400
 
     try:
         conn = get_db()
         cur = conn.cursor()
 
+        # comprobar que existe
         cur.execute("SELECT id FROM mesociclos WHERE id = ?", (meso_id,))
         if not cur.fetchone():
             cur.close()
             conn.close()
             return jsonify({'error': 'Mesociclo no encontrado'}), 404
 
-        now = datetime.now().isoformat(' ')
-
         cur.execute(
             "UPDATE mesociclos SET nombre = ?, objetivo = ? WHERE id = ?",
             (nombre, objetivo, meso_id)
         )
 
+        # borrar composición anterior
         cur.execute("DELETE FROM mesociclos_microciclos WHERE mesociclo_id = ?", (meso_id,))
 
+        # insertar nueva secuencia
         for m in microciclos:
-            micro_id = m.get('microciclo_id')
-            orden = m.get('orden')
-            notas = m.get('notas')
-            cur.execute(
-                """
-                INSERT INTO mesociclos_microciclos
-                    (mesociclo_id, microciclo_id, orden, notas, created_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (meso_id, micro_id, orden, notas, now)
-            )
+          micro_id = m.get('microciclo_id')
+          orden = int(m.get('orden') or 1)
+          notas = m.get('notas')
+          if not micro_id:
+              continue
+          cur.execute(
+              """
+              INSERT INTO mesociclos_microciclos (mesociclo_id, microciclo_id, orden, notas)
+              VALUES (?, ?, ?, ?)
+              """,
+              (meso_id, micro_id, orden, notas)
+          )
 
         conn.commit()
         cur.close()
         conn.close()
+
         return jsonify({'message': 'Mesociclo actualizado'}), 200
 
     except Exception as e:
@@ -2196,18 +2188,21 @@ def borrar_mesociclo(current_user, meso_id):
         conn = get_db()
         cur = conn.cursor()
 
-        cur.execute("DELETE FROM mesociclos_microciclos WHERE mesociclo_id = ?", (meso_id,))
         cur.execute("DELETE FROM mesociclos WHERE id = ?", (meso_id,))
+        deleted = cur.rowcount
 
         conn.commit()
         cur.close()
         conn.close()
+
+        if deleted == 0:
+            return jsonify({'error': 'Mesociclo no encontrado'}), 404
+
         return jsonify({'message': 'Mesociclo eliminado'}), 200
 
     except Exception as e:
         print("Error en borrar_mesociclo:", e)
         return jsonify({'error': 'Error al eliminar el mesociclo'}), 500
-
 
 # ---------- MACRO CICLOS ----------
 
