@@ -1397,6 +1397,45 @@ def editar_entrenamiento_asignado(current_user, id):
         print("Error al actualizar entrenamiento asignado:", e)
         conn.rollback()
         return jsonify({'error': 'Error al actualizar entrenamiento asignado'}), 500
+@app.route('/entrenamientos_asignados/<int:id>/detalle', methods=['PUT'])
+@requires_roles('admin', 'entrenador')
+def actualizar_entrenamiento_asignado_detalle(current_user, id):
+    csrf = request.headers.get("X-CSRF-Token")
+    if not csrf:
+        return jsonify({'error': 'CSRF token requerido'}), 403
+
+    data = request.get_json() or []
+
+    conn = get_db()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    # borrar pasos actuales
+    cur.execute("DELETE FROM entrenamientos_asignados_detalle WHERE entrenamiento_asignado_id = ?", (id,))
+
+    # insertar pasos nuevos
+    orden = 1
+    for paso in data:
+        cur.execute("""
+            INSERT INTO entrenamientos_asignados_detalle
+            (entrenamiento_asignado_id, tipo_paso, repeticiones, objetivo_tipo,
+             objetivo_valor, unidad, zona, recuperacion_valor, recuperacion_unidad, orden)
+            VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
+        """, (
+            id,
+            paso.get('tipo_paso'),
+            paso.get('repeticiones'),
+            paso.get('objetivo_valor'),
+            paso.get('unidad'),
+            paso.get('zona'),
+            paso.get('recuperacion_valor'),
+            paso.get('recuperacion_unidad'),
+            orden
+        ))
+        orden += 1
+
+    conn.commit()
+    return jsonify({'message': 'Detalle actualizado correctamente'}), 200
 
 
 # ============================================================
