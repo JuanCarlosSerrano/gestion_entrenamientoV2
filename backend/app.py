@@ -1397,45 +1397,112 @@ def editar_entrenamiento_asignado(current_user, id):
         print("Error al actualizar entrenamiento asignado:", e)
         conn.rollback()
         return jsonify({'error': 'Error al actualizar entrenamiento asignado'}), 500
+
+import json
+
 @app.route('/entrenamientos_asignados/<int:id>/detalle', methods=['PUT'])
 @requires_roles('admin', 'entrenador')
 def actualizar_entrenamiento_asignado_detalle(current_user, id):
-    csrf = request.headers.get("X-CSRF-Token")
-    if not csrf:
-        return jsonify({'error': 'CSRF token requerido'}), 403
+    data = request.get_json() or {}
 
-    data = request.get_json() or []
+    # Aceptamos:
+    #  - una lista directamente
+    #  - o un objeto {"pasos": [...]}
+    if isinstance(data, list):
+        pasos_raw = data
+    elif isinstance(data, dict):
+        pasos_raw = data.get('pasos') or []
+    else:
+        pasos_raw = []
+
+    # Normalizamos: solo dicts
+    pasos = []
+    for item in pasos_raw:
+        if isinstance(item, dict):
+            pasos.append(item)
+        elif isinstance(item, str):
+            # por si viniera un JSON en string
+            try:
+                parsed = json.loads(item)
+                if isinstance(parsed, dict):
+                    pasos.append(parsed)
+                else:
+                    print("Paso no válido (string JSON pero no dict):", item)
+            except Exception:
+                print("Paso no válido (string):", item)
+        else:
+            print("Paso no válido (tipo raro):", type(item), item)
+
+    if not pasos:
+        return jsonify({'error': 'No se recibieron pasos válidos'}), 400
 
     conn = get_db()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
-    # borrar pasos actuales
-    cur.execute("DELETE FROM entrenamientos_asignados_detalle WHERE entrenamiento_asignado_id = ?", (id,))
-
-    # insertar pasos nuevos
-    orden = 1
-    for paso in data:
+    try:
+        # Borramos el detalle anterior
         cur.execute("""
-            INSERT INTO entrenamientos_asignados_detalle
-            (entrenamiento_asignado_id, tipo_paso, repeticiones, objetivo_tipo,
-             objetivo_valor, unidad, zona, recuperacion_valor, recuperacion_unidad, orden)
-            VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?)
-        """, (
-            id,
-            paso.get('tipo_paso'),
-            paso.get('repeticiones'),
-            paso.get('objetivo_valor'),
-            paso.get('unidad'),
-            paso.get('zona'),
-            paso.get('recuperacion_valor'),
-            paso.get('recuperacion_unidad'),
-            orden
-        ))
-        orden += 1
+            DELETE FROM entrenamientos_asignados_detalle
+            WHERE entrenamiento_asignado_id = ?
+        """, (id,))
 
-    conn.commit()
-    return jsonify({'message': 'Detalle actualizado correctamente'}), 200
+        now = datetime.now().isoformat(' ')
+        orden = 1
+
+        def insertar_paso(paso, parent_id=None):
+            nonlocal orden
+
+            if not isinstance(paso, dict):
+                print("insertar_paso: paso no es dict:", type(paso), paso)
+                return
+
+            cur.execute("""
+                INSERT INTO entrenamientos_asignados_detalle
+                  (entrenamiento_asignado_id,
+                   parent_id,
+                   orden,
+                   tipo_paso,
+                   repeticiones,
+                   objetivo_tipo,
+                   objetivo_valor,
+                   unidad,
+                   zona,
+                   recuperacion_valor,
+                   recuperacion_unidad)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                id,
+                parent_id,
+                orden,
+                paso.get('tipo_paso'),
+                paso.get('repeticiones'),
+                paso.get('objetivo_tipo'),
+                paso.get('objetivo_valor'),
+                paso.get('unidad'),
+                paso.get('zona'),
+                paso.get('recuperacion_valor'),
+                paso.get('recuperacion_unidad')
+            ))
+
+            nuevo_id = cur.lastrowid
+            orden += 1
+
+            # Insertar subpasos con parent_id = nuevo_id
+            for sub in (paso.get('subpasos') or []):
+                insertar_paso(sub, parent_id=nuevo_id)
+
+        # Insertar todos los pasos raíz
+        for p in pasos:
+            insertar_paso(p, parent_id=None)
+
+        conn.commit()
+        return jsonify({'message': 'Detalle del entrenamiento asignado actualizado correctamente'}), 200
+
+    except Exception as e:
+        print("Error al actualizar detalle entrenamiento asignado:", e)
+        conn.rollback()
+        return jsonify({'error': 'Error al actualizar el detalle del entrenamiento asignado'}), 500
 
 
 # ============================================================
@@ -2287,163 +2354,87 @@ def obtener_detalle_entrenamiento_asignado(current_user, asignado_id):
     pasos = [dict(f) for f in filas]
     return jsonify(pasos), 200
 
-@app.route('/entrenamientos_asignados/<int:asignado_id>/detalle', methods=['PUT'])
+@app.route('/entrenamientos_asignados/<int:id>/detalle', methods=['PUT'])
 @requires_roles('admin', 'entrenador')
-def actualizar_detalle_entrenamiento_asignado(current_user, asignado_id):
-    """
-    Actualiza la lista de pasos (detalle) de un entrenamiento asignado.
-    Sobrescribe el contenido de entrenamientos_asignados_detalle para ese id,
-    respetando los que se mandan y borrando los que faltan.
-    """
-    data = request.get_json(silent=True) or []
+def actualizar_detalle_entrenamiento_asignado(current_user, id):
+    data = request.get_json() or {}
 
-    if not isinstance(data, list):
-        return jsonify({'error': 'El cuerpo de la petición debe ser una lista de pasos'}), 400
+    # Aceptamos tanto lista directa como {"pasos":[...]}
+    if isinstance(data, list):
+        pasos = data
+    else:
+        pasos = data.get('pasos') or []
 
-    # Comprobamos que el entrenamiento asignado existe
-    ent = query_db(
-        "SELECT atleta_id FROM entrenamientos_asignados WHERE id = ?",
-        (asignado_id,),
-        one=True
-    )
-    if not ent:
-        return jsonify({'error': 'Entrenamiento asignado no encontrado'}), 404
-
-    # Si quisieras limitar que el entrenador sólo edite sus atletas,
-    # aquí podrías hacer un JOIN con usuarios para comprobarlo.
+    if not isinstance(pasos, list):
+        return jsonify({'error': 'Formato de datos inválido (se esperaba una lista de pasos)'}), 400
 
     conn = get_db()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
     try:
-        # ids actuales en BD
-        filas_exist = cur.execute(
-            "SELECT id FROM entrenamientos_asignados_detalle WHERE entrenamiento_asignado_id = ?",
-            (asignado_id,)
-        ).fetchall()
-        ids_existentes = {f['id'] for f in filas_exist}
+        # Borramos detalle anterior
+        cur.execute("""
+            DELETE FROM entrenamientos_asignados_detalle
+            WHERE entrenamiento_asignado_id = ?
+        """, (id,))
 
-        ids_enviados = set()
+        now = datetime.now().isoformat(' ')
         orden = 1
 
-        for paso in data:
-            raw_id = paso.get('id')
-            es_nuevo = True
-            paso_id = None
+        def insertar_paso(paso, parent_id=None):
+            nonlocal orden
 
-            # Intentamos ver si el id es un entero válido que exista
-            try:
-                posible_id = int(raw_id)
-                if posible_id in ids_existentes:
-                    es_nuevo = False
-                    paso_id = posible_id
-            except (TypeError, ValueError):
-                es_nuevo = True
+            cur.execute("""
+                INSERT INTO entrenamientos_asignados_detalle
+                  (entrenamiento_asignado_id,
+                   parent_id,
+                   orden,
+                   tipo_paso,
+                   repeticiones,
+                   objetivo_tipo,
+                   objetivo_valor,
+                   unidad,
+                   zona,
+                   recuperacion_valor,
+                   recuperacion_unidad,
+                   created_at,
+                   updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                id,
+                parent_id,
+                orden,
+                paso.get('tipo_paso'),
+                paso.get('repeticiones'),
+                paso.get('objetivo_tipo'),
+                paso.get('objetivo_valor'),
+                paso.get('unidad'),
+                paso.get('zona'),
+                paso.get('recuperacion_valor'),
+                paso.get('recuperacion_unidad'),
+                now,
+                now
+            ))
 
-            tipo_paso = (paso.get('tipo_paso') or 'custom').strip()
-
-            if es_nuevo:
-                # INSERT
-                cur.execute(
-                    """
-                    INSERT INTO entrenamientos_asignados_detalle (
-                        entrenamiento_asignado_id,
-                        parent_id,
-                        orden,
-                        tipo_paso,
-                        repeticiones,
-                        objetivo_tipo,
-                        objetivo_valor,
-                        unidad,
-                        zona,
-                        recuperacion_valor,
-                        recuperacion_unidad,
-                        intensidad,
-                        descripcion
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        asignado_id,
-                        None,  # mantenemos todo en plano
-                        orden,
-                        tipo_paso,
-                        paso.get('repeticiones'),
-                        paso.get('objetivo_tipo'),
-                        paso.get('objetivo_valor'),
-                        paso.get('unidad'),
-                        paso.get('zona'),
-                        paso.get('recuperacion_valor'),
-                        paso.get('recuperacion_unidad'),
-                        paso.get('intensidad'),
-                        paso.get('descripcion'),
-                    )
-                )
-                nuevo_id = cur.lastrowid
-                ids_enviados.add(nuevo_id)
-            else:
-                # UPDATE
-                cur.execute(
-                    """
-                    UPDATE entrenamientos_asignados_detalle
-                    SET
-                        parent_id = ?,
-                        orden = ?,
-                        tipo_paso = ?,
-                        repeticiones = ?,
-                        objetivo_tipo = ?,
-                        objetivo_valor = ?,
-                        unidad = ?,
-                        zona = ?,
-                        recuperacion_valor = ?,
-                        recuperacion_unidad = ?,
-                        intensidad = ?,
-                        descripcion = ?
-                    WHERE id = ?
-                      AND entrenamiento_asignado_id = ?
-                    """,
-                    (
-                        None,
-                        orden,
-                        tipo_paso,
-                        paso.get('repeticiones'),
-                        paso.get('objetivo_tipo'),
-                        paso.get('objetivo_valor'),
-                        paso.get('unidad'),
-                        paso.get('zona'),
-                        paso.get('recuperacion_valor'),
-                        paso.get('recuperacion_unidad'),
-                        paso.get('intensidad'),
-                        paso.get('descripcion'),
-                        paso_id,
-                        asignado_id
-                    )
-                )
-                ids_enviados.add(paso_id)
-
+            nuevo_id = cur.lastrowid
             orden += 1
 
-        # Borrar pasos que ya no vienen en el payload
-        ids_a_borrar = ids_existentes - ids_enviados
-        if ids_a_borrar:
-            placeholders = ",".join(["?"] * len(ids_a_borrar))
-            cur.execute(
-                f"""
-                DELETE FROM entrenamientos_asignados_detalle
-                WHERE entrenamiento_asignado_id = ?
-                  AND id IN ({placeholders})
-                """,
-                (asignado_id, *ids_a_borrar)
-            )
+            # Si hay subpasos (p.ej. bloque repetido), los insertamos con parent_id = nuevo_id
+            for sub in (paso.get('subpasos') or []):
+                insertar_paso(sub, parent_id=nuevo_id)
+
+        # Insertamos todos los pasos raíz
+        for p in pasos:
+            insertar_paso(p, parent_id=None)
 
         conn.commit()
-        return jsonify({'message': 'Detalle actualizado correctamente'}), 200
+        return jsonify({'message': 'Detalle del entrenamiento asignado actualizado correctamente'}), 200
 
     except Exception as e:
-        print("Error actualizando detalle de entrenamiento asignado:", e)
+        print("Error al actualizar detalle entrenamiento asignado:", e)
         conn.rollback()
-        return jsonify({'error': 'Error al actualizar el detalle'}), 500
+        return jsonify({'error': 'Error al actualizar el detalle del entrenamiento asignado'}), 500
    
 @app.route('/zonas_atleta/<int:atleta_id>', methods=['GET'])
 @requires_roles('entrenador', 'atleta')
