@@ -1121,6 +1121,95 @@ def clonar_detalle_entrenamiento(cur, plantilla_ent_id, asignado_id):
         id_map[d['id']] = nuevo_id
 
 
+def clonar_entrenamiento_para_atleta(
+    *,
+    fecha,
+    entrenamiento_id,
+    atleta_id,
+    meta=None,
+    visible=1,
+):
+    """
+    Inserta un registro en entrenamientos_asignados copiando la cabecera y el
+    detalle del entrenamiento base indicado.
+    Devuelve el id del entrenamiento asignado creado.
+    """
+    if not fecha or not entrenamiento_id or not atleta_id:
+        raise ValueError("Faltan datos para clonar el entrenamiento")
+
+    meta = meta or {}
+    ciclo_tipo = meta.get("ciclo_tipo")
+    ciclo_id = meta.get("ciclo_id")
+    macrociclo_id = meta.get("macrociclo_id")
+    mesociclo_id = meta.get("mesociclo_id")
+    microciclo_id = meta.get("microciclo_id")
+    categoria = meta.get("categoria")
+    intensidad = meta.get("intensidad")
+
+    if isinstance(fecha, datetime):
+        fecha_str = fecha.isoformat()
+    else:
+        fecha_str = str(fecha)
+
+    conn = get_db()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    try:
+        entrenamiento = cur.execute(
+            """
+            SELECT id, nombre, objetivo, notas
+            FROM entrenamientos
+            WHERE id = ?
+            """,
+            (entrenamiento_id,),
+        ).fetchone()
+
+        if entrenamiento is None:
+            raise ValueError("Entrenamiento base no encontrado")
+
+        now = datetime.now().isoformat(" ")
+        cur.execute(
+            """
+            INSERT INTO entrenamientos_asignados (
+                atleta_id, fecha, entrenamiento_id, visible,
+                ciclo_tipo, ciclo_id, macrociclo_id, mesociclo_id, microciclo_id,
+                categoria, intensidad,
+                nombre, objetivo, notas, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                atleta_id,
+                fecha_str,
+                entrenamiento_id,
+                visible,
+                ciclo_tipo,
+                ciclo_id,
+                macrociclo_id,
+                mesociclo_id,
+                microciclo_id,
+                categoria,
+                intensidad,
+                entrenamiento["nombre"],
+                entrenamiento["objetivo"],
+                entrenamiento["notas"],
+                now,
+                now,
+            ),
+        )
+
+        asignado_id = cur.lastrowid
+        clonar_detalle_entrenamiento(cur, entrenamiento_id, asignado_id)
+        conn.commit()
+        return asignado_id
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 # ============================================================
 # 1) Crear un entrenamiento ASIGNADO (desde plantilla)
 # ============================================================
@@ -3180,6 +3269,137 @@ def borrar_macrociclo(current_user, macro_id):
     except Exception as e:
         print("Error en borrar_macrociclo:", e)
         return jsonify({'error': 'Error al eliminar el macrociclo'}), 500
+
+@app.route('/mis_feedbacks', methods=['GET'])
+@requires_roles('atleta')
+def mis_feedbacks(current_user):
+    conn = get_db()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    try:
+        rows = cur.execute("""
+            SELECT
+                f.id,
+                f.entrenamiento_asignado_id AS entrenamiento_id,
+                f.comentario,
+                f.fecha,
+                f.leido,
+                f.respuesta,
+                ea.nombre AS entrenamiento_nombre,
+                ea.fecha AS fecha_entreno
+            FROM feedbacks f
+            LEFT JOIN entrenamientos_asignados ea
+                   ON ea.id = f.entrenamiento_asignado_id
+            WHERE f.atleta_id = ?
+            ORDER BY f.fecha DESC
+        """, (current_user["id"],)).fetchall()
+
+        return jsonify([dict(r) for r in rows]), 200
+
+    except Exception as e:
+        print("Error en /mis_feedbacks:", e)
+        return jsonify({"error": "Error al obtener feedbacks"}), 500
+from datetime import datetime
+
+def now_ts():
+    return datetime.now().isoformat(" ", "seconds")
+
+@app.route('/entrenamientos_asignados/<int:entrenamiento_id>/resultados', methods=['GET'])
+@requires_roles('admin', 'entrenador', 'atleta')
+def obtener_resultados_entrenamiento(current_user, entrenamiento_id):
+    conn = get_db()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    try:
+        ent = cur.execute("""
+            SELECT ea.atleta_id
+            FROM entrenamientos_asignados ea
+            WHERE ea.id = ?
+        """, (entrenamiento_id,)).fetchone()
+
+        if not ent:
+            return jsonify({'error': 'Entrenamiento no encontrado'}), 404
+
+        if current_user['rol'] == 'atleta' and current_user['id'] != ent['atleta_id']:
+            return jsonify({'error': 'No tienes permiso para ver este entrenamiento'}), 403
+
+        filas = cur.execute("""
+            SELECT
+                paso_detalle_id,
+                repeticion,
+                tiempo_real_seg
+            FROM resultados_entrenamientos
+            WHERE entrenamiento_asignado_id = ?
+        """, (entrenamiento_id,)).fetchall()
+
+        return jsonify([dict(f) for f in filas]), 200
+    except Exception as e:
+        print("Error al obtener resultados del entrenamiento:", e)
+        return jsonify({'error': 'No se pudieron obtener los resultados'}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+@app.route('/entrenamientos_asignados/<int:entrenamiento_id>/resultados', methods=['POST'])
+@requires_roles('atleta')
+def guardar_resultados_series(current_user, entrenamiento_id):
+    data = request.get_json(silent=True) or {}
+    series = data.get('series') or []
+
+    if not isinstance(series, list) or not series:
+        return jsonify({"error": "No se han enviado series"}), 400
+
+    conn = get_db()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+
+    try:
+        # 1) Comprobamos que ese entrenamiento realmente pertenece a ESTE atleta
+        ent = cur.execute("""
+            SELECT ea.id
+            FROM entrenamientos_asignados ea
+            WHERE ea.id = ?
+              AND ea.atleta_id = ?
+        """, (entrenamiento_id, current_user["id"])).fetchone()
+
+        if not ent:
+            return jsonify({"error": "Entrenamiento no encontrado para este atleta"}), 404
+
+        # 2) Eliminamos los tiempos anteriores de ese entrenamiento
+        cur.execute("""
+            DELETE FROM resultados_entrenamientos
+            WHERE entrenamiento_asignado_id = ?
+        """, (entrenamiento_id,))
+
+        # 3) Insertamos todo lo nuevo
+        for s in series:
+            paso_id = s.get("paso_detalle_id")
+            rep = s.get("repeticion")
+            t_seg = s.get("tiempo_real_seg")
+
+            if not paso_id or not rep or not t_seg:
+                continue
+
+            cur.execute("""
+                INSERT INTO resultados_entrenamientos (
+                    entrenamiento_asignado_id,
+                    paso_detalle_id,
+                    repeticion,
+                    tiempo_real_seg,
+                    fecha
+                )
+                VALUES (?, ?, ?, ?, ?)
+            """, (entrenamiento_id, paso_id, rep, t_seg, now_ts()))
+
+        conn.commit()
+
+        return jsonify({"message": "Tiempos guardados correctamente"}), 200
+
+    except Exception as e:
+        print("Error al guardar resultados_series:", e)
+        conn.rollback()
+        return jsonify({"error": "Error al guardar resultados"}), 500
 
 @app.route('/')
 def index():
