@@ -802,7 +802,7 @@ def get_entrenamiento_con_pasos(entrenamiento_id: int):
 
     # 1) Datos básicos del entrenamiento
     cur.execute("""
-        SELECT id, nombre, objetivo, notas, bloque_principal
+        SELECT id, nombre, objetivo, notas, bloque_principal, km_totales
         FROM entrenamientos
         WHERE id = ?
     """, (entrenamiento_id,))
@@ -819,6 +819,7 @@ def get_entrenamiento_con_pasos(entrenamiento_id: int):
         "objetivo": row["objetivo"],
         "notas": row["notas"],
         "bloque_principal": row["bloque_principal"],
+        "km_totales": row["km_totales"],
     }
 
     # 2) Detalles (pasos) del entrenamiento
@@ -906,6 +907,7 @@ def actualizar_entrenamiento(current_user, entrenamiento_id):
     nombre = (data.get('nombre') or '').strip()
     objetivo = (data.get('objetivo') or '').strip() or None
     notas = (data.get('notas') or '').strip() or None
+    km_totales = data.get('km_totales')
     pasos = data.get('pasos') or []
 
     if not nombre:
@@ -969,14 +971,25 @@ def actualizar_entrenamiento(current_user, entrenamiento_id):
         flatten_steps(pasos)
         bloque_principal = ' · '.join(resumen_partes) or None
 
+        calculado_km_totales = calcular_km_totales_desde_pasos(pasos)
+        if km_totales is None:
+            km_totales_val = calculado_km_totales
+        else:
+            try:
+                km_totales_val = float(km_totales)
+            except (TypeError, ValueError):
+                km_totales_val = calculado_km_totales
+        if km_totales_val < 0:
+            km_totales_val = 0
+
         # 3) Actualizar tabla principal de entrenamientos
         cur.execute(
             """
             UPDATE entrenamientos
-            SET nombre = ?, objetivo = ?, notas = ?, bloque_principal = ?
+            SET nombre = ?, objetivo = ?, notas = ?, bloque_principal = ?, km_totales = ?
             WHERE id = ?
             """,
-            (nombre, objetivo, notas, bloque_principal, entrenamiento_id)
+            (nombre, objetivo, notas, bloque_principal, km_totales_val, entrenamiento_id)
         )
 
         # 4) Borrar detalles antiguos
@@ -1211,7 +1224,7 @@ def clonar_entrenamiento_para_atleta(
     try:
         entrenamiento = cur.execute(
             """
-            SELECT id, nombre, objetivo, notas
+            SELECT id, nombre, objetivo, notas, km_totales
             FROM entrenamientos
             WHERE id = ?
             """,
@@ -1228,9 +1241,9 @@ def clonar_entrenamiento_para_atleta(
                 atleta_id, fecha, entrenamiento_id, visible,
                 ciclo_tipo, ciclo_id, macrociclo_id, mesociclo_id, microciclo_id,
                 categoria, intensidad,
-                nombre, objetivo, notas, created_at, updated_at
+                nombre, objetivo, notas, km_previstos, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 atleta_id,
@@ -1247,6 +1260,7 @@ def clonar_entrenamiento_para_atleta(
                 entrenamiento["nombre"],
                 entrenamiento["objetivo"],
                 entrenamiento["notas"],
+                entrenamiento["km_totales"] if entrenamiento["km_totales"] is not None else 0,
                 now,
                 now,
             ),
@@ -1327,7 +1341,7 @@ def crear_entrenamiento_asignado(current_user):
 
         objetivo = ent['objetivo']
         notas = ent['notas']
-        km_previstos = ent['km_totales']
+        km_previstos = ent['km_totales'] if ent['km_totales'] is not None else 0
         # Insert en entrenamientos_asignados
         cur.execute("""
             INSERT INTO entrenamientos_asignados (
@@ -1349,6 +1363,21 @@ def crear_entrenamiento_asignado(current_user):
         ))
 
         asignado_id = cur.lastrowid
+
+        # Registrar km planificados en tabla resumen
+        try:
+            cur.execute(
+                """
+                INSERT INTO km_realizados_entrenamientos (entrenamiento_asignado_id, km_planificados, km_realizados, fecha)
+                VALUES (?, ?, NULL, ?)
+                ON CONFLICT(entrenamiento_asignado_id)
+                DO UPDATE SET km_planificados = excluded.km_planificados,
+                              fecha = excluded.fecha
+                """,
+                (asignado_id, km_previstos, now)
+            )
+        except Exception as e:
+            print("Aviso: no se pudo registrar km planificados en km_realizados_entrenamientos", e)
 
         # Clonar pasos
         clonar_detalle_entrenamiento(cur, entrenamiento_id, asignado_id)
@@ -1497,7 +1526,7 @@ def editar_entrenamiento_asignado(current_user, id):
 
         # Snapshot del nuevo entrenamiento base (por si cambia)
         ent_base = cur.execute("""
-            SELECT id, objetivo, notas
+            SELECT id, objetivo, notas, km_totales
             FROM entrenamientos
             WHERE id = ?
         """, (entrenamiento_id_nuevo,)).fetchone()
@@ -1507,12 +1536,13 @@ def editar_entrenamiento_asignado(current_user, id):
 
         objetivo = ent_base['objetivo']
         notas = ent_base['notas']
+        km_previstos = ent_base['km_totales'] if ent_base['km_totales'] is not None else 0
 
         # Actualizar cabecera
         cur.execute("""
             UPDATE entrenamientos_asignados
             SET fecha = ?, nombre = ?, entrenamiento_id = ?,
-                visible = ?, objetivo = ?, notas = ?, updated_at = ?
+                visible = ?, objetivo = ?, notas = ?, km_previstos = ?, updated_at = ?
             WHERE id = ?
         """, (
             fecha_str,
@@ -1521,6 +1551,7 @@ def editar_entrenamiento_asignado(current_user, id):
             visible,
             objetivo,
             notas,
+            km_previstos,
             now,
             id
         ))
@@ -1811,28 +1842,17 @@ def asignar_grupo_entrenamiento(current_user):
         print(e)
         return jsonify({'error': 'Error al asignar entrenamiento al grupo'}), 500
 
-@app.route('/ciclos/asignar', methods=['POST'])
-@requires_roles('admin', 'entrenador')
-def asignar_ciclo(current_user):
+def asignar_ciclo_interno(tipo, ciclo_id, atletas, fecha_inicio_str, notas=None, anclar_en=None):
     """
-    Asigna micro/meso/macro a atletas y genera entrenamientos reales
-    en entrenamientos_asignados + entrenamientos_asignados_detalle.
+    Lógica central para asignar micro/meso/macro a atletas y generar entrenamientos reales.
     """
-    data = request.get_json(silent=True) or {}
-
-    tipo = (data.get('tipo') or '').strip().lower()     # micro | meso | macro
-    ciclo_id = data.get('ciclo_id')
-    atletas = data.get('atletas') or []
-    fecha_inicio_str = data.get('fecha_inicio')
-    notas = (data.get('notas') or '').strip() or None
-
-    # Validaciones básicas
+    tipo = (tipo or '').strip().lower()
     if tipo not in ('micro', 'meso', 'macro'):
         return jsonify({'error': 'Tipo de ciclo inválido'}), 400
 
     try:
         ciclo_id = int(ciclo_id)
-    except:
+    except Exception:
         return jsonify({'error': 'ciclo_id inválido'}), 400
 
     if not atletas:
@@ -1840,25 +1860,22 @@ def asignar_ciclo(current_user):
 
     try:
         fecha_inicio = datetime.strptime(fecha_inicio_str, '%Y-%m-%d').date()
-    except:
+    except Exception:
         return jsonify({'error': 'Fecha inválida'}), 400
 
     atleta_ids = []
     for a in atletas:
         try:
             atleta_ids.append(int(a))
-        except:
+        except Exception:
             pass
 
     if not atleta_ids:
         return jsonify({'error': 'Lista de atletas inválida'}), 400
 
-    # Conexión
     conn = get_db()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-
-    # ---------- HELPERS PARA EXPANDIR CICLOS ----------
 
     def expand_micro(micro_id, base_offset=0, meso_id=None, macro_id=None):
         filas = cur.execute("""
@@ -1909,8 +1926,6 @@ def asignar_ciclo(current_user):
 
         return items
 
-    # ---------- EXPANDIMOS SEGÚN TIPO ----------
-
     if tipo == 'micro':
         items = expand_micro(ciclo_id)
     elif tipo == 'meso':
@@ -1919,9 +1934,10 @@ def asignar_ciclo(current_user):
         items = expand_macro(ciclo_id)
 
     if not items:
+        cur.close()
+        conn.close()
         return jsonify({'error': 'El ciclo no tiene entrenamientos'}), 400
 
-    # ---------- FUNCIÓN PARA CLONAR DETALLES ----------
     def clonar_detalle(plantilla_ent_id, asignado_id):
         detalles = cur.execute("""
             SELECT *
@@ -1961,23 +1977,19 @@ def asignar_ciclo(current_user):
             nuevo = cur.lastrowid
             id_map[d['id']] = nuevo
 
-    # ---------- GENERAR ASIGNACIONES ----------
-
     now = datetime.now().isoformat(' ')
 
     try:
         for atleta_id in atleta_ids:
             for offset, entrenamiento_id, micro_id, meso_id, macro_id in items:
-
-                # snapshot del entrenamiento
                 ent = cur.execute("""
-                    SELECT id, nombre, objetivo
+                    SELECT id, nombre, objetivo, km_totales
                     FROM entrenamientos
                     WHERE id = ?
                 """, (entrenamiento_id,)).fetchone()
 
                 if ent is None:
-                    print ("❌ ERROR: entrenamiento_id inexistente en ciclo →", entrenamiento_id)
+                    print("❌ ERROR: entrenamiento_id inexistente en ciclo →", entrenamiento_id)
                     continue
 
                 fecha = fecha_inicio + timedelta(days=offset)
@@ -1986,8 +1998,8 @@ def asignar_ciclo(current_user):
                     INSERT INTO entrenamientos_asignados (
                         atleta_id, fecha, entrenamiento_id, visible,
                         ciclo_tipo, ciclo_id, macrociclo_id, mesociclo_id, microciclo_id,
-                        nombre, objetivo, notas, created_at, updated_at
-                    ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        nombre, objetivo, notas, km_previstos, created_at, updated_at
+                    ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     atleta_id,
                     fecha.isoformat(),
@@ -2000,26 +2012,70 @@ def asignar_ciclo(current_user):
                     ent["nombre"],
                     ent["objetivo"],
                     notas,
+                    ent["km_totales"] if ent["km_totales"] is not None else 0,
                     now,
                     now
                 ))
 
-
                 asignado_id = cur.lastrowid
-                clonar_detalle(entrenamiento_id, asignado_id)
+                clonar_detalle(ent["id"], asignado_id)
+
+                # Registrar km planificados en tabla resumen
+                try:
+                    cur.execute(
+                        """
+                        INSERT INTO km_realizados_entrenamientos (entrenamiento_asignado_id, km_planificados, km_realizados, fecha)
+                        VALUES (?, ?, NULL, ?)
+                        ON CONFLICT(entrenamiento_asignado_id)
+                        DO UPDATE SET km_planificados = excluded.km_planificados,
+                                      fecha = excluded.fecha
+                        """,
+                        (
+                            asignado_id,
+                            ent["km_totales"] if ent["km_totales"] is not None else None,
+                            now
+                        )
+                    )
+                except Exception as e:
+                    print("Aviso: no se pudo registrar km planificados (ciclo):", e)
 
         conn.commit()
-        return jsonify({'message': 'Ciclo asignado correctamente'}), 201
-
+        return jsonify({'message': 'Ciclo asignado con éxito'}), 201
     except Exception as e:
-        print("Error en asignar_ciclo:", e)
+        print("Error asignando ciclo:", e)
         conn.rollback()
-        return jsonify({'error': 'Error al asignar el ciclo'}), 500
-
+        return jsonify({'error': 'No se pudo asignar el ciclo'}), 500
     finally:
-        conn.close()
+        try:
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
 
-# --- Obtener atletas pendientes de aprobación ---
+@app.route('/ciclos/asignar', methods=['POST'])
+@requires_roles('admin', 'entrenador')
+def asignar_ciclo(current_user):
+    data = request.get_json(silent=True) or {}
+    tipo = (data.get('tipo') or '').strip().lower()     # micro | meso | macro
+    ciclo_id = data.get('ciclo_id')
+    atletas = data.get('atletas') or []
+    fecha_inicio_str = data.get('fecha_inicio')
+    notas = (data.get('notas') or '').strip() or None
+    return asignar_ciclo_interno(tipo, ciclo_id, atletas, fecha_inicio_str, notas)
+
+@app.route('/ciclos/<tipo>/<int:ciclo_id>/asignaciones', methods=['POST'])
+@requires_roles('admin', 'entrenador')
+def asignar_ciclo_alias(current_user, tipo, ciclo_id):
+    """
+    Alias para asignar micro/meso/macro desde el calendario.
+    Acepta payload con fecha_inicio_real y atleta_ids.
+    """
+    data = request.get_json(silent=True) or {}
+    fecha_inicio_str = data.get('fecha_inicio_real') or data.get('fecha_inicio')
+    atletas = data.get('atleta_ids') or data.get('atletas') or []
+    notas = (data.get('notas') or '').strip() or None
+    anclar_en = (data.get('anclar_en') or '').strip().lower() or None
+    return asignar_ciclo_interno(tipo, ciclo_id, atletas, fecha_inicio_str, notas, anclar_en)
 @app.route('/atletas_pendientes', methods=['GET'])
 @requires_roles('entrenador')
 def obtener_atletas_pendientes(current_user):
@@ -3390,13 +3446,33 @@ def obtener_resultados_entrenamiento(current_user, entrenamiento_id):
             SELECT
                 paso_detalle_id,
                 repeticion,
-                tiempo_real_seg,
-                km_realizados
+                tiempo_real_seg
             FROM resultados_entrenamientos
             WHERE entrenamiento_asignado_id = ?
         """, (entrenamiento_id,)).fetchall()
 
-        return jsonify([dict(f) for f in filas]), 200
+        km_row = cur.execute(
+            """
+            SELECT km_realizados
+            FROM km_realizados_entrenamientos
+            WHERE entrenamiento_asignado_id = ?
+            """,
+            (entrenamiento_id,)
+        ).fetchone()
+        km_real_total = km_row["km_realizados"] if km_row else None
+
+        payload = []
+        for f in filas:
+            d = dict(f)
+            if km_real_total is not None:
+                d["km_realizados_total"] = km_real_total
+            payload.append(d)
+
+        # Si no hay filas de intervalos pero tenemos kms totales, devolvemos un registro simple
+        if not payload and km_real_total is not None:
+            payload.append({"km_realizados_total": km_real_total})
+
+        return jsonify(payload), 200
     except Exception as e:
         print("Error al obtener resultados del entrenamiento:", e)
         return jsonify({'error': 'No se pudieron obtener los resultados'}), 500
@@ -3422,7 +3498,7 @@ def guardar_resultados_series(current_user, entrenamiento_id):
         resultados = data
         km_real_total = None
 
-    if not isinstance(resultados, list) or not resultados:
+    if not isinstance(resultados, list):
         return jsonify({"error": "No se han recibido resultados válidos."}), 400
 
     user_data = dict(current_user) if isinstance(current_user, sqlite3.Row) else current_user
@@ -3431,10 +3507,26 @@ def guardar_resultados_series(current_user, entrenamiento_id):
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
+    # Garantizamos tabla simple para guardar km totales por entrenamiento asignado
+    try:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS km_realizados_entrenamientos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                entrenamiento_asignado_id INTEGER UNIQUE,
+                km_planificados REAL,
+                km_realizados REAL,
+                fecha TEXT
+            )
+            """
+        )
+    except Exception as e:
+        print("Aviso: no se pudo asegurar la tabla km_realizados_entrenamientos", e)
+
     # ---------------- Comprobar que el entrenamiento pertenece al atleta actual ----------------
     atleta = cur.execute(
         """
-        SELECT ea.id, ea.atleta_id
+        SELECT ea.id, ea.atleta_id, ea.km_previstos, ea.fecha
         FROM entrenamientos_asignados ea
         WHERE ea.id = ?
         """,
@@ -3443,6 +3535,12 @@ def guardar_resultados_series(current_user, entrenamiento_id):
 
     if not atleta:
         return jsonify({"error": "Entrenamiento asignado no encontrado."}), 404
+
+    km_previstos_asignado = None
+    try:
+        km_previstos_asignado = atleta["km_previstos"]
+    except Exception:
+        km_previstos_asignado = None
 
     # Si tienes current_user["atleta_id"] o similar, comprueba propiedad
     atleta_id_usuario = user_data.get("atleta_id")
@@ -3503,18 +3601,22 @@ def guardar_resultados_series(current_user, entrenamiento_id):
     registros = []
     total_plan_km = 0.0
 
-    for item in resultados:
+    for item in resultados or []:
         paso_id = item.get("repeticion_id") or item.get("paso_detalle_id")
-        if not paso_id:
-            continue
-
         tiempo_real_seg = item.get("tiempo_real_seg")
-        if not tiempo_real_seg:
+
+        # Si no hay paso, asumimos que es un entrenamiento sin intervalos; se manejará más abajo
+        if not paso_id:
             continue
 
         repeticion = item.get("repeticion", 1)
         km_plan = obtener_km_para_paso(paso_id)
         total_plan_km += km_plan
+
+        # Si no hay tiempo, igual permitimos guardar km para bloques simples
+        if tiempo_real_seg is None:
+            tiempo_real_seg = None
+
         registros.append(
             {
                 "paso_id": paso_id,
@@ -3524,16 +3626,38 @@ def guardar_resultados_series(current_user, entrenamiento_id):
             }
         )
 
-    factor = 1.0
-    if km_real_total and total_plan_km > 0:
-        factor = km_real_total / total_plan_km
+    km_real_total_val = km_real_total if isinstance(km_real_total, (int, float)) else None
+
+    # Si hay registros por paso, no escalamos: usamos los km planificados por paso.
+    # El total de km_real_total se usa solo para el resumen de kms (tabla km_realizados_entrenamientos).
+    if registros:
+        factor = 1.0
     else:
-        km_real_total = None
+        factor = 1.0
+        if km_real_total_val is not None and total_plan_km > 0:
+            factor = km_real_total_val / total_plan_km
+
+    km_plan_total = total_plan_km if total_plan_km > 0 else None
+    km_real_suma = 0.0
+
+    paso_fallback_row = cur.execute(
+        """
+        SELECT id FROM entrenamientos_asignados_detalle
+        WHERE entrenamiento_asignado_id = ?
+        ORDER BY orden, id
+        LIMIT 1
+        """,
+        (entrenamiento_id,)
+    ).fetchone()
+    paso_fallback_id = paso_fallback_row["id"] if paso_fallback_row else None
 
     for registro in registros:
         km_realizados = (
-            registro["km_plan"] * factor if km_real_total is not None else registro["km_plan"]
+            registro["km_plan"] * factor
+            if km_real_total_val is not None
+            else registro["km_plan"]
         )
+        km_real_suma += km_realizados
 
         cur.execute(
             """
@@ -3542,18 +3666,56 @@ def guardar_resultados_series(current_user, entrenamiento_id):
                 paso_detalle_id,
                 repeticion,
                 tiempo_real_seg,
-                km_realizados,
                 fecha
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
             """,
             (
                 entrenamiento_id,
-                registro["paso_id"],
+                registro["paso_id"] or paso_fallback_id,
                 registro["repeticion"],
                 registro["tiempo_real_seg"],
-                km_realizados,
                 now_ts,
+            ),
+        )
+
+    # Guardar km totales en tabla dedicada (para consultas simples)
+    km_total_guardar = None
+    if km_real_total is not None and isinstance(km_real_total, (int, float)):
+        km_total_guardar = float(km_real_total)
+    elif km_real_suma > 0:
+        km_total_guardar = km_real_suma
+
+    if km_total_guardar is not None:
+        fecha_entrenamiento = None
+        try:
+            fecha_entrenamiento = atleta["fecha"]
+        except Exception:
+            fecha_entrenamiento = None
+        if not fecha_entrenamiento:
+            fila_fecha = cur.execute(
+                "SELECT fecha FROM entrenamientos_asignados WHERE id = ?",
+                (entrenamiento_id,)
+            ).fetchone()
+            if fila_fecha:
+                try:
+                    fecha_entrenamiento = fila_fecha["fecha"]
+                except Exception:
+                    fecha_entrenamiento = None
+        cur.execute(
+            """
+            INSERT INTO km_realizados_entrenamientos (entrenamiento_asignado_id, km_planificados, km_realizados, fecha)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(entrenamiento_asignado_id)
+            DO UPDATE SET km_planificados = excluded.km_planificados,
+                          km_realizados = excluded.km_realizados,
+                          fecha = excluded.fecha
+            """,
+            (
+                entrenamiento_id,
+                float(km_plan_total) if isinstance(km_plan_total, (int, float)) else km_previstos_asignado,
+                km_total_guardar,
+                fecha_entrenamiento or now_ts,
             ),
         )
 
@@ -3566,8 +3728,6 @@ def index():
     return redirect(url_for('static', filename='login.html'))
 
 
-if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0')
 def format_segundos(seg):
     if seg is None:
         return ""
@@ -3595,23 +3755,36 @@ def estadisticas_listar_atletas(current_user):
         print("Error al listar atletas:", e)
         return jsonify({"error": "No se pudieron obtener los atletas."}), 500
 
-
 @app.route('/estadisticas/entrenador/atletas/<int:atleta_id>/analisis', methods=['GET'])
 @app.route('/atletas/<int:atleta_id>/analisis', methods=['GET'])
-@app.route('/analisis/atleta/<int:atleta_id>', methods=['GET'])  # alias de compatibilidad
-@requires_roles('entrenador', 'admin')
+@app.route('/analisis/atleta/<int:atleta_id>', methods=['GET'])
+@app.route('/analisis_atleta/<int:atleta_id>', methods=['GET'])  # alias adicional
+@requires_roles('entrenador', 'admin', 'atleta')
 def estadisticas_analisis_atleta(current_user, atleta_id):
     try:
+        import sqlite3
+        from datetime import datetime, timedelta
+
+        # Normalizamos current_user a diccionario
         user = dict(current_user) if isinstance(current_user, sqlite3.Row) else current_user
+
+        # 1) Datos del atleta
         atleta = query_db("""
-            SELECT id, nombre, apellidos, entrenador_id
+            SELECT id, nombre, apellidos, entrenador_id, rol
             FROM usuarios
             WHERE id = ?
-        """, (atleta_id,), one=True) or {"id": atleta_id, "nombre": f"Atleta {atleta_id}", "apellidos": "", "entrenador_id": None}
+        """, (atleta_id,), one=True)
 
+        if not atleta or atleta["rol"] != "atleta":
+            return jsonify({"error": "Atleta no encontrado"}), 404
+
+        # Comprobación de permisos: el entrenador solo ve a sus atletas
         if user.get('rol') == 'entrenador' and atleta['entrenador_id'] not in (None, user['id']):
-            return jsonify({'error': 'No tienes permiso para ver las estadísticas de este atleta'}), 403
+            return jsonify(
+                {'error': 'No tienes permiso para ver las estadísticas de este atleta'}
+            ), 403
 
+        # 2) Totales de sesiones
         total_plan = query_db("""
             SELECT COUNT(*) AS total
             FROM entrenamientos_asignados
@@ -3621,7 +3794,8 @@ def estadisticas_analisis_atleta(current_user, atleta_id):
         total_con_registro = query_db("""
             SELECT COUNT(DISTINCT ea.id) AS total
             FROM entrenamientos_asignados ea
-            JOIN resultados_entrenamientos re ON re.entrenamiento_asignado_id = ea.id
+            JOIN resultados_entrenamientos re
+              ON re.entrenamiento_asignado_id = ea.id
             WHERE ea.atleta_id = ?
         """, (atleta_id,), one=True)["total"]
 
@@ -3631,37 +3805,80 @@ def estadisticas_analisis_atleta(current_user, atleta_id):
             WHERE ea.atleta_id = ?
               AND DATE(ea.fecha) <= DATE('now')
               AND NOT EXISTS (
-                SELECT 1 FROM resultados_entrenamientos re
+                SELECT 1
+                FROM resultados_entrenamientos re
                 WHERE re.entrenamiento_asignado_id = ea.id
               )
         """, (atleta_id,), one=True)["total"]
 
+        # 3) Kms por semana (lunes–domingo) usando km_realizados_entrenamientos
+
+        # Kms planificados: usamos km_previstos de entrenamientos_asignados,
+        # y si existe fila en km_realizados_entrenamientos usamos también su km_planificados
         plan_rows = query_db("""
-            SELECT strftime('%Y-%W', date(fecha)) AS semana,
-                   SUM(COALESCE(km_previstos, 0)) AS km
-            FROM entrenamientos_asignados
-            WHERE atleta_id = ? AND km_previstos IS NOT NULL
-            GROUP BY semana
-        """, (atleta_id,))
-        real_rows = query_db("""
-            SELECT strftime('%Y-%W', date(ea.fecha)) AS semana,
-                   SUM(COALESCE(re.km_realizados, 0)) AS km
-            FROM resultados_entrenamientos re
-            JOIN entrenamientos_asignados ea ON ea.id = re.entrenamiento_asignado_id
+            SELECT
+              date(ea.fecha, 'weekday 1', '-7 days') AS lunes_semana,
+              SUM(
+                COALESCE(kre.km_planificados, ea.km_previstos, 0)
+              ) AS km_planificados
+            FROM entrenamientos_asignados ea
+            LEFT JOIN km_realizados_entrenamientos kre
+              ON kre.entrenamiento_asignado_id = ea.id
             WHERE ea.atleta_id = ?
-            GROUP BY semana
+            GROUP BY lunes_semana
+            ORDER BY lunes_semana
         """, (atleta_id,))
 
-        plan_dict = {row["semana"]: round(row["km"], 2) for row in plan_rows if row["semana"]}
-        real_dict = {row["semana"]: round(row["km"], 2) for row in real_rows if row["semana"]}
-        semanas = sorted(set(plan_dict.keys()) | set(real_dict.keys()))
-        kms = [{
-            "semana": semana,
-            "label": f"Semana {semana.split('-')[1]} · {semana.split('-')[0]}",
-            "planificados": plan_dict.get(semana, 0),
-            "realizados": real_dict.get(semana, 0)
-        } for semana in semanas]
+        # Kms realizados: solo de km_realizados_entrenamientos
+        real_rows = query_db("""
+            SELECT
+              date(COALESCE(kre.fecha, ea.fecha), 'weekday 1', '-7 days') AS lunes_semana,
+              SUM(COALESCE(kre.km_realizados, 0)) AS km_realizados
+            FROM km_realizados_entrenamientos kre
+            JOIN entrenamientos_asignados ea
+              ON ea.id = kre.entrenamiento_asignado_id
+            WHERE ea.atleta_id = ?
+            GROUP BY lunes_semana
+            ORDER BY lunes_semana
+        """, (atleta_id,))
 
+        plan_dict = {
+            row["lunes_semana"]: round(row["km_planificados"] or 0, 2)
+            for row in plan_rows
+            if row["lunes_semana"]
+        }
+        real_dict = {
+            row["lunes_semana"]: round(row["km_realizados"] or 0, 2)
+            for row in real_rows
+            if row["lunes_semana"]
+        }
+
+        semanas = sorted(set(plan_dict.keys()) | set(real_dict.keys()))
+
+        def build_label(lunes_str: str) -> str:
+            """
+            lunes_str: 'YYYY-MM-DD' (lunes de la semana)
+            Devuelve algo tipo: 'Sem 41 · 06/10–12/10'
+            """
+            try:
+                lunes = datetime.strptime(lunes_str, "%Y-%m-%d").date()
+                domingo = lunes + timedelta(days=6)
+                iso_year, iso_week, _ = lunes.isocalendar()
+                return f"Sem {iso_week} · {lunes.strftime('%d/%m')}–{domingo.strftime('%d/%m')}"
+            except Exception:
+                return lunes_str
+
+        kms_semana = [
+            {
+                "semana": lunes_str,  # clave interna (lunes)
+                "label": build_label(lunes_str),
+                "planificados": plan_dict.get(lunes_str, 0.0),
+                "realizados": real_dict.get(lunes_str, 0.0)
+            }
+            for lunes_str in semanas
+        ]
+
+        # 4) Resumen por tipo de entrenamiento (tu parte original)
         tipos = query_db("""
             SELECT
                 ea.entrenamiento_id,
@@ -3677,14 +3894,16 @@ def estadisticas_analisis_atleta(current_user, atleta_id):
         tipos_resumen = []
         for tipo in tipos:
             entrenamiento_id = tipo["entrenamiento_id"]
+
             if entrenamiento_id is None:
                 comp_query = """
                     SELECT ea.id, ea.fecha, AVG(re.tiempo_real_seg) AS promedio_real
                     FROM entrenamientos_asignados ea
-                    JOIN resultados_entrenamientos re ON re.entrenamiento_asignado_id = ea.id
+                    JOIN resultados_entrenamientos re
+                      ON re.entrenamiento_asignado_id = ea.id
                     WHERE ea.atleta_id = ?
-                    AND ea.entrenamiento_id IS NULL
-                    AND ea.nombre = ?
+                      AND ea.entrenamiento_id IS NULL
+                      AND ea.nombre = ?
                     GROUP BY ea.id, ea.fecha
                     ORDER BY ea.fecha
                 """
@@ -3693,14 +3912,17 @@ def estadisticas_analisis_atleta(current_user, atleta_id):
                 comp_query = """
                     SELECT ea.id, ea.fecha, AVG(re.tiempo_real_seg) AS promedio_real
                     FROM entrenamientos_asignados ea
-                    JOIN resultados_entrenamientos re ON re.entrenamiento_asignado_id = ea.id
-                    WHERE ea.atleta_id = ? AND ea.entrenamiento_id = ?
+                    JOIN resultados_entrenamientos re
+                      ON re.entrenamiento_asignado_id = ea.id
+                    WHERE ea.atleta_id = ?
+                      AND ea.entrenamiento_id = ?
                     GROUP BY ea.id, ea.fecha
                     ORDER BY ea.fecha
                 """
                 comp_params = (atleta_id, entrenamiento_id)
 
             comparativas = query_db(comp_query, comp_params)
+
             tipos_resumen.append({
                 "entrenamiento_id": entrenamiento_id,
                 "nombre": tipo["nombre"],
@@ -3718,16 +3940,25 @@ def estadisticas_analisis_atleta(current_user, atleta_id):
             })
 
         respuesta = {
-            "atleta": dict(atleta),
+            "atleta": {
+                "id": atleta["id"],
+                "nombre": atleta["nombre"],
+                "apellidos": atleta["apellidos"],
+            },
             "totales": {
                 "planificados": total_plan,
                 "con_registro": total_con_registro,
                 "sin_registro": total_sin_registro
             },
-            "kms_semana": kms,
+            "kms_semana": kms_semana,
             "tipos": tipos_resumen
         }
         return jsonify(respuesta), 200
+
     except Exception as e:
         print("Error en análisis de atleta:", e)
         return jsonify({"error": "No se pudieron obtener las estadísticas."}), 500
+
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0')
