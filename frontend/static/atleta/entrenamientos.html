@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Entrenamientos asignados</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link rel="stylesheet" href="../css/style.css"/>
+  <script src="../js/utils/csrf.js"></script>
+  <script src="../js/script.js"></script>
+  <script src="../js/utils/partials.js"></script>
+  <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon"/>
+</head>
+<body class="app-bg">
+  <div class="container app-container">
+    <div data-include="../partials/header_atleta.html" data-nav-active="entrenamientos"></div>
+
+    <div class="page-context-bar page-context-bar--hero">
+      <div>
+        <p class="eyebrow eyebrow--subtle">Panel del atleta</p>
+        <h1 class="page-context-title">Entrenamientos asignados</h1>
+        <p class="text-muted mb-0">Todo lo visible y publicado por tu entrenador.</p>
+      </div>
+    </div>
+
+    <section class="app-card">
+      <div id="entrenamientos-asignados" class="entrenamiento-grid entrenamiento-grid--stacked mb-3"></div>
+    </section>
+
+    <div data-include="../partials/footer.html"></div>
+  </div>
+
+  <template id="entrenamiento-card-template">
+    <article class="training-card entrenamiento-card sombra-suave" data-entrenamiento-id="">
+      <header class="training-card__header">
+        <div class="training-card__header-main">
+          <div>
+            <h3 class="training-card__title entrenamiento-nombre">Nombre</h3>
+            <p class="training-card__objective entrenamiento-objetivo mb-1">Objetivo · notas</p>
+          </div>
+          <span class="chip chip-warning entrenamiento-fecha">--/--/----</span>
+        </div>
+      </header>
+      <div class="training-card__summary mt-2">
+        <div class="training-card-blocks" id="bloques-detalle-card"></div>
+      </div>
+      <footer class="training-card__actions mt-3">
+        <button class="btn btn-sm btn-outline-primary btn-abrir" type="button">Registrar tiempos</button>
+      </footer>
+    </article>
+  </template>
+  <!-- Modal: registro de tiempos -->
+<div class="modal fade" id="modalRegistrarTiempos" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content sombra-suave">
+      <div class="modal-header">
+        <h5 class="modal-title">Registrar tiempos</h5>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="mb-3">
+          <label for="comentario-feedback" class="form-label fw-semibold">Comentario para tu entrenador</label>
+          <textarea
+            id="comentario-feedback"
+            class="form-control"
+            rows="3"
+            placeholder="Escribe cómo te sentiste, incidencias, etc."
+          ></textarea>
+          <small class="text-muted">Este comentario se enviará junto con los tiempos.</small>
+        </div>
+        <div class="mb-3">
+          <label for="km-realizados" class="form-label">Kilómetros realizados</label>
+          <div class="input-group">
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              class="form-control"
+              id="km-realizados"
+              placeholder="Ej. 12.4"
+            />
+            <span class="input-group-text">km</span>
+          </div>
+          <small id="km-realizados-helper" class="text-muted">Introduce el volumen real de la sesión.</small>
+        </div>
+
+        <p class="text-muted small mb-1">
+          Escribe el tiempo real de cada repetición. Solo números, el formato se ajusta a mm:ss automáticamente.
+        </p>
+
+        <div id="lista-intervalos-tiempos" class="d-flex flex-column gap-2">
+          <!-- JS generará las líneas aquí -->
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button id="btn-guardar-tiempos" class="btn btn-primary">Guardar tiempos</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="../js/atleta/entrenamientos.js" type="module"></script>
+</body>
+</html>

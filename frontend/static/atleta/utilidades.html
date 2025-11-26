@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Utilidades</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link rel="stylesheet" href="../css/style.css"/>
+  <script src="../js/utils/csrf.js"></script>
+  <script src="../js/script.js"></script>
+  <script src="../js/utils/partials.js"></script>
+  <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon"/>
+</head>
+<body class="app-bg">
+  <div class="container app-container">
+    <div data-include="../partials/header_atleta.html" data-nav-active="utilidades"></div>
+
+    <div class="page-context-bar page-context-bar--hero">
+      <div>
+        <p class="eyebrow eyebrow--subtle">Panel del atleta</p>
+        <h1 class="page-context-title">Utilidades</h1>
+        <p class="text-muted mb-0">Herramientas rápidas para tu día a día.</p>
+      </div>
+    </div>
+
+    <section class="app-card">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+        <div>
+          <h2 class="h5 mb-1">Calculadora de ritmos</h2>
+          <p class="text-muted mb-0">Introduce distancia y tiempo objetivo para obtener ritmo, velocidad y parciales.</p>
+        </div>
+      </div>
+
+      <form id="form-calculadora-ritmo" class="row g-3">
+        <div class="col-md-4">
+          <label class="form-label">Distancia</label>
+          <select id="distancia-preset" class="form-select">
+            <option value="5">5 km</option>
+            <option value="10" selected>10 km</option>
+            <option value="21.097">Media maratón</option>
+            <option value="42.195">Maratón</option>
+            <option value="custom">Personalizada</option>
+          </select>
+          <div class="mt-2" id="distancia-custom-wrapper" style="display:none;">
+            <div class="input-group">
+              <input type="number" step="0.001" min="0.1" class="form-control" id="distancia-custom" placeholder="Introduce la distancia" />
+              <select class="form-select" id="distancia-custom-unidad">
+                <option value="km" selected>km</option>
+                <option value="m">m</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Horas</label>
+          <input type="number" min="0" class="form-control" id="tiempo-horas" value="0" />
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Minutos</label>
+          <input type="number" min="0" max="59" class="form-control" id="tiempo-minutos" value="45" />
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Segundos</label>
+          <input type="number" min="0" max="59" class="form-control" id="tiempo-segundos" value="0" />
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button type="submit" class="btn btn-brand">Calcular</button>
+          <button type="button" class="btn btn-outline-secondary" id="btn-reset-calculadora">Limpiar</button>
+        </div>
+      </form>
+
+      <div class="row g-4 mt-4" id="resultados-ritmo" style="display:none;">
+        <div class="col-md-4">
+          <div class="tarjeta sombra-suave h-100">
+            <p class="eyebrow eyebrow--subtle mb-1">Ritmo medio</p>
+            <h3 class="mb-0" id="ritmo-promedio">-</h3>
+            <small class="text-muted">min/km</small>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="tarjeta sombra-suave h-100">
+            <p class="eyebrow eyebrow--subtle mb-1">Velocidad media</p>
+            <h3 class="mb-0" id="velocidad-media">-</h3>
+            <small class="text-muted">km/h</small>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="tarjeta sombra-suave h-100">
+            <p class="eyebrow eyebrow--subtle mb-1">Tiempo total</p>
+            <h3 class="mb-0" id="tiempo-total">-</h3>
+            <small class="text-muted" id="distancia-descripcion"></small>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-4" id="parciales-wrapper" style="display:none;">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+          <h3 class="h5 mb-0">Parciales acumulados</h3>
+          <button class="btn btn-sm btn-outline-secondary" id="btn-copy-parciales">Copiar</button>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-theme mb-0">
+            <thead>
+              <tr>
+                <th>Punto</th>
+                <th>Tiempo acumulado</th>
+              </tr>
+            </thead>
+            <tbody id="tabla-parciales">
+              <tr><td colspan="2" class="text-muted text-center">Calcula un ritmo para ver los parciales.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <div data-include="../partials/footer.html" class="mt-4"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="../js/atleta/utilidades.js" type="module"></script>
+</body>
+</html>

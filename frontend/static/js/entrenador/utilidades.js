@@ -256,3 +256,9 @@ export function init() {
   toggleCustomDistanceVisibility();
   obtenerDistanciaSeleccionada();
 }
+
+
+/* 👇👇 AÑADE ESTO AL FINAL DEL ARCHIVO 👇👇 */
+document.addEventListener("DOMContentLoaded", init);
+
+

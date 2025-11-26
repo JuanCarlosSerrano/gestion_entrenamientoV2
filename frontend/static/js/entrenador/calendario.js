@@ -1,7 +1,9 @@
 document.addEventListener("DOMContentLoaded", function () {
   const API_BASE =
     window.API_BASE ||
-    (window.location && window.location.origin ? window.location.origin : "http://127.0.0.1:5000");
+    (window.location && window.location.origin
+      ? window.location.origin
+      : "http://127.0.0.1:5000");
   window.API_BASE = API_BASE;
 
   const getCsrfToken = () =>
@@ -9,6 +11,7 @@ document.addEventListener("DOMContentLoaded", function () {
       ? window.CSRF.getToken()
       : localStorage.getItem("csrfToken"));
 
+  // ----------------------------- Mensajes / confirmación -----------------------------
   function mostrarMensaje(texto, tipo = "success") {
     let contenedor = document.getElementById("mensaje-flotante");
     if (!contenedor) {
@@ -18,11 +21,13 @@ document.addEventListener("DOMContentLoaded", function () {
         "alert text-center position-fixed bottom-0 start-50 translate-middle-x w-50";
       contenedor.style.zIndex = "2000";
       contenedor.style.display = "none";
+
       const textoEl = document.createElement("span");
       textoEl.id = "mensaje-texto";
       contenedor.appendChild(textoEl);
       document.body.appendChild(contenedor);
     }
+
     const textoEl = document.getElementById("mensaje-texto");
     contenedor.classList.remove(
       "alert-success",
@@ -33,6 +38,7 @@ document.addEventListener("DOMContentLoaded", function () {
     contenedor.classList.add(`alert-${tipo}`);
     textoEl.textContent = texto;
     contenedor.style.display = "block";
+
     setTimeout(() => {
       contenedor.style.display = "none";
     }, 2500);
@@ -42,27 +48,37 @@ document.addEventListener("DOMContentLoaded", function () {
     const modalEl = document.getElementById("modalConfirmacion");
     const mensajeEl = document.getElementById("modal-confirmacion-mensaje");
     const btnAceptar = document.getElementById("modal-confirmacion-aceptar");
+
     if (!modalEl || !mensajeEl || !btnAceptar) {
       console.error("Modal de confirmación no está definido en el HTML");
       if (typeof onConfirm === "function") onConfirm();
       return;
     }
+
     mensajeEl.textContent = mensaje;
     const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+
     btnAceptar.onclick = () => {
       modal.hide();
       if (typeof onConfirm === "function") onConfirm();
     };
+
     modal.show();
   }
 
+  // ----------------------------- Referencias DOM -----------------------------
   const atletaId = new URLSearchParams(window.location.search).get("atletaId");
   const calendarEl = document.getElementById("calendar");
+
   const modalAsignarEl = document.getElementById("modalAsignarEntrenamiento");
-  const modalAsignar = modalAsignarEl ? new bootstrap.Modal(modalAsignarEl) : null;
+  const modalAsignar = modalAsignarEl
+    ? new bootstrap.Modal(modalAsignarEl)
+    : null;
+
   const form = document.getElementById("form-asignar-entrenamiento");
   const selectEntrenamiento = document.getElementById("select-entrenamiento");
   const btnEliminar = document.getElementById("btn-eliminar-entrenamiento");
+
   const btnAsignarCiclo = document.getElementById("btn-asignar-ciclo");
   const modalCicloEl = document.getElementById("modalAsignarCiclo");
   const modalCiclo = modalCicloEl ? new bootstrap.Modal(modalCicloEl) : null;
@@ -73,10 +89,32 @@ document.addEventListener("DOMContentLoaded", function () {
   const ayudaCiclo = document.getElementById("ayuda-ciclo");
   const selectCicloAnclaje = document.getElementById("select-ciclo-anclaje");
   const labelCicloFecha = document.getElementById("label-ciclo-fecha");
+
   const visFecha = document.getElementById("vis-fecha");
   const visModo = document.getElementById("vis-modo");
   const btnVisMostrar = document.getElementById("btn-vis-mostrar");
   const btnVisOcultar = document.getElementById("btn-vis-ocultar");
+
+  // Modal de detalle
+  const modalDetalleEl = document.getElementById("modalDetalleEntreno");
+  const modalDetalle = modalDetalleEl
+    ? new bootstrap.Modal(modalDetalleEl)
+    : null;
+  
+  const detalleCampos = {
+    tipo: document.getElementById("detalle-tipo"),
+    nombre: document.getElementById("detalle-nombre"),
+    descripcion: document.getElementById("detalle-descripcion"),
+    fecha: document.getElementById("detalle-fecha"),
+  };
+
+  const campos = {
+    nombre: document.getElementById("nombre"),
+    descripcion: document.getElementById("descripcion"),
+  };
+
+  let detalleEntrenamientoActual = null;
+  let ultimoAsignadoId = null;
 
   if (!atletaId) {
     if (calendarEl) {
@@ -93,7 +131,8 @@ document.addEventListener("DOMContentLoaded", function () {
     visFecha.value = new Date().toISOString().slice(0, 10);
   }
 
-    async function actualizarVisibilidad(visible) {
+  // ----------------------------- Visibilidad entrenos -----------------------------
+  async function actualizarVisibilidad(visible) {
     if (!visFecha) return;
 
     if (!visFecha.value) {
@@ -110,13 +149,13 @@ document.addEventListener("DOMContentLoaded", function () {
       return;
     }
 
-    const modo = visModo && visModo.value ? visModo.value : "dia"; // 👈 aquí está la clave
+    const modo = visModo && visModo.value ? visModo.value : "dia";
 
     const payload = {
-      atletas: [atletaIdNum],          // lista, como espera el backend
-      fecha: visFecha.value,           // YYYY-MM-DD
-      visible: visible ? 1 : 0,        // 1 = mostrar, 0 = ocultar
-      modo: modo                       // "dia" o "semana"
+      atletas: [atletaIdNum],
+      fecha: visFecha.value,
+      visible: visible ? 1 : 0,
+      modo,
     };
 
     try {
@@ -157,28 +196,23 @@ document.addEventListener("DOMContentLoaded", function () {
       );
 
       calendar.refetchEvents();
-
     } catch (err) {
       console.error("Error al actualizar visibilidad:", err);
       mostrarMensaje("Error al actualizar la visibilidad", "danger");
     }
   }
 
+  btnVisMostrar?.addEventListener("click", (e) => {
+    e.preventDefault();
+    actualizarVisibilidad(true);
+  });
 
+  btnVisOcultar?.addEventListener("click", (e) => {
+    e.preventDefault();
+    actualizarVisibilidad(false);
+  });
 
-  if (btnVisMostrar) {
-    btnVisMostrar.addEventListener("click", (event) => {
-      event.preventDefault();
-      actualizarVisibilidad(true);
-    });
-  }
-  if (btnVisOcultar) {
-    btnVisOcultar.addEventListener("click", (event) => {
-      event.preventDefault();
-      actualizarVisibilidad(false);
-    });
-  }
-
+  // ----------------------------- Ciclos (micro/meso/macro) -----------------------------
   const ciclosCache = { micro: null, meso: null, macro: null };
   const cicloEndpoints = {
     micro: "/microciclos",
@@ -204,7 +238,10 @@ document.addEventListener("DOMContentLoaded", function () {
       return ciclos;
     } catch (err) {
       console.error("Error al cargar ciclos:", err);
-      mostrarMensaje(err.message || "No se pudieron cargar los ciclos", "danger");
+      mostrarMensaje(
+        err.message || "No se pudieron cargar los ciclos",
+        "danger"
+      );
       ciclosCache[tipo] = [];
       return ciclosCache[tipo];
     }
@@ -212,26 +249,31 @@ document.addEventListener("DOMContentLoaded", function () {
 
   async function actualizarSelectCiclo(tipo) {
     if (!selectCicloId) return;
+
     selectCicloId.innerHTML = '<option value="">Cargando...</option>';
     const ciclos = await fetchCiclos(tipo);
+
     if (!ciclos.length) {
       selectCicloId.innerHTML =
         '<option value="">No hay ciclos disponibles</option>';
       if (ayudaCiclo) {
-        ayudaCiclo.textContent =
-          "Crea ciclos antes de asignarlos.";
+        ayudaCiclo.textContent = "Crea ciclos antes de asignarlos.";
       }
       return;
     }
+
     let options = '<option value="">Selecciona un ciclo</option>';
     options += ciclos
       .map(
         (c) =>
           `<option value="${c.id}">${c.nombre}${
-            c.fecha_inicio && c.fecha_fin ? ` (${c.fecha_inicio} → ${c.fecha_fin})` : ""
+            c.fecha_inicio && c.fecha_fin
+              ? ` (${c.fecha_inicio} → ${c.fecha_fin})`
+              : ""
           }</option>`
       )
       .join("");
+
     selectCicloId.innerHTML = options;
     if (ayudaCiclo) {
       ayudaCiclo.textContent =
@@ -239,34 +281,11 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  const campos = {
-    nombre: document.getElementById("nombre"),
-    descripcion: document.getElementById("descripcion"),
-  };
-  const bloquesPreviewList = document.getElementById("bloques-preview-list");
-  const bloquesPreviewEmpty = document.getElementById("bloques-preview-empty");
-  const modalDetalleEl = document.getElementById("modalDetalleEntreno");
-  const modalDetalle = modalDetalleEl ? new bootstrap.Modal(modalDetalleEl) : null;
-  const btnDetalleEditar = document.getElementById("btn-detalle-editar");
-  const detalleBloquesList = document.getElementById("detalle-bloques-list");
-  const detalleBloquesEmpty = document.getElementById("detalle-bloques-empty");
-  const detalleCampos = {
-    tipo: document.getElementById("detalle-tipo"),
-    nombre: document.getElementById("detalle-nombre"),
-    descripcion: document.getElementById("detalle-descripcion"),
-    fecha: document.getElementById("detalle-fecha"),
-  };
-  let detalleEntrenamientoActual = null;
+  selectCicloTipo?.addEventListener("change", () =>
+    actualizarSelectCiclo(selectCicloTipo.value)
+  );
 
-  const formatearDistancia = (metros) => {
-    if (typeof metros !== "number" || Number.isNaN(metros)) return "-";
-    if (metros >= 1000) {
-      const valor = metros / 1000;
-      return `${Number.isInteger(valor) ? valor : valor.toFixed(2)} km`;
-    }
-    return `${metros} m`;
-  };
-
+  // ----------------------------- Helpers bloques (estilo tarjetas) -----------------------------
   const TIPO_PASO_LABEL = {
     warmup: "Calentamiento",
     cooldown: "Enfriamiento",
@@ -276,154 +295,213 @@ document.addEventListener("DOMContentLoaded", function () {
     custom: "Personalizado",
   };
 
-  const describirPaso = (paso = {}) => {
-    if (paso.tipo_paso === "repeat" && Array.isArray(paso.subpasos) && paso.subpasos.length) {
-      const hijos = paso.subpasos.map(describirPaso).join(" + ");
-      return `${paso.repeticiones || 1}x(${hijos})`;
-    }
-    const tipoClave = (paso.tipo_paso || "Paso").toLowerCase();
-    const tipo = (TIPO_PASO_LABEL[tipoClave] || paso.tipo_paso || "Paso").toUpperCase();
-    const objetivo = paso.objetivo_valor ? `${paso.objetivo_valor}${paso.unidad || ""}` : "";
-    const partes = [
-      tipo,
-      objetivo,
-      paso.zona ? `Zona ${paso.zona}` : "",
-      paso.intensidad || "",
-      paso.descripcion || "",
-    ].filter(Boolean);
-    if (paso.recuperacion_valor) {
-      partes.push(`Rec: ${paso.recuperacion_valor}${paso.recuperacion_unidad || ""}`);
-    }
-    return partes.join(" · ") || tipo;
-  };
+  function calSecondsToClock(seconds) {
+    if (
+      seconds === null ||
+      seconds === undefined ||
+      Number.isNaN(seconds)
+    )
+      return "";
+    const total = Math.max(0, Math.round(seconds));
+    const mins = String(Math.floor(total / 60)).padStart(2, "0");
+    const secs = String(total % 60).padStart(2, "0");
+    return `${mins}:${secs}`;
+  }
 
-  const convertirPasosAPreview = (pasos = [], depth = 0, acc = []) => {
-    pasos.forEach((paso) => {
-      acc.push({
-        texto: describirPaso(paso),
-        depth,
-        tipo: paso?.tipo_paso || "custom",
+  function calGetStepLabel(tipo) {
+    switch (tipo) {
+      case "warmup":
+        return "Calentamiento";
+      case "interval":
+        return "Intervalos";
+      case "rest":
+        return "Recuperación";
+      case "repeat":
+        return "Bloque repetido";
+      case "cooldown":
+        return "Enfriamiento";
+      case "custom":
+        return "Bloque libre";
+      default:
+        return "Bloque";
+    }
+  }
+
+  function calGetBlockClass(tipo) {
+    switch (tipo) {
+      case "warmup":
+        return "training-block--warmup";
+      case "interval":
+        return "training-block--interval";
+      case "rest":
+        return "training-block--rest";
+      case "repeat":
+        return "training-block--repeat";
+      case "cooldown":
+        return "training-block--cooldown";
+      case "custom":
+        return "training-block--custom";
+      default:
+        return "";
+    }
+  }
+
+  function calDescribeStep(step) {
+    if (!step) return "";
+
+    if (step.tipo_paso === "repeat") {
+      const inner = (step.subpasos || [])
+        .map(calDescribeStep)
+        .filter(Boolean)
+        .join(" + ");
+      const reps = step.repeticiones || 1;
+      return `${reps}×(${inner})`;
+    }
+
+    const partes = [];
+    if (step.objetivo_valor) {
+      const unidad = step.unidad || "";
+      partes.push(`${step.objetivo_valor}${unidad}`);
+    }
+    if (step.zona) {
+      partes.push(`Zona ${step.zona}`);
+    }
+    if (step.recuperacion_valor) {
+      partes.push(`Rec: ${calSecondsToClock(step.recuperacion_valor)}`);
+    }
+    if (step.descripcion) {
+      partes.push(step.descripcion);
+    }
+
+    return partes.join(" · ") || "Sin detalles";
+  }
+
+  function calCreateBlockElement(step, index) {
+    const block = document.createElement("div");
+    block.className = `training-block ${calGetBlockClass(
+      step.tipo_paso
+    )}`.trim();
+
+    const header = document.createElement("div");
+    header.className = "training-block-header";
+
+    const title = document.createElement("div");
+    title.className = "training-block-title";
+    title.textContent = calGetStepLabel(step.tipo_paso);
+
+    const meta = document.createElement("div");
+    meta.className = "training-block-meta";
+
+    const numSpan = document.createElement("span");
+    numSpan.className = "training-pill training-pill--index";
+    numSpan.textContent = `Bloque ${index + 1}`;
+    meta.appendChild(numSpan);
+
+    if (step.tipo_paso === "repeat" && step.repeticiones) {
+      const repSpan = document.createElement("span");
+      repSpan.className = "training-pill training-pill--repeat";
+      repSpan.textContent = `${step.repeticiones} repeticiones`;
+      meta.appendChild(repSpan);
+    }
+
+    header.appendChild(title);
+    header.appendChild(meta);
+    block.appendChild(header);
+
+    const body = document.createElement("div");
+    body.className = "training-block-body";
+
+    const content = document.createElement("div");
+    content.className = "training-block-text";
+    content.textContent = calDescribeStep(step);
+    body.appendChild(content);
+
+    if (
+      step.tipo_paso === "repeat" &&
+      Array.isArray(step.subpasos) &&
+      step.subpasos.length
+    ) {
+      const subList = document.createElement("ul");
+      subList.className = "training-substeps-list";
+      step.subpasos.forEach((sub, idx) => {
+        const li = document.createElement("li");
+        li.textContent = `${idx + 1}. ${calDescribeStep(sub)}`;
+        subList.appendChild(li);
       });
-      if (Array.isArray(paso.subpasos) && paso.subpasos.length) {
-        convertirPasosAPreview(paso.subpasos, depth + 1, acc);
-      }
+      body.appendChild(subList);
+    }
+
+    block.appendChild(body);
+    return block;
+  }
+
+  function renderBloquesPreview(pasos = []) {
+    const container = document.getElementById("bloques-preview-list");
+    const empty = document.getElementById("bloques-preview-empty");
+    if (!container || !empty) return;
+
+    container.innerHTML = "";
+
+    if (!Array.isArray(pasos) || !pasos.length) {
+      empty.classList.remove("d-none");
+      return;
+    }
+
+    empty.classList.add("d-none");
+
+    pasos.forEach((step, idx) => {
+      container.appendChild(calCreateBlockElement(step, idx));
     });
-    return acc;
-  };
+  }
 
-  const renderBloquesPreview = (bloques = []) => {
-    if (!bloquesPreviewList || !bloquesPreviewEmpty) return;
-    if (!Array.isArray(bloques) || !bloques.length) {
-      bloquesPreviewList.innerHTML = "";
-      bloquesPreviewEmpty.classList.remove("d-none");
+  function renderDetalleBloques(pasos = []) {
+    const container = document.getElementById("detalle-bloques-list");
+    const empty = document.getElementById("detalle-bloques-empty");
+    if (!container || !empty) return;
+
+    container.innerHTML = "";
+
+    if (!Array.isArray(pasos) || !pasos.length) {
+      empty.classList.remove("d-none");
       return;
     }
-    bloquesPreviewEmpty.classList.add("d-none");
-    bloquesPreviewList.innerHTML = bloques
-      .map((bloque) => {
-        if (typeof bloque.texto === "string") {
-          const indent = 12 * (bloque.depth || 0);
-          return `<li class="list-group-item py-2 small" style="padding-left:${indent + 8}px;">
-            ${bloque.texto}
-          </li>`;
-        }
-        return `
-        <li class="list-group-item py-2">
-          <div class="fw-semibold">${bloque.repeticiones || 1} x ${formatearDistancia(
-            Number(bloque.distancia_m) || 0
-          )}</div>
-          <div class="text-muted small">
-            ${[
-              bloque.recuperacion ? `Rec: ${bloque.recuperacion}` : "",
-              bloque.zona ? `Zona ${bloque.zona}` : "",
-              bloque.observacion ? bloque.observacion : "",
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </div>
-          ${
-            bloque.ritmo_min_texto || bloque.ritmo_max_texto
-              ? `<div class="small text-primary">
-                  Ritmo (min/km): ${
-                    bloque.ritmo_max_texto &&
-                    bloque.ritmo_min_texto &&
-                    bloque.ritmo_max_texto !== bloque.ritmo_min_texto
-                      ? `${bloque.ritmo_max_texto} - ${bloque.ritmo_min_texto}`
-                      : bloque.ritmo_min_texto || bloque.ritmo_max_texto
-                  }
-                </div>`
-              : ""
-          }
-          ${
-            bloque.tiempo_min_texto || bloque.tiempo_max_texto
-              ? `<div class="small text-secondary">
-                  Tiempo estimado: ${
-                    bloque.tiempo_max_texto &&
-                    bloque.tiempo_min_texto &&
-                    bloque.tiempo_max_texto !== bloque.tiempo_min_texto
-                      ? `${bloque.tiempo_max_texto} - ${bloque.tiempo_min_texto}`
-                      : bloque.tiempo_min_texto || bloque.tiempo_max_texto
-                  }
-                </div>`
-              : ""
-          }
-        </li>`;
-      })
-      .join("");
-  };
 
-  const tipoBloqueLabel = (tipoRaw) => {
-    const tipo = (tipoRaw || "").toLowerCase();
-    if (TIPO_PASO_LABEL[tipo]) {
-      return TIPO_PASO_LABEL[tipo];
-    }
-    return tipo ? tipo.charAt(0).toUpperCase() + tipo.slice(1) : "Bloque";
-  };
+    empty.classList.add("d-none");
 
-  const renderDetalleBloques = (pasos = []) => {
-    if (!detalleBloquesList || !detalleBloquesEmpty) return;
-    const items = convertirPasosAPreview(pasos);
-    if (!items.length) {
-      detalleBloquesList.innerHTML = "";
-      detalleBloquesEmpty.classList.remove("d-none");
-      return;
-    }
-    detalleBloquesEmpty.classList.add("d-none");
-    detalleBloquesList.innerHTML = items
-      .map((item) => {
-        const tipo = (item.tipo || "custom").toLowerCase();
-        const depth = item.depth || 0;
-        const label = tipoBloqueLabel(tipo);
-        const classes = ["detalle-bloque", `detalle-bloque--${tipo}`]
-          .filter(Boolean)
-          .join(" ");
-        return `
-          <li class="${classes}" style="margin-left:${depth * 14}px;">
-            <div class="detalle-bloque__header">
-              <span class="detalle-bloque__chip">${label}</span>
-            </div>
-            <p class="detalle-bloque__texto">${item.texto}</p>
-          </li>
-        `;
-      })
-      .join("");
-  };
+    pasos.forEach((step, idx) => {
+      container.appendChild(calCreateBlockElement(step, idx));
+    });
+  }
 
-  const llenarModalDetalle = (data = {}) => {
-    if (!modalDetalle) return;
-    if (detalleCampos.tipo) detalleCampos.tipo.value = data.nombre || "";
-    if (detalleCampos.nombre) detalleCampos.nombre.value = data.nombre || "";
-    if (detalleCampos.descripcion) {
-      detalleCampos.descripcion.value =
-        data.descripcion || data.bloque_principal || "";
-    }
-    if (detalleCampos.fecha) {
-      detalleCampos.fecha.value = data.fecha
-        ? new Date(data.fecha).toLocaleDateString()
-        : "";
-    }
-    renderDetalleBloques(data.pasos || []);
-  };
+  // Alias por si se usa desde otro sitio
+  function renderAsignadoBlocks(pasos) {
+    renderDetalleBloques(pasos);
+  }
+
+const llenarModalDetalle = (data = {}) => {
+  if (!modalDetalle) return;
+
+  // Guardamos el id en una variable global y en el propio modal
+  detalleEntrenamientoActual = data;
+  if (modalDetalleEl && data.id) {
+    modalDetalleEl.dataset.asignadoId = data.id;
+  }
+
+  if (detalleCampos.tipo) detalleCampos.tipo.value = data.nombre || "";
+  if (detalleCampos.nombre) detalleCampos.nombre.value = data.nombre || "";
+  if (detalleCampos.descripcion) {
+    detalleCampos.descripcion.value =
+      data.descripcion || data.bloque_principal || "";
+  }
+  if (detalleCampos.fecha) {
+    detalleCampos.fecha.value = data.fecha
+      ? new Date(data.fecha).toLocaleDateString()
+      : "";
+  }
+
+  renderDetalleBloques(data.pasos || []);
+};
+
 
   const limpiarCampos = () => {
     Object.values(campos).forEach((campo) => {
@@ -438,20 +516,29 @@ document.addEventListener("DOMContentLoaded", function () {
 
   const aplicarEntrenamientoAlFormulario = (datos = {}, opciones = {}) => {
     const { renderBloques = true } = opciones;
-    campos.nombre.value = datos.nombre || "";
-    campos.descripcion.value = datos.descripcion || datos.bloque_principal || "";
+
+    if (campos.nombre) campos.nombre.value = datos.nombre || "";
+    if (campos.descripcion) {
+      campos.descripcion.value =
+        datos.descripcion || datos.bloque_principal || "";
+    }
+
     if (renderBloques) {
-      const bloquesPreview =
-        (Array.isArray(datos.bloques) && datos.bloques.length)
-          ? datos.bloques
-          : convertirPasosAPreview(datos.pasos || []);
-      renderBloquesPreview(bloquesPreview);
+      if (Array.isArray(datos.pasos) && datos.pasos.length) {
+        renderBloquesPreview(datos.pasos);
+      } else {
+        renderBloquesPreview([]);
+      }
     }
   };
 
+  // ----------------------------- Plantillas / entrenamientos base -----------------------------
   async function cargarPlantillasEntrenamientos() {
     try {
-      const response = await fetch(`${API_BASE}/plantillas/entrenamientos`, { method: "GET", credentials: "include" });
+      const response = await fetch(`${API_BASE}/entrenamientos`, {
+        method: "GET",
+        credentials: "include",
+      });
       if (!response.ok) throw new Error("No se pudieron cargar las plantillas");
       const datos = await response.json();
       return Array.isArray(datos) ? datos : [];
@@ -480,22 +567,27 @@ document.addEventListener("DOMContentLoaded", function () {
   async function prepararSelectPlantillas(preseleccion = "") {
     try {
       plantillasDisponibles = await cargarPlantillasEntrenamientos();
+
       let opciones =
         '<option value="" disabled selected>Selecciona un entrenamiento</option>' +
         plantillasDisponibles
-          .map((p) => `<option value="${p.entrenamiento_base_id || ""}">${p.nombre}</option>`)
+          .map((p) => `<option value="${p.id}">${p.nombre}</option>`)
           .join("");
+
       selectEntrenamiento.innerHTML = opciones;
+
       if (preseleccion) {
         const existe = plantillasDisponibles.some(
-          (p) => String(p.entrenamiento_base_id) === String(preseleccion)
+          (p) => String(p.id) === String(preseleccion)
         );
+
         if (!existe) {
           const option = document.createElement("option");
           option.value = preseleccion;
           option.textContent = "Entrenamiento seleccionado";
           selectEntrenamiento.appendChild(option);
         }
+
         selectEntrenamiento.value = String(preseleccion);
       } else {
         selectEntrenamiento.selectedIndex = 0;
@@ -514,11 +606,13 @@ document.addEventListener("DOMContentLoaded", function () {
     if (detalleEntrenamientosCache[entrenamientoId]) {
       return detalleEntrenamientosCache[entrenamientoId];
     }
+
     const res = await fetch(`${API_BASE}/entrenamientos/${entrenamientoId}`, {
       method: "GET",
       credentials: "include",
     });
-    if (!res.ok) throw new Error("No se pudo cargar el detalle del entrenamiento");
+    if (!res.ok)
+      throw new Error("No se pudo cargar el detalle del entrenamiento");
     const data = await res.json();
     detalleEntrenamientosCache[entrenamientoId] = data;
     return data;
@@ -526,28 +620,27 @@ document.addEventListener("DOMContentLoaded", function () {
 
   selectEntrenamiento?.addEventListener("change", async () => {
     const value = selectEntrenamiento.value;
+
     const plantilla = plantillasDisponibles.find(
-      (p) => String(p.entrenamiento_base_id) === String(value)
+      (p) => String(p.id) === String(value)
     );
+
     if (plantilla) {
       aplicarEntrenamientoAlFormulario(plantilla, { renderBloques: false });
       renderBloquesPreview([]);
-      if (plantilla.entrenamiento_base_id) {
-        try {
-          const detalle = await obtenerDetalleEntrenamientoBase(
-            plantilla.entrenamiento_base_id
-          );
-          renderBloquesPreview(convertirPasosAPreview(detalle.pasos || []));
-          if (!campos.descripcion.value) {
-            campos.descripcion.value =
-              detalle.descripcion || detalle.bloque_principal || "";
-          }
-        } catch (err) {
-          console.error("Error cargando bloques base:", err);
-          renderBloquesPreview([]);
+
+      try {
+        const detalle = await obtenerDetalleEntrenamientoBase(plantilla.id);
+        const pasos = detalle.pasos || [];
+        renderBloquesPreview(pasos);
+
+        if (!campos.descripcion.value) {
+          campos.descripcion.value =
+            detalle.descripcion || detalle.bloque_principal || "";
         }
-      } else {
-        renderBloquesPreview(convertirPasosAPreview(plantilla.pasos || []));
+      } catch (err) {
+        console.error("Error cargando bloques base:", err);
+        renderBloquesPreview([]);
       }
     } else {
       limpiarCampos();
@@ -556,32 +649,42 @@ document.addEventListener("DOMContentLoaded", function () {
 
   function construirPayloadBase() {
     const entrenamientoSeleccionado = selectEntrenamiento?.value;
+
     if (!fechaSeleccionada || !entrenamientoSeleccionado) {
       mostrarMensaje("Selecciona un entrenamiento y una fecha", "warning");
       return null;
     }
+
     const plantilla = plantillasDisponibles.find(
-      (p) => String(p.entrenamiento_base_id) === String(entrenamientoSeleccionado)
+      (p) => String(p.id) === String(entrenamientoSeleccionado)
     );
+
     const nombre = (campos.nombre?.value || plantilla?.nombre || "").trim();
     if (!nombre) {
-      mostrarMensaje("No se pudo determinar el nombre del entrenamiento", "danger");
+      mostrarMensaje(
+        "No se pudo determinar el nombre del entrenamiento",
+        "danger"
+      );
       return null;
     }
+
     return {
       atleta_id: parseInt(atletaId, 10),
       fecha: fechaSeleccionada,
-      plantilla_id: Number(entrenamientoSeleccionado),
+      entrenamiento_id: Number(entrenamientoSeleccionado),
       nombre,
-      visible: 0,
+      visible: 0, // se crean ocultos
     };
   }
 
+  // ----------------------------- Abrir modales (nuevo / existente) -----------------------------
   async function abrirFormularioNuevo(fechaStr) {
     fechaSeleccionada = fechaStr;
     idEntrenamientoAsignado = null;
+
     await prepararSelectPlantillas();
     limpiarCampos();
+
     if (btnEliminar) btnEliminar.style.display = "none";
     modalAsignar?.show();
   }
@@ -589,6 +692,7 @@ document.addEventListener("DOMContentLoaded", function () {
   async function abrirFormularioExistente(eventoId, datosPrecargados = null) {
     try {
       let data = datosPrecargados;
+
       if (!data) {
         const res = await fetch(
           `${API_BASE}/entrenamientos_asignados/uno/${eventoId}`,
@@ -600,10 +704,34 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!res.ok) throw new Error("No se pudo cargar el entrenamiento");
         data = await res.json();
       }
+
       fechaSeleccionada = data.fecha;
       idEntrenamientoAsignado = data.id;
+
       await prepararSelectPlantillas(String(data.entrenamiento_id));
-      aplicarEntrenamientoAlFormulario(data);
+      aplicarEntrenamientoAlFormulario(data, { renderBloques: false });
+
+      // 1) si el entreno asignado tiene pasos propios → los usamos
+      if (Array.isArray(data.pasos) && data.pasos.length) {
+        renderBloquesPreview(data.pasos);
+      } else if (data.entrenamiento_id) {
+        // 2) si no, usamos los pasos del entrenamiento base
+        try {
+          const detalleBase = await obtenerDetalleEntrenamientoBase(
+            data.entrenamiento_id
+          );
+          renderBloquesPreview(detalleBase.pasos || []);
+        } catch (err) {
+          console.error(
+            "Error cargando detalle de entrenamiento base:",
+            err
+          );
+          renderBloquesPreview([]);
+        }
+      } else {
+        renderBloquesPreview([]);
+      }
+
       if (btnEliminar) btnEliminar.style.display = "block";
       modalAsignar?.show();
     } catch (err) {
@@ -612,30 +740,41 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   }
 
-  async function mostrarDetalleEntrenamiento(eventoId) {
-    if (!modalDetalle) {
-      await abrirFormularioExistente(eventoId);
-      return;
-    }
-    try {
-      const res = await fetch(
-        `${API_BASE}/entrenamientos_asignados/uno/${eventoId}`,
-        {
-          method: "GET",
-          credentials: "include",
-        }
-      );
-      if (!res.ok) throw new Error("No se pudo cargar el entrenamiento");
-      const data = await res.json();
-      detalleEntrenamientoActual = data;
-      llenarModalDetalle(data);
-      modalDetalle.show();
-    } catch (err) {
-      console.error("Error al mostrar detalle del entrenamiento:", err);
-      mostrarMensaje("No se pudo abrir el entrenamiento", "danger");
-    }
+async function mostrarDetalleEntrenamiento(eventoId) {
+  if (!modalDetalle) {
+    await abrirFormularioExistente(eventoId);
+    return;
   }
 
+  try {
+    const res = await fetch(
+      `${API_BASE}/entrenamientos_asignados/uno/${eventoId}`,
+      {
+        method: "GET",
+        credentials: "include",
+      }
+    );
+
+    if (!res.ok) throw new Error("No se pudo cargar el entrenamiento");
+    const data = await res.json();
+
+    // Guardamos el detalle y NOS ASEGURAMOS de tener un id
+    detalleEntrenamientoActual = data || {};
+    if (!detalleEntrenamientoActual.id) {
+      detalleEntrenamientoActual.id = eventoId;
+    }
+    ultimoAsignadoId = detalleEntrenamientoActual.id;
+
+    llenarModalDetalle(detalleEntrenamientoActual);
+    modalDetalle.show();
+  } catch (err) {
+    console.error("Error al mostrar detalle del entrenamiento:", err);
+    mostrarMensaje("No se pudo abrir el entrenamiento", "danger");
+  }
+}
+
+
+  // ----------------------------- Guardar / eliminar -----------------------------
   form?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const payload = construirPayloadBase();
@@ -644,6 +783,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const token = await asegurarCsrf();
     let url = `${API_BASE}/entrenamientos_asignados`;
     let method = "POST";
+
     if (idEntrenamientoAsignado) {
       url = `${API_BASE}/entrenamientos_asignados/${idEntrenamientoAsignado}`;
       method = "PUT";
@@ -659,6 +799,7 @@ document.addEventListener("DOMContentLoaded", function () {
         },
         body: JSON.stringify(payload),
       });
+
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         mostrarMensaje(
@@ -667,6 +808,7 @@ document.addEventListener("DOMContentLoaded", function () {
         );
         return;
       }
+
       mostrarMensaje(
         data.message || "Entrenamiento guardado correctamente",
         "success"
@@ -681,6 +823,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   btnEliminar?.addEventListener("click", () => {
     if (!idEntrenamientoAsignado) return;
+
     mostrarConfirmacion(
       "¿Seguro que deseas eliminar este entrenamiento?",
       async () => {
@@ -696,6 +839,7 @@ document.addEventListener("DOMContentLoaded", function () {
               },
             }
           );
+
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
             mostrarMensaje(
@@ -704,6 +848,7 @@ document.addEventListener("DOMContentLoaded", function () {
             );
             return;
           }
+
           mostrarMensaje(
             data.message || "Entrenamiento eliminado",
             "success"
@@ -718,10 +863,9 @@ document.addEventListener("DOMContentLoaded", function () {
     );
   });
 
-  // --- 🗓️ FullCalendar adaptado a móvil ---
+  // ----------------------------- FullCalendar -----------------------------
   function getInitialView() {
     return window.innerWidth < 768 ? "dayGridMonth" : "dayGridMonth";
-
   }
 
   const calendar = new FullCalendar.Calendar(calendarEl, {
@@ -730,70 +874,109 @@ document.addEventListener("DOMContentLoaded", function () {
     headerToolbar: {
       left: "prev,next today",
       center: "title",
-      right: "dayGridMonth,timeGridWeek,listWeek"
+      right: "dayGridMonth,timeGridWeek,listWeek",
     },
     selectable: true,
     dayMaxEvents: true,
     eventDisplay: window.innerWidth < 768 ? "block" : "auto",
-events: async function (fetchInfo, successCallback, failureCallback) {
-  try {
-    const res = await fetch(`${API_BASE}/calendario/${atletaId}`, {
-      method: "GET",
-      credentials: "include",
-    });
-    if (!res.ok) {
-      return failureCallback(new Error("No se pudo cargar el calendario"));
-    }
+    events: async function (fetchInfo, successCallback, failureCallback) {
+      try {
+        const res = await fetch(`${API_BASE}/calendario/${atletaId}`, {
+          method: "GET",
+          credentials: "include",
+        });
+        if (!res.ok) {
+          return failureCallback(new Error("No se pudo cargar el calendario"));
+        }
 
-    const events = await res.json();
+        const events = await res.json();
 
-    const decorados = (events || []).map((evt) => {
-      const esVisible = Number(evt.visible ?? 1) === 1;
-      return {
-        ...evt,
-        classNames: esVisible ? [] : ["evento-oculto"],
-      };
-    });
+        const decorados = (events || []).map((evt) => {
+          const esVisible = Number(evt.visible ?? 1) === 1;
+          return {
+            ...evt,
+            classNames: esVisible ? [] : ["evento-oculto"],
+          };
+        });
 
-    successCallback(decorados);
-  } catch (err) {
-    console.error("Error fetch calendario:", err);
-    failureCallback(err);
-  }
-},
-
-    dateClick: async function(info) {
+        successCallback(decorados);
+      } catch (err) {
+        console.error("Error fetch calendario:", err);
+        failureCallback(err);
+      }
+    },
+    dateClick: async function (info) {
       await abrirFormularioNuevo(info.dateStr);
     },
-    eventClick: async function(info) {
-      info.jsEvent.preventDefault();
-      await mostrarDetalleEntrenamiento(info.event.id);
-    },
+   eventClick: async function (info) {
+  const event = info.event;
+  const datos = event.extendedProps || {};
+
+  const asignadoId =
+    datos.entrenamiento_asignado_id ??
+    datos.asignado_id ??
+    datos.id ??
+    event.id;
+
+  if (!asignadoId) {
+    mostrarMensaje(
+      "No se pudo identificar el entrenamiento asignado",
+      "danger"
+    );
+    return;
+  }
+
+  // Guardamos el último id clicado
+  ultimoAsignadoId = asignadoId;
+
+  // Abrimos el modal de detalle
+  mostrarDetalleEntrenamiento(asignadoId);
+},
+
   });
 
-  // Cambiar vista automáticamente al redimensionar
- window.addEventListener('resize', () => {
-    if(window.innerWidth < 768){
-        calendar.changeView('dayGridMonth'); // vista compacta en móviles
+  window.addEventListener("resize", () => {
+    if (window.innerWidth < 768) {
+      calendar.changeView("dayGridMonth");
     }
-});
-
+  });
 
   calendar.render();
 
-  btnDetalleEditar?.addEventListener("click", async () => {
-    if (!detalleEntrenamientoActual) return;
-    modalDetalle?.hide();
-    await abrirFormularioExistente(
-      detalleEntrenamientoActual.id,
-      detalleEntrenamientoActual
-    );
-  });
+  // ----------------------------- Detalle → Editar -----------------------------
+  // Botón "Editar bloques" del modal de detalle
+  // ----------------------------- Detalle → Editar -----------------------------
+const btnEditarBloques = document.getElementById("btn-editar-bloques");
 
-  // --- 🧍 Cargar nombre del atleta ---
+btnEditarBloques?.addEventListener("click", () => {
+  // Intentamos coger el id del detalle, o si no, el último clicado
+  const id =
+    (detalleEntrenamientoActual && detalleEntrenamientoActual.id) ||
+    ultimoAsignadoId;
+
+  if (!id) {
+    console.warn("No hay id de entrenamiento asignado al pulsar Editar");
+    mostrarMensaje(
+      "No se pudo identificar el entrenamiento a editar",
+      "danger"
+    );
+    return;
+  }
+
+  modalDetalle?.hide();
+
+  window.location.href =
+    `/static/entrenador/entrenamiento_asignado_editor.html?asignadoId=${id}`;
+});
+
+
+  // ----------------------------- Cargar nombre atleta -----------------------------
   async function cargarNombreAtleta(id) {
     try {
-      const response = await fetch(`${API_BASE}/atletas/${id}`, { method: "GET", credentials: "include" });
+      const response = await fetch(`${API_BASE}/atletas/${id}`, {
+        method: "GET",
+        credentials: "include",
+      });
       if (!response.ok) throw new Error("No se pudo cargar el atleta");
       const atleta = await response.json();
       const h2 = document.getElementById("atleta-name");
@@ -801,16 +984,15 @@ events: async function (fetchInfo, successCallback, failureCallback) {
     } catch (err) {
       console.error("Error al cargar atleta:", err);
       const h2 = document.getElementById("atleta-name");
-      if (h2) h2.textContent = "Calendario del atleta (error al cargar datos)";
+      if (h2)
+        h2.textContent =
+          "Calendario del atleta (error al cargar datos)";
     }
   }
 
   if (atletaId) cargarNombreAtleta(atletaId);
 
-  selectCicloTipo?.addEventListener("change", () =>
-    actualizarSelectCiclo(selectCicloTipo.value)
-  );
-
+  // ----------------------------- Asignar ciclo al atleta -----------------------------
   btnAsignarCiclo?.addEventListener("click", async () => {
     if (!modalCiclo) return;
     ciclosCache[selectCicloTipo.value] = null;
@@ -827,16 +1009,20 @@ events: async function (fetchInfo, successCallback, failureCallback) {
     const seleccionado = selectCicloId.value;
     const fecha = inputCicloFecha.value;
     const anclarEn = selectCicloAnclaje.value || "inicio";
+
     if (!tipo || !seleccionado || !fecha) {
       mostrarMensaje("Completa los datos del ciclo.", "warning");
       return;
     }
+
     const payload = {
       fecha_inicio_real: fecha,
       atleta_ids: [parseInt(atletaId, 10)],
+      anclar_en: anclarEn,
     };
-    payload.anclar_en = anclarEn;
+
     const endpoint = `/ciclos/${tipo}/${seleccionado}/asignaciones`;
+
     try {
       const token = await asegurarCsrf();
       const res = await fetch(`${API_BASE}${endpoint}`, {
@@ -849,10 +1035,12 @@ events: async function (fetchInfo, successCallback, failureCallback) {
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
         mostrarMensaje(data.error || "No se pudo asignar el ciclo", "danger");
         return;
       }
+
       mostrarMensaje(data.message || "Ciclo asignado", "success");
       modalCiclo.hide();
       calendar.refetchEvents();

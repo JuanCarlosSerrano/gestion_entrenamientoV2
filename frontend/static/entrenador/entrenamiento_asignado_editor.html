@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Editor de Entrenamiento Asignado</title>
+
+  <!-- Bootstrap + iconos -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <script src="../js/utils/csrf.js"></script>
+  <script src="../js/utils/partials.js"></script>
+  <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
+</head>
+<body class="app-bg">
+  <div class="container app-container">
+    <!-- Header global -->
+    <div data-include="../partials/header.html" data-nav-active="entrenamientos"></div>
+
+    <!-- Barra de contexto (igual estilo que editor principal) -->
+    <div class="page-context-bar page-context-bar--hero mb-3">
+      <div>
+        <p class="eyebrow eyebrow--subtle">Panel de entrenador</p>
+        <h1 class="page-context-title">Editor de entrenamientos asignados</h1>
+        <p class="text-muted small mb-0">Ajusta bloques e intensidades para este atleta concreto</p>
+      </div>
+      <div class="page-context-actions gap-2">
+        <a href="index.html" class="btn btn-outline-secondary btn-sm" id="btn-volver">
+          <i class="bi bi-arrow-left"></i> Volver
+        </a>
+      </div>
+    </div>
+
+    <!-- CONTENIDO PRINCIPAL: misma “card” que el editor de entrenamientos -->
+    <main class="app-card">
+      <!-- DATOS GENERALES DEL ENTRENAMIENTO ASIGNADO -->
+      <section id="info-entrenamiento">
+        <div class="d-flex justify-content-between align-items-start mb-3">
+          <div>
+            <h2 class="mb-0 h5">Datos del entrenamiento asignado</h2>
+            <p class="text-muted small mb-0">Nombre, fecha y notas específicas para este atleta</p>
+          </div>
+        </div>
+
+        <div class="row g-3">
+          <div class="col-md-5">
+            <label class="form-label">Nombre</label>
+            <!-- Se rellena desde JS -->
+            <div id="entreno-nombre" class="form-control-plaintext fw-semibold border rounded px-3 py-2 bg-white"></div>
+          </div>
+
+          <div class="col-md-3">
+            <label class="form-label">Fecha</label>
+            <!-- Se rellena desde JS -->
+            <div id="entreno-fecha" class="form-control-plaintext border rounded px-3 py-2 bg-white"></div>
+          </div>
+
+          <div class="col-md-4">
+            <label class="form-label">Notas para el atleta</label>
+            <input
+              type="text"
+              id="entreno-notas"
+              class="form-control"
+              placeholder="Indicaciones adicionales (opcional)"
+            >
+          </div>
+        </div>
+      </section>
+
+      <!-- BLOQUES DEL ENTRENAMIENTO (mismas clases que el editor “tipo”) -->
+      <section class="builder-section mt-4">
+        <div class="builder-section-header d-flex justify-content-between align-items-center mb-3">
+          <h3 class="h6 mb-0">Bloques del entrenamiento</h3>
+          <button type="button" id="btn-add-bloque" class="btn btn-outline-primary btn-sm">
+            Añadir bloque
+          </button>
+        </div>
+
+        <!-- Aquí el JS inyecta los bloques; le añadimos también la clase builder-steps -->
+        <div id="builder-steps" class="builder-steps"></div>
+      </section>
+
+      <!-- VISTA PREVIA (mismo patrón que entrenamientos.html) -->
+      <section class="builder-section mt-4">
+        <div class="builder-section-header mb-2">
+          <h3 class="h6 mb-0">Vista previa</h3>
+        </div>
+        <!-- Reutilizamos la clase builder-preview-list para heredar el estilo -->
+        <div id="vista-previa-lista" class="builder-preview-list">
+          <!-- El JS puede ir añadiendo aquí las líneas de resumen -->
+        </div>
+      </section>
+
+      <!-- ACCIONES -->
+      <section class="d-flex gap-2 mt-4">
+        <button class="btn btn-secondary" type="button" id="btn-descartar">
+          Descartar cambios
+        </button>
+        <button class="btn btn-primary" id="btn-guardar" type="button">
+          <i class="bi bi-check-circle me-1"></i> Guardar cambios
+        </button>
+      </section>
+    </main>
+  </div>
+
+  <!-- JS Bootstrap -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"></script>
+
+  <!-- JS específico del editor de entrenamiento asignado -->
+  <script src="../js/entrenador/entrenamiento_asignado_editor.js"></script>
+</body>
+</html>

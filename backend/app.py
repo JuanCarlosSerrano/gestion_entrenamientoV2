@@ -21,7 +21,8 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True  # Recomendado por seguridad
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"  # Recomendado por seguridad
 app.config["SESSION_COOKIE_SECURE"] = True  # 1 hora de duración de la sesión
 Session(app)
-DATABASE = 'atletas.db'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATABASE = os.path.join(BASE_DIR, 'atletas.db')
 
 
 def get_db():
@@ -602,13 +603,23 @@ def crear_entrenamiento(current_user):
     nombre = (data.get('nombre') or '').strip()
     objetivo = (data.get('objetivo') or '').strip() or None
     notas = (data.get('notas') or '').strip() or None
+    km_totales = data.get('km_totales')
     pasos = data.get('pasos') or []
 
     if not nombre:
         return jsonify({'error': 'El nombre del entrenamiento es obligatorio'}), 400
     if not isinstance(pasos, list) or not pasos:
         return jsonify({'error': 'Debe incluir al menos un bloque (paso) en el entrenamiento'}), 400
-
+    calculado_km_totales = calcular_km_totales_desde_pasos(pasos)
+    if km_totales is None:
+        km_totales = calculado_km_totales
+    else:
+        try:
+            km_totales = float(km_totales)
+        except (TypeError, ValueError):
+            km_totales = calculado_km_totales
+    if km_totales < 0:
+        km_totales = 0
     conn = get_db()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
@@ -661,10 +672,10 @@ def crear_entrenamiento(current_user):
         # ====== 2) Insertar en entrenamientos ======
         cur.execute(
             """
-            INSERT INTO entrenamientos (nombre, objetivo, notas, bloque_principal)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO entrenamientos (nombre, objetivo, notas, bloque_principal, km_totales)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (nombre, objetivo, notas, bloque_principal)
+            (nombre, objetivo, notas, bloque_principal, km_totales)
         )
         entrenamiento_id = cur.lastrowid
 
@@ -734,6 +745,48 @@ def crear_entrenamiento(current_user):
     except Exception as e:
         print("Error en crear_entrenamiento:", e)
         return jsonify({'error': 'Error al crear el entrenamiento'}), 500
+def calcular_km_totales_desde_pasos(pasos):
+    """
+    Calcula km totales de un entrenamiento a partir de la estructura de pasos
+    usada en el frontend (warmup, interval, repeat, etc.).
+
+    Convención:
+    - objetivo_tipo = 'distancia'
+    - unidad = 'm' o 'km'
+    - repeat con subpasos multiplica por repeticiones.
+    """
+
+    total_metros = 0.0
+
+    def rec(step, factor_reps=1):
+        nonlocal total_metros
+
+        tipo = (step.get('tipo_paso') or '').lower()
+        reps = step.get('repeticiones') or 1
+        objetivo_tipo = (step.get('objetivo_tipo') or '').lower()
+        unidad = (step.get('unidad') or '').lower()
+        valor = step.get('objetivo_valor') or 0
+
+        # Distancias directas (ej: 1000 m, 8 km…)
+        if objetivo_tipo in ('distancia', 'distance') and valor:
+            if unidad in ('m', 'metro', 'metros'):
+                total_metros += float(valor) * factor_reps
+            elif unidad in ('km', 'kilometro', 'kilómetros', 'kilometros'):
+                total_metros += float(valor) * 1000 * factor_reps
+
+        # Subpasos (ej: repeat con 3× (1000 m + 200 m))
+        subpasos = step.get('subpasos') or []
+        if subpasos:
+            # Si es un repeat, multiplicamos el factor por nº de reps
+            nuevo_factor = factor_reps * (reps if tipo == 'repeat' else 1)
+            for s in subpasos:
+                rec(s, nuevo_factor)
+
+    for s in pasos or []:
+        rec(s, 1)
+
+    # Redondeamos a 2 decimales de km
+    return round(total_metros / 1000.0, 2)
 
 
 @app.route('/entrenamientos', methods=['GET'])
@@ -1264,7 +1317,7 @@ def crear_entrenamiento_asignado(current_user):
     try:
         # Snapshot del entrenamiento base
         ent = cur.execute("""
-            SELECT id, nombre, objetivo, notas
+            SELECT id, nombre, objetivo, notas, km_totales
             FROM entrenamientos
             WHERE id = ?
         """, (entrenamiento_id,)).fetchone()
@@ -1274,14 +1327,14 @@ def crear_entrenamiento_asignado(current_user):
 
         objetivo = ent['objetivo']
         notas = ent['notas']
-
+        km_previstos = ent['km_totales']
         # Insert en entrenamientos_asignados
         cur.execute("""
             INSERT INTO entrenamientos_asignados (
                 atleta_id, fecha, entrenamiento_id, visible,
                 ciclo_tipo, ciclo_id, macrociclo_id, mesociclo_id, microciclo_id,
-                nombre, objetivo, notas, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?)
+                nombre, objetivo, notas, km_previstos, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?)
         """, (
             atleta_id,
             fecha_str,
@@ -1290,6 +1343,7 @@ def crear_entrenamiento_asignado(current_user):
             nombre,
             objetivo,
             notas,
+            km_previstos,
             now,
             now
         ))
@@ -3305,6 +3359,14 @@ from datetime import datetime
 def now_ts():
     return datetime.now().isoformat(" ", "seconds")
 
+def format_date_short(value):
+    if not value:
+        return ""
+    try:
+        return datetime.fromisoformat(str(value)).strftime("%d/%m/%Y")
+    except ValueError:
+        return str(value)
+
 @app.route('/entrenamientos_asignados/<int:entrenamiento_id>/resultados', methods=['GET'])
 @requires_roles('admin', 'entrenador', 'atleta')
 def obtener_resultados_entrenamiento(current_user, entrenamiento_id):
@@ -3328,7 +3390,8 @@ def obtener_resultados_entrenamiento(current_user, entrenamiento_id):
             SELECT
                 paso_detalle_id,
                 repeticion,
-                tiempo_real_seg
+                tiempo_real_seg,
+                km_realizados
             FROM resultados_entrenamientos
             WHERE entrenamiento_asignado_id = ?
         """, (entrenamiento_id,)).fetchall()
@@ -3344,62 +3407,159 @@ def obtener_resultados_entrenamiento(current_user, entrenamiento_id):
 @app.route('/entrenamientos_asignados/<int:entrenamiento_id>/resultados', methods=['POST'])
 @requires_roles('atleta')
 def guardar_resultados_series(current_user, entrenamiento_id):
-    data = request.get_json(silent=True) or {}
-    series = data.get('series') or []
+    """
+    Guarda los tiempos reales de las series de un entrenamiento asignado
+    y calcula los km realizados a partir de la distancia del paso en
+    entrenamientos_asignados_detalle.
+    """
 
-    if not isinstance(series, list) or not series:
-        return jsonify({"error": "No se han enviado series"}), 400
+    data = request.get_json(silent=True) or {}
+
+    if isinstance(data, dict):
+        resultados = data.get("series") or data.get("resultados") or []
+        km_real_total = data.get("km_realizados")
+    else:
+        resultados = data
+        km_real_total = None
+
+    if not isinstance(resultados, list) or not resultados:
+        return jsonify({"error": "No se han recibido resultados válidos."}), 400
+
+    user_data = dict(current_user) if isinstance(current_user, sqlite3.Row) else current_user
 
     conn = get_db()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
+    # ---------------- Comprobar que el entrenamiento pertenece al atleta actual ----------------
+    atleta = cur.execute(
+        """
+        SELECT ea.id, ea.atleta_id
+        FROM entrenamientos_asignados ea
+        WHERE ea.id = ?
+        """,
+        (entrenamiento_id,)
+    ).fetchone()
+
+    if not atleta:
+        return jsonify({"error": "Entrenamiento asignado no encontrado."}), 404
+
+    # Si tienes current_user["atleta_id"] o similar, comprueba propiedad
+    atleta_id_usuario = user_data.get("atleta_id")
+    if atleta_id_usuario and atleta["atleta_id"] != atleta_id_usuario:
+        return jsonify({"error": "No tienes permiso para modificar este entrenamiento."}), 403
+
+    # ---------------- Cache de pasos para saber distancia ----------------
+    pasos_cache = {}
+
+    def obtener_km_para_paso(paso_id: int) -> float:
+        """
+        Devuelve los km correspondientes al paso_detalle indicado,
+        según objetivo_tipo/valor/unidad en entrenamientos_asignados_detalle.
+        """
+        if paso_id in pasos_cache:
+            return pasos_cache[paso_id]
+
+        row = cur.execute(
+            """
+            SELECT objetivo_tipo, objetivo_valor, unidad
+            FROM entrenamientos_asignados_detalle
+            WHERE id = ?
+            """,
+            (paso_id,)
+        ).fetchone()
+
+        km = 0.0
+        if row:
+            objetivo_tipo = (row["objetivo_tipo"] or "").lower()
+            unidad = (row["unidad"] or "").lower()
+            valor = row["objetivo_valor"] or 0
+
+            if objetivo_tipo in ("distancia", "distance") and valor:
+                if unidad in ("m", "metro", "metros"):
+                    km = float(valor) / 1000.0
+                elif unidad in ("km", "kilometro", "kilometros", "kilómetros"):
+                    km = float(valor)
+
+        pasos_cache[paso_id] = km
+        return km
+
+    # ---------------- Borramos resultados anteriores de este entrenamiento ----------------
+    cur.execute(
+        "DELETE FROM resultados_entrenamientos WHERE entrenamiento_asignado_id = ?",
+        (entrenamiento_id,)
+    )
+
+    # ---------------- Insertamos nuevos resultados ----------------
+    now_ts = datetime.utcnow().isoformat(timespec="seconds")
+
     try:
-        # 1) Comprobamos que ese entrenamiento realmente pertenece a ESTE atleta
-        ent = cur.execute("""
-            SELECT ea.id
-            FROM entrenamientos_asignados ea
-            WHERE ea.id = ?
-              AND ea.atleta_id = ?
-        """, (entrenamiento_id, current_user["id"])).fetchone()
+        km_real_total = float(km_real_total)
+    except (TypeError, ValueError):
+        km_real_total = None
+    if km_real_total is not None and km_real_total < 0:
+        km_real_total = None
 
-        if not ent:
-            return jsonify({"error": "Entrenamiento no encontrado para este atleta"}), 404
+    registros = []
+    total_plan_km = 0.0
 
-        # 2) Eliminamos los tiempos anteriores de ese entrenamiento
-        cur.execute("""
-            DELETE FROM resultados_entrenamientos
-            WHERE entrenamiento_asignado_id = ?
-        """, (entrenamiento_id,))
+    for item in resultados:
+        paso_id = item.get("repeticion_id") or item.get("paso_detalle_id")
+        if not paso_id:
+            continue
 
-        # 3) Insertamos todo lo nuevo
-        for s in series:
-            paso_id = s.get("paso_detalle_id")
-            rep = s.get("repeticion")
-            t_seg = s.get("tiempo_real_seg")
+        tiempo_real_seg = item.get("tiempo_real_seg")
+        if not tiempo_real_seg:
+            continue
 
-            if not paso_id or not rep or not t_seg:
-                continue
+        repeticion = item.get("repeticion", 1)
+        km_plan = obtener_km_para_paso(paso_id)
+        total_plan_km += km_plan
+        registros.append(
+            {
+                "paso_id": paso_id,
+                "tiempo_real_seg": tiempo_real_seg,
+                "repeticion": repeticion,
+                "km_plan": km_plan,
+            }
+        )
 
-            cur.execute("""
-                INSERT INTO resultados_entrenamientos (
-                    entrenamiento_asignado_id,
-                    paso_detalle_id,
-                    repeticion,
-                    tiempo_real_seg,
-                    fecha
-                )
-                VALUES (?, ?, ?, ?, ?)
-            """, (entrenamiento_id, paso_id, rep, t_seg, now_ts()))
+    factor = 1.0
+    if km_real_total and total_plan_km > 0:
+        factor = km_real_total / total_plan_km
+    else:
+        km_real_total = None
 
-        conn.commit()
+    for registro in registros:
+        km_realizados = (
+            registro["km_plan"] * factor if km_real_total is not None else registro["km_plan"]
+        )
 
-        return jsonify({"message": "Tiempos guardados correctamente"}), 200
+        cur.execute(
+            """
+            INSERT INTO resultados_entrenamientos (
+                entrenamiento_asignado_id,
+                paso_detalle_id,
+                repeticion,
+                tiempo_real_seg,
+                km_realizados,
+                fecha
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                entrenamiento_id,
+                registro["paso_id"],
+                registro["repeticion"],
+                registro["tiempo_real_seg"],
+                km_realizados,
+                now_ts,
+            ),
+        )
 
-    except Exception as e:
-        print("Error al guardar resultados_series:", e)
-        conn.rollback()
-        return jsonify({"error": "Error al guardar resultados"}), 500
+    conn.commit()
+
+    return jsonify({"status": "ok"}), 200
 
 @app.route('/')
 def index():
@@ -3408,3 +3568,166 @@ def index():
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')
+def format_segundos(seg):
+    if seg is None:
+        return ""
+    seg = float(seg)
+    if seg <= 0:
+        return ""
+    minutos = int(seg // 60)
+    restantes = int(seg % 60)
+    return f"{minutos}:{str(restantes).zfill(2)}"
+
+
+@app.route('/estadisticas/entrenador/atletas', methods=['GET'])
+@app.route('/atletas/estadisticas', methods=['GET'])
+@requires_roles('entrenador', 'admin')
+def estadisticas_listar_atletas(current_user):
+    try:
+        filas = query_db("""
+            SELECT id, nombre, apellidos, email
+            FROM usuarios
+            WHERE rol = 'atleta'
+            ORDER BY nombre
+        """)
+        return jsonify([dict(f) for f in filas]), 200
+    except Exception as e:
+        print("Error al listar atletas:", e)
+        return jsonify({"error": "No se pudieron obtener los atletas."}), 500
+
+
+@app.route('/estadisticas/entrenador/atletas/<int:atleta_id>/analisis', methods=['GET'])
+@app.route('/atletas/<int:atleta_id>/analisis', methods=['GET'])
+@app.route('/analisis/atleta/<int:atleta_id>', methods=['GET'])  # alias de compatibilidad
+@requires_roles('entrenador', 'admin')
+def estadisticas_analisis_atleta(current_user, atleta_id):
+    try:
+        user = dict(current_user) if isinstance(current_user, sqlite3.Row) else current_user
+        atleta = query_db("""
+            SELECT id, nombre, apellidos, entrenador_id
+            FROM usuarios
+            WHERE id = ?
+        """, (atleta_id,), one=True) or {"id": atleta_id, "nombre": f"Atleta {atleta_id}", "apellidos": "", "entrenador_id": None}
+
+        if user.get('rol') == 'entrenador' and atleta['entrenador_id'] not in (None, user['id']):
+            return jsonify({'error': 'No tienes permiso para ver las estadísticas de este atleta'}), 403
+
+        total_plan = query_db("""
+            SELECT COUNT(*) AS total
+            FROM entrenamientos_asignados
+            WHERE atleta_id = ?
+        """, (atleta_id,), one=True)["total"]
+
+        total_con_registro = query_db("""
+            SELECT COUNT(DISTINCT ea.id) AS total
+            FROM entrenamientos_asignados ea
+            JOIN resultados_entrenamientos re ON re.entrenamiento_asignado_id = ea.id
+            WHERE ea.atleta_id = ?
+        """, (atleta_id,), one=True)["total"]
+
+        total_sin_registro = query_db("""
+            SELECT COUNT(*) AS total
+            FROM entrenamientos_asignados ea
+            WHERE ea.atleta_id = ?
+              AND DATE(ea.fecha) <= DATE('now')
+              AND NOT EXISTS (
+                SELECT 1 FROM resultados_entrenamientos re
+                WHERE re.entrenamiento_asignado_id = ea.id
+              )
+        """, (atleta_id,), one=True)["total"]
+
+        plan_rows = query_db("""
+            SELECT strftime('%Y-%W', date(fecha)) AS semana,
+                   SUM(COALESCE(km_previstos, 0)) AS km
+            FROM entrenamientos_asignados
+            WHERE atleta_id = ? AND km_previstos IS NOT NULL
+            GROUP BY semana
+        """, (atleta_id,))
+        real_rows = query_db("""
+            SELECT strftime('%Y-%W', date(ea.fecha)) AS semana,
+                   SUM(COALESCE(re.km_realizados, 0)) AS km
+            FROM resultados_entrenamientos re
+            JOIN entrenamientos_asignados ea ON ea.id = re.entrenamiento_asignado_id
+            WHERE ea.atleta_id = ?
+            GROUP BY semana
+        """, (atleta_id,))
+
+        plan_dict = {row["semana"]: round(row["km"], 2) for row in plan_rows if row["semana"]}
+        real_dict = {row["semana"]: round(row["km"], 2) for row in real_rows if row["semana"]}
+        semanas = sorted(set(plan_dict.keys()) | set(real_dict.keys()))
+        kms = [{
+            "semana": semana,
+            "label": f"Semana {semana.split('-')[1]} · {semana.split('-')[0]}",
+            "planificados": plan_dict.get(semana, 0),
+            "realizados": real_dict.get(semana, 0)
+        } for semana in semanas]
+
+        tipos = query_db("""
+            SELECT
+                ea.entrenamiento_id,
+                COALESCE(e.nombre, ea.nombre) AS nombre,
+                COUNT(*) AS asignaciones
+            FROM entrenamientos_asignados ea
+            LEFT JOIN entrenamientos e ON e.id = ea.entrenamiento_id
+            WHERE ea.atleta_id = ?
+            GROUP BY ea.entrenamiento_id, COALESCE(e.nombre, ea.nombre)
+            ORDER BY nombre
+        """, (atleta_id,))
+
+        tipos_resumen = []
+        for tipo in tipos:
+            entrenamiento_id = tipo["entrenamiento_id"]
+            if entrenamiento_id is None:
+                comp_query = """
+                    SELECT ea.id, ea.fecha, AVG(re.tiempo_real_seg) AS promedio_real
+                    FROM entrenamientos_asignados ea
+                    JOIN resultados_entrenamientos re ON re.entrenamiento_asignado_id = ea.id
+                    WHERE ea.atleta_id = ?
+                    AND ea.entrenamiento_id IS NULL
+                    AND ea.nombre = ?
+                    GROUP BY ea.id, ea.fecha
+                    ORDER BY ea.fecha
+                """
+                comp_params = (atleta_id, tipo["nombre"])
+            else:
+                comp_query = """
+                    SELECT ea.id, ea.fecha, AVG(re.tiempo_real_seg) AS promedio_real
+                    FROM entrenamientos_asignados ea
+                    JOIN resultados_entrenamientos re ON re.entrenamiento_asignado_id = ea.id
+                    WHERE ea.atleta_id = ? AND ea.entrenamiento_id = ?
+                    GROUP BY ea.id, ea.fecha
+                    ORDER BY ea.fecha
+                """
+                comp_params = (atleta_id, entrenamiento_id)
+
+            comparativas = query_db(comp_query, comp_params)
+            tipos_resumen.append({
+                "entrenamiento_id": entrenamiento_id,
+                "nombre": tipo["nombre"],
+                "asignaciones": tipo["asignaciones"],
+                "comparativas": [
+                    {
+                        "fecha": fila["fecha"],
+                        "fecha_texto": format_date_short(fila["fecha"]),
+                        "tiempo_real_seg": fila["promedio_real"],
+                        "tiempo_real_texto": format_segundos(fila["promedio_real"])
+                    }
+                    for fila in comparativas
+                    if fila["promedio_real"] is not None
+                ]
+            })
+
+        respuesta = {
+            "atleta": dict(atleta),
+            "totales": {
+                "planificados": total_plan,
+                "con_registro": total_con_registro,
+                "sin_registro": total_sin_registro
+            },
+            "kms_semana": kms,
+            "tipos": tipos_resumen
+        }
+        return jsonify(respuesta), 200
+    except Exception as e:
+        print("Error en análisis de atleta:", e)
+        return jsonify({"error": "No se pudieron obtener las estadísticas."}), 500

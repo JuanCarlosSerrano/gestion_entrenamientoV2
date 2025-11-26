@@ -51,19 +51,20 @@
       </div>
     </div>
 
-    <div class="row g-4 mt-3">
-      <div class="col-lg-8">
+    <div class="row mt-4">
+      <div class="col-12">
         <div class="app-card">
           <div id="calendar"></div>
         </div>
       </div>
+      <!--
       <div class="col-lg-4">
         <div class="app-card">
           <h5 class="mb-3">Entrenamientos asignados</h5>
           <ul class="list-group" id="lista-entrenos"></ul>
         </div>
       </div>
-    </div>
+    </div>-->
 
     <div data-include="../partials/footer.html"></div>
   </div>
@@ -84,7 +85,7 @@
             </div>
             <div class="mb-3">
               <label class="form-label">Nombre</label>
-              <input type="text" id="nombre" class="form-control" readonly>
+              <input type="text" id="nombre" class="form-control" >
             </div>
             <div class="mt-3">
               <label class="form-label">Descripción</label>
@@ -99,6 +100,7 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-danger me-auto" id="btn-eliminar-entrenamiento" style="display:none;">Eliminar</button>
+          <button id="btn-editar-bloques" class="btn btn-primary">Editar bloques</button>
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
           <button type="submit" form="form-asignar-entrenamiento" class="btn btn-brand">Guardar</button>
         </div>
@@ -107,61 +109,17 @@
   </div>
 
   <!-- Modal: detalle de entrenamiento asignado -->
-  <div class="modal fade" id="modalDetalleEntreno" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title">Entrenamiento asignado</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-        </div>
-        <div class="modal-body">
-          <div class="row g-3">
-            <div class="col-md-6">
-              <label class="form-label">Entrenamiento tipo</label>
-              <input type="text" id="detalle-tipo" class="form-control" readonly>
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Nombre asignado</label>
-              <input type="text" id="detalle-nombre" class="form-control" readonly>
-            </div>
-          </div>
-          <div class="row g-3 mt-1">
-            <div class="col-md-6">
-              <label class="form-label">Fecha</label>
-              <input type="text" id="detalle-fecha" class="form-control" readonly>
-            </div>
-          </div>
-          <div class="mt-3">
-            <label class="form-label">Descripción</label>
-            <textarea id="detalle-descripcion" class="form-control" rows="3" readonly></textarea>
-          </div>
-          <div class="mt-3">
-            <p class="text-muted small mb-2">Bloques del entrenamiento</p>
-            <div id="detalle-bloques-empty" class="alert alert-secondary small">
-              No hay información detallada de pasos para este entrenamiento.
-            </div>
-            <ul class="detalle-bloques-list" id="detalle-bloques-list"></ul>
-          </div>
-          <div class="mt-4 d-none" id="repeat-editor-wrapper">
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
-              <div>
-                <h5 class="h6 mb-0">Ajustes personalizados</h5>
-                <p class="text-muted small mb-0">Modifica las repeticiones sólo para este atleta/fecha.</p>
-              </div>
-              <button type="button" class="btn btn-sm btn-brand" id="btn-guardar-personalizacion">
-                Guardar ajustes
-              </button>
-            </div>
-            <div id="repeat-editor-list" class="repeat-editor-list"></div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
-          <button type="button" class="btn btn-brand" id="btn-detalle-editar">Editar entrenamiento</button>
-        </div>
-      </div>
-    </div>
+  <!-- Bloques del entrenamiento (dentro del modal) -->
+<div class="builder-section mt-3">
+  <div class="builder-section-header d-flex justify-content-between align-items-center mb-2">
+    <h3 class="h6 mb-0">Bloques del entrenamiento</h3>
+    <small class="text-muted">Vista sólo lectura</small>
   </div>
+  <div id="asignado-blocks" class="training-card-blocks">
+    <!-- Aquí se rellenan los bloques por JS -->
+  </div>
+</div>
+
 
   <!-- Modal: asignar ciclo -->
   <div class="modal fade" id="modalAsignarCiclo" tabindex="-1" aria-hidden="true">

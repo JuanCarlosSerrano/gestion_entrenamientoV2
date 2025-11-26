@@ -9,6 +9,7 @@
   <script src="../js/utils/csrf.js"></script>
   <script src="../js/script.js"></script>
   <script src="../js/utils/partials.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="../js/entrenador/estadisticas.js" type="module"></script>
   <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
 </head>
@@ -42,94 +43,26 @@
         <div class="app-card">
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
             <div>
-              <h2 class="mb-1">Resumen por atleta</h2>
-              <p class="text-muted mb-0">Analiza la adherencia y la desviación respecto a los objetivos.</p>
+              <h2 class="mb-1">Atletas del equipo</h2>
+              <p class="text-muted mb-0">Selecciona un atleta para analizar su evolución.</p>
             </div>
-            <button class="btn btn-outline-brand btn-sm" id="btn-refrescar-estadisticas">Actualizar datos</button>
+            <button class="btn btn-outline-brand btn-sm" id="btn-refrescar-atletas">Actualizar</button>
           </div>
           <div class="table-responsive mt-3">
             <table class="table table-sm align-middle">
               <thead class="table-light">
                 <tr>
                   <th>Atleta</th>
-                  <th>Series planificadas</th>
-                  <th>Series reportadas</th>
-                  <th>Desviación media</th>
-                  <th>Zona más trabajada</th>
-                  <th></th>
+                  <th>Email</th>
+                  <th class="text-end">Acciones</th>
                 </tr>
               </thead>
-              <tbody id="estadisticas-resumen"></tbody>
+              <tbody id="tabla-atletas-body"></tbody>
             </table>
-            <p class="text-muted mb-0" id="estadisticas-vacio">Sin datos registrados todavía.</p>
+            <p class="text-muted mb-0" id="tabla-atletas-vacia">Aún no hay atletas asignados.</p>
           </div>
         </div>
 
-        <div class="app-card mt-4">
-          <div class="d-flex justify-content-between flex-wrap align-items-center gap-2 mb-3">
-            <div>
-              <h3 id="detalle-titulo" class="mb-0">Detalle por atleta</h3>
-              <small class="text-muted" id="detalle-subtitulo">Selecciona un atleta para ver la evolución de sus series.</small>
-            </div>
-          </div>
-          <div id="detalle-placeholder" class="text-muted">
-            No hay atleta seleccionado. Usa el botón "Ver detalle" del resumen para cargar sus métricas.
-          </div>
-          <div id="detalle-contenido" class="d-none">
-            <div class="mt-2 mb-4" id="historico-section">
-              <div class="d-flex justify-content-between flex-wrap align-items-center gap-2 mb-3">
-                <div>
-                  <h5 class="mb-1">Comparar entrenamientos repetidos</h5>
-                  <small class="text-muted">Selecciona un entrenamiento y una serie para ver su evolución temporal.</small>
-                </div>
-                <div class="d-flex flex-wrap gap-2 align-items-center">
-                  <label for="historico-select" class="form-label mb-0 small text-muted">Entrenamiento</label>
-                  <select id="historico-select" class="form-select form-select-sm" style="min-width:220px"></select>
-                  <label for="historico-bloque-select" class="form-label mb-0 small text-muted">Serie/Bloque</label>
-                  <select id="historico-bloque-select" class="form-select form-select-sm" style="min-width:220px"></select>
-                </div>
-              </div>
-              <div id="historico-empty" class="text-muted">El atleta aún no tiene sesiones repetidas para comparar.</div>
-              <div id="historico-contenido" class="d-none">
-                <div class="table-responsive">
-                  <table class="table table-sm align-middle">
-                    <thead class="table-light">
-                      <tr>
-                        <th>Fecha</th>
-                        <th>Tiempo objetivo medio</th>
-                        <th>Tiempo real medio</th>
-                        <th>Δ</th>
-                      </tr>
-                    </thead>
-                    <tbody id="historico-tabla-body"></tbody>
-                  </table>
-                </div>
-                <div class="mt-3 border rounded bg-white p-2">
-                  <canvas id="historico-chart" height="260" class="w-100"></canvas>
-                </div>
-              </div>
-            </div>
-            <div class="card">
-              <div class="card-body">
-                <h5 class="card-title">Rendimiento por zona</h5>
-                <div class="table-responsive">
-                  <table class="table table-sm">
-                    <thead>
-                      <tr>
-                        <th>Zona</th>
-                        <th>Series</th>
-                        <th>Promedio objetivo</th>
-                        <th>Promedio real</th>
-                        <th>Δ</th>
-                      </tr>
-                    </thead>
-                    <tbody id="detalle-zonas-body"></tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div class="tab-pane fade" id="tab-resultados" role="tabpanel">

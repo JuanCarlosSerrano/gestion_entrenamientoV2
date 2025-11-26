@@ -1,0 +1,117 @@
+/* === ESTILOS DEL EDITOR DE ENTRENAMIENTOS ASIGNADOS === */
+
+body {
+  background: #f8f9fa;
+}
+
+/* Tarjeta de bloque */
+.training-block {
+  border-radius: 14px;
+  padding: 14px 18px;
+  margin-bottom: 14px;
+  color: #222;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+  border-left: 6px solid #888;
+}
+
+.training-block-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.training-block-title {
+  font-weight: 700;
+  font-size: 1.05rem;
+}
+
+.training-block-meta {
+  display: flex;
+  gap: 5px;
+}
+
+.training-pill {
+  padding: 3px 7px;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  background: rgba(0,0,0,0.07);
+}
+
+/* === COLORES POR TIPO DE BLOQUE === */
+.training-block--warmup {
+  border-left-color: #ff9f1c;
+  background: #fff5e8;
+}
+
+.training-block--interval {
+  border-left-color: #2ec4b6;
+  background: #e9fbf9;
+}
+
+.training-block--rest {
+  border-left-color: #6c757d;
+  background: #f0f0f0;
+}
+
+.training-block--repeat {
+  border-left-color: #e71d36;
+  background: #fde9ec;
+}
+
+.training-block--cooldown {
+  border-left-color: #4d88ff;
+  background: #eaf1ff;
+}
+
+.training-block--custom {
+  border-left-color: #9d4edd;
+  background: #f4e6ff;
+}
+
+/* === BODY === */
+.training-block-body {
+  margin-top: 4px;
+}
+
+.training-block-text {
+  font-size: 0.9rem;
+  color: #333;
+}
+
+/* Subpasos */
+.training-substeps-list {
+  padding-left: 20px;
+  margin-top: 6px;
+}
+
+.training-substeps-list li {
+  font-size: 0.85rem;
+  color: #555;
+}
+
+/* Botón de añadir */
+#btn-add-bloque {
+  width: 100%;
+}
+
+/* Inputs dentro del bloque */
+.block-input {
+  margin-top: 8px;
+}
+
+.block-input label {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.block-input input,
+.block-input select,
+.block-input textarea {
+  margin-top: 4px;
+}
+
+.btn-delete-block {
+  float: right;
+  margin-top: -24px;
+  margin-right: -10px;
+}

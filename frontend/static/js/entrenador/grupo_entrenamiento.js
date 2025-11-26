@@ -141,21 +141,44 @@ document.addEventListener("DOMContentLoaded", async function () {
     if (!tipo) return;
     actualizarSelectCiclo(tipo);
   });
-
-  // Enviar ciclo a todos los atletas seleccionados
+  // 🔹 Precargar microciclos al entrar en la página
+  if (selectCicloTipo) {
+    // si no hay valor seleccionado, ponemos "micro" como por defecto
+    if (!selectCicloTipo.value) {
+      selectCicloTipo.value = "micro";
+    }
+    // y cargamos directamente los microciclos en el desplegable
+    actualizarSelectCiclo("micro");
+  }
+  // Enviar ciclo a todos los atletas seleccionados (nuevo endpoint /ciclos/asignar)
   formAsignarCiclo?.addEventListener("submit", async (e) => {
     e.preventDefault();
 
-    const tipo = selectCicloTipo.value;
-    const cicloId = selectCicloId.value;
+    const tipo = (selectCicloTipo.value || "").trim().toLowerCase();
+    const cicloIdRaw = selectCicloId.value;
     const fecha = fechaCicloInput.value;
 
     const atletasSeleccionados = Array.from(
       document.querySelectorAll(".check-atleta:checked")
-    ).map((cb) => parseInt(cb.value, 10));
+    )
+      .map((cb) => parseInt(cb.value, 10))
+      .filter((id) => Number.isFinite(id));
 
-    if (!tipo || !cicloId || !fecha) {
-      alert("Completa el tipo de ciclo, el ciclo y la fecha.");
+    if (!tipo || !["micro", "meso", "macro"].includes(tipo)) {
+      alert("Selecciona un tipo de ciclo válido (micro, meso o macro).");
+      return;
+    }
+    if (!cicloIdRaw) {
+      alert("Selecciona un ciclo.");
+      return;
+    }
+    const cicloId = parseInt(cicloIdRaw, 10);
+    if (!Number.isFinite(cicloId)) {
+      alert("El ciclo seleccionado no es válido.");
+      return;
+    }
+    if (!fecha) {
+      alert("Selecciona una fecha de inicio.");
       return;
     }
     if (!atletasSeleccionados.length) {
@@ -172,15 +195,16 @@ document.addEventListener("DOMContentLoaded", async function () {
         token = await window.CSRF.ensureToken(true);
       }
 
+      // Payload esperado por /ciclos/asignar
       const payload = {
-        fecha_inicio_real: fecha,
-        atleta_ids: atletasSeleccionados,
-        anclar_en: "inicio",
+        tipo,                         // "micro" | "meso" | "macro"
+        ciclo_id: cicloId,            // id del micro/meso/macro
+        atletas: atletasSeleccionados, // [ids]
+        fecha_inicio: fecha,          // "YYYY-MM-DD"
+        // notas: podríamos añadir si en el futuro tienes un textarea de notas de ciclo
       };
 
-      const endpoint = `/ciclos/${tipo}/${cicloId}/asignaciones`;
-
-      const res = await fetch(`${API}${endpoint}`, {
+      const res = await fetch(`${API}/ciclos/asignar`, {
         method: "POST",
         credentials: "include",
         headers: {
@@ -196,7 +220,8 @@ document.addEventListener("DOMContentLoaded", async function () {
       }
 
       mostrarMensaje(
-        data.message || `Ciclo asignado a ${atletasSeleccionados.length} atletas.`,
+        data.message ||
+          `Ciclo asignado a ${atletasSeleccionados.length} atletas.`,
         "success"
       );
     } catch (err) {
@@ -402,7 +427,9 @@ document.addEventListener("DOMContentLoaded", async function () {
     const modo = visGrupoModo?.value || "dia";
     const atletasSeleccionados = Array.from(
       document.querySelectorAll(".check-atleta:checked")
-    ).map((cb) => parseInt(cb.value, 10));
+    )
+      .map((cb) => parseInt(cb.value, 10))
+      .filter((id) => Number.isFinite(id));
 
     if (!fecha) {
       alert("Selecciona una fecha para actualizar la visibilidad.");
@@ -475,3 +502,4 @@ document.addEventListener("DOMContentLoaded", async function () {
     actualizarVisibilidadGrupo(false);
   });
 });
+

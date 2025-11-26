@@ -16,6 +16,7 @@ const createBtn = document.getElementById('create-entrenamiento-btn');
 const nombreInput = document.getElementById('nombre');
 const objetivoInput = document.getElementById('objetivo');
 const notasInput = document.getElementById('notas');
+const kmTotalesInput = document.getElementById('km_totales');
 const listaColumn = document.getElementById('entrenamientos-column');
 const builderColumn = document.getElementById('builder-column');
 const mainTabButtons = document.querySelectorAll('[data-main-tab-btn]');
@@ -640,10 +641,16 @@ function collectPayload() {
     return null;
   }
 
+  let kmTotales = kmTotalesInput ? parseFloat(kmTotalesInput.value) : null;
+  if (kmTotales !== null && (!Number.isFinite(kmTotales) || kmTotales < 0)) {
+    kmTotales = null;
+  }
+
   return {
     nombre: nombreInput.value.trim(),
     objetivo: objetivoInput.value.trim() || null,
     notas: notasInput.value.trim() || null,
+    km_totales: kmTotales,
     pasos: normalizeSteps(builderState)
   };
 }
@@ -904,6 +911,7 @@ function startNewEntrenamiento(showBuilder = true) {
   if (nombreInput) nombreInput.value = '';
   if (objetivoInput) objetivoInput.value = '';
   if (notasInput) notasInput.value = '';
+  if (kmTotalesInput) kmTotalesInput.value = '';
   resetBuilderState();
   if (showBuilder) {
     toggleBuilder(true);
@@ -919,6 +927,10 @@ function startEditing(id) {
   nombreInput.value = entrenamiento.nombre || '';
   objetivoInput.value = entrenamiento.objetivo || '';
   notasInput.value = entrenamiento.notas || '';
+  if (kmTotalesInput) {
+    const km = entrenamiento.km_totales ?? entrenamiento.kms_totales ?? 0;
+    kmTotalesInput.value = km ? Number(km).toString() : '';
+  }
   resetBuilderState(entrenamiento.pasos || []);
   renderEntrenamientos();
   toggleBuilder(true);
@@ -1536,9 +1548,14 @@ function initMicroUI() {
 // ===================== MESOCICLOS / MACROCICLOS (esqueleto básico) =====================
 // ===================== MESOCICLOS / MACROCICLOS =====================
 
+// ===================== MESOCICLOS / MACROCICLOS =====================
+
 const mesoListEl = document.getElementById('meso-list');
 const mesoCreateBtn = document.getElementById('meso-create-btn');
+const macroListEl = document.getElementById('macro-list');
+const macroCreateBtn = document.getElementById('macro-create-btn');
 
+// VISTAS MESO
 const mesoListView = document.getElementById('meso-list-view');
 const mesoBuilderView = document.getElementById('meso-builder-view');
 const mesoBuilderTitle = document.getElementById('meso-builder-title');
@@ -1556,14 +1573,10 @@ const mesoIdField = document.getElementById('meso-id-field');
 const mesoNombreInput = formMeso?.elements['nombre'];
 const mesoObjetivoInput = formMeso?.elements['objetivo'];
 
-const macroListEl = document.getElementById('macro-list');
-const macroCreateBtn = document.getElementById('macro-create-btn');
-
 let mesoPlantillas = [];
 let macroPlantillas = [];
 
-// Estado del builder de mesociclo: array de semanas
-// cada posición es: null o { microciclo_id, nombre, notas }
+// Estado MESO: array de semanas: null o { microciclo_id, nombre, notas }
 let mesoSemana = [];
 let dragMicroId = null;
 
@@ -1718,7 +1731,6 @@ async function openMesoBuilder(meso = null) {
 
   let mesoCompleto = meso;
 
-  // Si viene desde la lista, nos aseguramos de que tiene microciclos
   if (meso && (!meso.microciclos || !meso.microciclos.length)) {
     try {
       const csrf = await ensureCsrfToken();
@@ -1739,10 +1751,10 @@ async function openMesoBuilder(meso = null) {
   }
 
   if (mesoCompleto) {
-    // Editar existente
     mesoIdField.value = mesoCompleto.id;
     if (mesoNombreInput) mesoNombreInput.value = mesoCompleto.nombre || '';
-    if (mesoObjetivoInput) mesoObjetivoInput.value = mesoCompleto.objetivo || mesoCompleto.objetivo_general || '';
+    if (mesoObjetivoInput)
+      mesoObjetivoInput.value = mesoCompleto.objetivo || mesoCompleto.objetivo_general || '';
     if (mesoBuilderTitle) {
       mesoBuilderTitle.textContent = `Editar mesociclo: ${mesoCompleto.nombre}`;
     }
@@ -1757,7 +1769,6 @@ async function openMesoBuilder(meso = null) {
       });
     });
   } else {
-    // Nuevo mesociclo
     mesoIdField.value = '';
     if (mesoNombreInput) mesoNombreInput.value = '';
     if (mesoObjetivoInput) mesoObjetivoInput.value = '';
@@ -1781,7 +1792,6 @@ function closeMesoBuilder() {
   resetMesoSemana();
 }
 
-// hidratar mesociclos con sus microciclos
 async function hydrateMesoMicrociclos() {
   if (!mesoPlantillas.length) return;
 
@@ -1892,7 +1902,6 @@ function renderMesoList() {
 
     card.appendChild(header);
 
-    // listado rápido de semanas
     const lista = document.createElement('div');
     lista.className = 'meso-micro-list mt-2';
 
@@ -1921,7 +1930,6 @@ function renderMesoList() {
 
     card.appendChild(lista);
 
-    // Botón eliminar (sin abrir el builder al pulsarlo)
     const footer = document.createElement('div');
     footer.className = 'd-flex justify-content-end mt-2';
 
@@ -2031,7 +2039,337 @@ async function deleteMeso(id) {
   }
 }
 
-// ---------- MACROCICLOS (igual que antes, simple listado) ----------
+// ---------- MACROCICLOS (builder con mesociclos) ----------
+
+const macroListView = document.getElementById('macro-list-view');
+const macroBuilderView = document.getElementById('macro-builder-view');
+const macroBuilderTitle = document.getElementById('macro-builder-title');
+const macroBuilderBackBtn = document.getElementById('macro-builder-back');
+
+const macroMesoLibrary = document.getElementById('macro-meso-library');
+const macroMesoSearch = document.getElementById('macro-meso-search');
+const macroMesoClear = document.getElementById('macro-meso-clear');
+
+const macroBlockGrid = document.getElementById('macro-block-grid');
+const macroAddBlockBtn = document.getElementById('macro-add-block-btn');
+
+const formMacro = document.getElementById('form-macro');
+const macroIdField = document.getElementById('macro-id-field');
+const macroNombreInput = formMacro?.elements['nombre'];
+const macroObjetivoInput = formMacro?.elements['objetivo_general'];
+
+const btnRecargarCiclos = document.getElementById('btn-recargar-ciclos');
+const ciclosArbol = document.getElementById('ciclos-arbol');
+
+// Estado del builder: array de bloques: null o { mesociclo_id, nombre, notas }
+let macroBloques = [];
+let dragMesoId = null;
+
+function resetMacroBloques() {
+  macroBloques = [];
+}
+
+function renderMacroMesoLibrary() {
+  if (!macroMesoLibrary) return;
+  macroMesoLibrary.innerHTML = '';
+
+  if (!mesoPlantillas || !mesoPlantillas.length) {
+    const empty = document.createElement('p');
+    empty.className = 'text-muted small';
+    empty.textContent = 'Crea primero mesociclos en la pestaña Mesociclos.';
+    macroMesoLibrary.appendChild(empty);
+    return;
+  }
+
+  const filtro = (macroMesoSearch?.value || '').toLowerCase();
+
+  mesoPlantillas
+    .filter((m) => !filtro || m.nombre.toLowerCase().includes(filtro))
+    .forEach((meso) => {
+      const card = document.createElement('div');
+      card.className = 'training-lib-card';
+      card.draggable = true;
+      card.dataset.mesocicloId = String(meso.id);
+
+      card.addEventListener('dragstart', (ev) => {
+        dragMesoId = meso.id;
+        ev.dataTransfer?.setData('text/plain', String(meso.id));
+      });
+
+      const title = document.createElement('strong');
+      title.textContent = meso.nombre;
+      card.appendChild(title);
+
+      if (meso.objetivo) {
+        const p = document.createElement('div');
+        p.className = 'small text-muted';
+        p.textContent = meso.objetivo;
+        card.appendChild(p);
+      }
+
+      macroMesoLibrary.appendChild(card);
+    });
+}
+
+function renderMacroBlocksGrid() {
+  if (!macroBlockGrid) return;
+  macroBlockGrid.innerHTML = '';
+
+  if (!macroBloques.length) {
+    const empty = document.createElement('div');
+    empty.className = 'text-muted small';
+    empty.textContent = 'Añade bloques con el botón "Añadir bloque" y arrastra mesociclos aquí.';
+    macroBlockGrid.appendChild(empty);
+    renderMacroResumen();
+    return;
+  }
+
+  macroBloques.forEach((slot, index) => {
+    const blockCard = document.createElement('div');
+    blockCard.className = 'macro-block-card';
+    blockCard.dataset.blockIndex = String(index);
+
+    const header = document.createElement('div');
+    header.className = 'macro-block-header d-flex justify-content-between align-items-center';
+
+    const title = document.createElement('strong');
+    title.textContent = `Bloque ${index + 1}`;
+    header.appendChild(title);
+
+    const actions = document.createElement('div');
+    actions.className = 'macro-block-actions d-flex gap-1';
+
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'btn btn-sm btn-outline-secondary';
+    clearBtn.textContent = slot ? 'Quitar mesociclo' : 'Vaciar bloque';
+    clearBtn.addEventListener('click', () => {
+      macroBloques[index] = null;
+      renderMacroBlocksGrid();
+    });
+    actions.appendChild(clearBtn);
+
+    const deleteBlockBtn = document.createElement('button');
+    deleteBlockBtn.type = 'button';
+    deleteBlockBtn.className = 'btn btn-sm btn-outline-danger';
+    deleteBlockBtn.textContent = 'Eliminar bloque';
+    deleteBlockBtn.addEventListener('click', () => {
+      macroBloques.splice(index, 1);
+      renderMacroBlocksGrid();
+    });
+    actions.appendChild(deleteBlockBtn);
+
+    header.appendChild(actions);
+    blockCard.appendChild(header);
+
+    const body = document.createElement('div');
+    body.className = 'macro-block-body';
+
+    body.addEventListener('dragover', (ev) => {
+      ev.preventDefault();
+      body.classList.add('macro-block-body--drag-over');
+    });
+
+    body.addEventListener('dragleave', () => {
+      body.classList.remove('macro-block-body--drag-over');
+    });
+
+    body.addEventListener('drop', (ev) => {
+      ev.preventDefault();
+      body.classList.remove('macro-block-body--drag-over');
+
+      const idFromData = ev.dataTransfer?.getData('text/plain');
+      const mesoId = dragMesoId || (idFromData ? parseInt(idFromData, 10) : null);
+      if (!mesoId) return;
+
+      const meso = mesoPlantillas.find((m) => m.id === mesoId);
+      macroBloques[index] = {
+        mesociclo_id: mesoId,
+        nombre: meso ? meso.nombre : `Mesociclo #${mesoId}`,
+        notas: null
+      };
+
+      dragMesoId = null;
+      renderMacroBlocksGrid();
+    });
+
+    if (!slot) {
+      const placeholder = document.createElement('div');
+      placeholder.className = 'text-muted small';
+      placeholder.textContent = 'Arrastra un mesociclo desde la biblioteca de arriba.';
+      body.appendChild(placeholder);
+    } else {
+      const pill = document.createElement('div');
+      pill.className = 'micro-pill micro-pill--default';
+      pill.textContent = slot.nombre;
+      body.appendChild(pill);
+    }
+
+    blockCard.appendChild(body);
+    macroBlockGrid.appendChild(blockCard);
+  });
+
+  renderMacroResumen();
+}
+
+function renderMacroResumen() {
+  if (!ciclosArbol) return;
+  ciclosArbol.innerHTML = '';
+
+  if (!macroBloques.length) {
+    const p = document.createElement('p');
+    p.className = 'text-muted small';
+    p.textContent = 'Añade bloques para ver aquí el resumen del macrociclo.';
+    ciclosArbol.appendChild(p);
+    return;
+  }
+
+  macroBloques.forEach((slot, index) => {
+    const itemId = `macro-block-${index + 1}`;
+    const headingId = `heading-${itemId}`;
+
+    const item = document.createElement('div');
+    item.className = 'accordion-item';
+
+    const h2 = document.createElement('h2');
+    h2.className = 'accordion-header';
+    h2.id = headingId;
+
+    const button = document.createElement('button');
+    button.className = 'accordion-button collapsed';
+    button.type = 'button';
+    button.dataset.bsToggle = 'collapse';
+    button.dataset.bsTarget = `#collapse-${itemId}`;
+    button.setAttribute('aria-expanded', 'false');
+    button.setAttribute('aria-controls', `collapse-${itemId}`);
+    button.textContent = `Bloque ${index + 1}: ${
+      slot && slot.nombre ? slot.nombre : 'Vacío'
+    }`;
+
+    h2.appendChild(button);
+    item.appendChild(h2);
+
+    const collapse = document.createElement('div');
+    collapse.id = `collapse-${itemId}`;
+    collapse.className = 'accordion-collapse collapse';
+    collapse.setAttribute('aria-labelledby', headingId);
+    collapse.dataset.bsParent = '#ciclos-arbol';
+
+    const body = document.createElement('div');
+    body.className = 'accordion-body';
+
+    if (!slot || !slot.mesociclo_id) {
+      body.textContent = 'Bloque sin mesociclo asignado.';
+    } else {
+      body.innerHTML = `
+        <p class="mb-1"><strong>Mesociclo:</strong> ${slot.nombre}</p>
+        <p class="mb-0 text-muted small">Orden: ${index + 1}</p>
+      `;
+    }
+
+    collapse.appendChild(body);
+    item.appendChild(collapse);
+    ciclosArbol.appendChild(item);
+  });
+}
+
+async function openMacroBuilder(macro = null) {
+  if (!macroListView || !macroBuilderView) return;
+
+  let macroCompleto = macro;
+
+  if (macro && (!macro.mesociclos || !macro.mesociclos.length)) {
+    try {
+      const csrf = await ensureCsrfToken();
+      const res = await fetch(`${API_BASE}/macrociclos/${macro.id}`, {
+        headers: {
+          Authorization: authHeader(),
+          ...(csrf ? { 'X-CSRF-Token': csrf } : {})
+        },
+        credentials: 'include'
+      });
+
+      if (res.ok) {
+        macroCompleto = await res.json();
+      }
+    } catch (err) {
+      console.warn('No se pudo cargar detalle del macrociclo', macro.id, err);
+    }
+  }
+
+  if (macroCompleto) {
+    macroIdField.value = macroCompleto.id;
+    if (macroNombreInput) macroNombreInput.value = macroCompleto.nombre || '';
+    if (macroObjetivoInput) macroObjetivoInput.value = macroCompleto.objetivo_general || '';
+    if (macroBuilderTitle) {
+      macroBuilderTitle.textContent = `Editar macrociclo: ${macroCompleto.nombre}`;
+    }
+
+    resetMacroBloques();
+    const lista = (macroCompleto.mesociclos || []).slice().sort((a, b) => (a.orden || 0) - (b.orden || 0));
+    lista.forEach((item) => {
+      macroBloques.push({
+        mesociclo_id: item.mesociclo_id,
+        nombre: item.mesociclo_nombre || `Mesociclo #${item.mesociclo_id}`,
+        notas: item.notas || null
+      });
+    });
+  } else {
+    macroIdField.value = '';
+    if (macroNombreInput) macroNombreInput.value = '';
+    if (macroObjetivoInput) macroObjetivoInput.value = '';
+    if (macroBuilderTitle) {
+      macroBuilderTitle.textContent = 'Nuevo macrociclo';
+    }
+    resetMacroBloques();
+  }
+
+  renderMacroBlocksGrid();
+  renderMacroMesoLibrary();
+
+  macroListView.classList.add('d-none');
+  macroBuilderView.classList.remove('d-none');
+}
+
+function closeMacroBuilder() {
+  if (!macroListView || !macroBuilderView) return;
+  macroBuilderView.classList.add('d-none');
+  macroListView.classList.remove('d-none');
+  resetMacroBloques();
+  renderMacroResumen();
+}
+
+async function hydrateMacroMesociclos() {
+  if (!macroPlantillas.length) return;
+
+  const csrf = await ensureCsrfToken();
+
+  const promises = macroPlantillas.map(async (macro) => {
+    if (Array.isArray(macro.mesociclos) && macro.mesociclos.length) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/macrociclos/${macro.id}`, {
+        headers: {
+          Authorization: authHeader(),
+          ...(csrf ? { 'X-CSRF-Token': csrf } : {})
+        },
+        credentials: 'include'
+      });
+
+      if (!res.ok) return;
+
+      const data = await res.json().catch(() => null);
+      if (!data) return;
+
+      macro.mesociclos = Array.isArray(data.mesociclos) ? data.mesociclos : [];
+      if (data.objetivo_general !== undefined) macro.objetivo_general = data.objetivo_general;
+    } catch (err) {
+      console.warn('No se pudieron hidratar mesociclos del macrociclo', macro.id, err);
+    }
+  });
+
+  await Promise.all(promises);
+}
 
 async function loadMacroList() {
   if (!macroListEl) return;
@@ -2056,6 +2394,9 @@ async function loadMacroList() {
     if (!res.ok) throw new Error('Error al cargar macrociclos');
 
     macroPlantillas = await res.json();
+
+    await hydrateMacroMesociclos();
+
     renderMacroList();
   } catch (err) {
     console.warn('loadMacroList warning', err);
@@ -2080,30 +2421,168 @@ function renderMacroList() {
     const card = document.createElement('div');
     card.className = 'macro-card';
 
+    card.addEventListener('click', () => openMacroBuilder(macro));
+
     const header = document.createElement('div');
     header.className = 'd-flex justify-content-between align-items-center';
 
-    const title = document.createElement('strong');
-    title.textContent = macro.nombre;
+    const title = document.createElement('div');
+    const nameEl = document.createElement('strong');
+    nameEl.textContent = macro.nombre;
+    title.appendChild(nameEl);
+
+    if (macro.objetivo_general) {
+      const p = document.createElement('div');
+      p.className = 'small text-muted';
+      p.textContent = macro.objetivo_general;
+      title.appendChild(p);
+    }
+
     header.appendChild(title);
 
-    const semanas = macro.duracion_semanas || 0;
+    const bloques = (macro.mesociclos || []).length;
     const badge = document.createElement('span');
     badge.className = 'badge text-bg-secondary';
-    badge.textContent = `${semanas} ${semanas === 1 ? 'semana' : 'semanas'}`;
+    badge.textContent = `${bloques} ${bloques === 1 ? 'bloque' : 'bloques'}`;
     header.appendChild(badge);
 
     card.appendChild(header);
 
-    if (macro.objetivo_general) {
-      const p = document.createElement('div');
-      p.className = 'small text-muted mt-1';
-      p.textContent = macro.objetivo_general;
-      card.appendChild(p);
+    const body = document.createElement('div');
+    body.className = 'macro-meso-list mt-2';
+
+    if (!bloques) {
+      const empty = document.createElement('div');
+      empty.className = 'text-muted small';
+      empty.textContent = 'Este macrociclo aún no tiene mesociclos asociados.';
+      body.appendChild(empty);
+    } else {
+      (macro.mesociclos || []).forEach((m) => {
+        const row = document.createElement('div');
+        row.className = 'macro-meso-row d-flex justify-content-between align-items-center';
+
+        const left = document.createElement('span');
+        left.className = 'macro-meso-name';
+        left.textContent = m.mesociclo_nombre || `Bloque ${m.orden || ''}`;
+
+        const pill = document.createElement('span');
+        pill.className = 'badge rounded-pill text-bg-light';
+        pill.textContent = `Bloque ${m.orden ?? '-'}`;
+
+        row.append(left, pill);
+        body.appendChild(row);
+      });
     }
+
+    card.appendChild(body);
+
+    const footer = document.createElement('div');
+    footer.className = 'd-flex justify-content-end mt-2';
+
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.className = 'btn btn-sm btn-outline-danger';
+    delBtn.textContent = 'Eliminar';
+    delBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      deleteMacro(macro.id);
+    });
+
+    footer.appendChild(delBtn);
+    card.appendChild(footer);
 
     macroListEl.appendChild(card);
   });
+}
+
+async function saveMacro(event) {
+  event?.preventDefault();
+  if (!formMacro) return;
+
+  const nombre = (macroNombreInput?.value || '').trim();
+  const objetivo_general = (macroObjetivoInput?.value || '').trim();
+
+  if (!nombre) {
+    alert('El nombre del macrociclo es obligatorio');
+    return;
+  }
+
+  const mesociclos = [];
+  let orden = 1;
+  macroBloques.forEach((slot) => {
+    if (!slot || !slot.mesociclo_id) return;
+    mesociclos.push({
+      mesociclo_id: slot.mesociclo_id,
+      orden: orden++,
+      notas: slot.notas || null
+    });
+  });
+
+  if (!mesociclos.length) {
+    alert('Añade al menos un mesociclo al macrociclo');
+    return;
+  }
+
+  const payload = {
+    nombre,
+    objetivo_general: objetivo_general || null,
+    mesociclos
+  };
+
+  const csrf = await ensureCsrfToken();
+  const id = macroIdField?.value;
+  const isEdit = !!id;
+
+  const url = isEdit ? `${API_BASE}/macrociclos/${id}` : `${API_BASE}/macrociclos`;
+  const method = isEdit ? 'PUT' : 'POST';
+
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: authHeader(),
+        ...(csrf ? { 'X-CSRF-Token': csrf } : {})
+      },
+      credentials: 'include',
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || 'No se pudo guardar el macrociclo');
+    }
+
+    alert(isEdit ? 'Macrociclo actualizado' : 'Macrociclo creado');
+    await loadMacroList();
+    closeMacroBuilder();
+  } catch (err) {
+    console.error('saveMacro error', err);
+    alert(err.message || 'Error al guardar el macrociclo');
+  }
+}
+
+async function deleteMacro(id) {
+  if (!confirm('¿Eliminar este macrociclo?')) return;
+  const csrf = await ensureCsrfToken();
+  try {
+    const res = await fetch(`${API_BASE}/macrociclos/${id}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: authHeader(),
+        ...(csrf ? { 'X-CSRF-Token': csrf } : {})
+      },
+      credentials: 'include'
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || 'No se pudo eliminar el macrociclo');
+    }
+    await loadMacroList();
+  } catch (err) {
+    console.error('deleteMacro error', err);
+    alert(err.message || 'Error al eliminar el macrociclo');
+  }
 }
 
 function initMesoMacroUI() {
@@ -2114,36 +2593,38 @@ function initMesoMacroUI() {
     loadMacroList();
   }
 
-  // Nuevo mesociclo
+  // MESO
   mesoCreateBtn?.addEventListener('click', () => openMesoBuilder(null));
-
-  // Volver al listado
   mesoBuilderBackBtn?.addEventListener('click', () => closeMesoBuilder());
-
-  // Guardar mesociclo
   formMeso?.addEventListener('submit', saveMeso);
-
-  // Añadir semana
   mesoAddWeekBtn?.addEventListener('click', () => {
     mesoSemana.push(null);
     renderMesoWeeksGrid();
   });
-
-  // Buscador de microciclos para el builder
   mesoMicroSearch?.addEventListener('input', () => renderMesoMicroLibrary());
   mesoMicroClear?.addEventListener('click', () => {
     if (mesoMicroSearch) mesoMicroSearch.value = '';
     renderMesoMicroLibrary();
   });
 
-  // Botones de creación "futuros" para macro
-  mesoCreateBtn?.addEventListener('click', () => openMesoBuilder(null));
+  // MACRO
+  macroCreateBtn?.addEventListener('click', () => openMacroBuilder(null));
+  macroBuilderBackBtn?.addEventListener('click', () => closeMacroBuilder());
+  formMacro?.addEventListener('submit', saveMacro);
+  macroAddBlockBtn?.addEventListener('click', () => {
+    macroBloques.push(null);
+    renderMacroBlocksGrid();
+  });
+  macroMesoSearch?.addEventListener('input', () => renderMacroMesoLibrary());
+  macroMesoClear?.addEventListener('click', () => {
+    if (macroMesoSearch) macroMesoSearch.value = '';
+    renderMacroMesoLibrary();
+  });
 
-  macroCreateBtn?.addEventListener('click', () => {
-    alert('La creación/edición visual de macrociclos se añadirá después. De momento sólo está el listado.');
+  btnRecargarCiclos?.addEventListener('click', () => {
+    renderMacroResumen();
   });
 }
-
 
 // ===================== INIT GLOBAL =====================
 

@@ -3,272 +3,154 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Panel del Atleta</title>
+  <title>Bienvenida · Atleta</title>
 
   <!-- Bootstrap -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css"
+    rel="stylesheet"
+  />
 
-  <!-- Estilos propios -->
+  <!-- Estilos compartidos de la app -->
   <link rel="stylesheet" href="../css/style.css"/>
 
-  <!-- Scripts comunes -->
+  <!-- Utilidades globales -->
   <script src="../js/utils/csrf.js"></script>
   <script src="../js/script.js"></script>
+  <script src="../js/utils/partials.js"></script>
 
   <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon"/>
 </head>
 <body class="app-bg">
   <div class="container app-container">
-    <!-- Cabecera -->
-    <header class="page-heading page-heading--minimal">
-      <img src="../img/logo_sin_fondo.png" alt="MindPace" class="brand-logo">
-      <img src="../img/letra_sin_fondo.png" alt="MindPace" class="brand-wordmark">
-    </header>
+    <!-- Header del atleta -->
+    <div data-include="../partials/header_atleta.html" data-nav-active="inicio"></div>
 
-    <div class="page-context-bar page-context-bar--hero">
+    <!-- Barra de contexto / hero -->
+    <div class="page-context-bar page-context-bar--hero mb-4">
       <div>
         <p class="eyebrow eyebrow--subtle">Panel del atleta</p>
         <h1 id="nombre-atleta" class="page-context-title">Bienvenid@</h1>
-      </div>
-      <div class="page-context-actions gap-2">
-        <button class="btn btn-outline-brand btn-sm" id="btn-logout">Salir</button>
+        <p class="text-muted mb-0">
+          Aquí tienes una vista rápida de la semana y de lo que falta por registrar.
+        </p>
       </div>
     </div>
 
-    <!-- CONTENIDO PRINCIPAL -->
-    <div class="app-card">
-      <!-- Menú de navegación -->
-      <ul class="nav nav-tabs mb-4" id="menu-navegacion">
-        <li class="nav-item">
-          <a class="nav-link active" data-section="entrenamientos-asignados" href="#">Entrenamientos</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" data-section="entrenamientos-historial" href="#">Historial</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" data-section="perfil" href="#">Mi Perfil</a>
-        </li>
-      </ul>
-
-      <!-- Sección: Entrenamientos futuros -->
-      <div id="entrenamientos-asignados"
-           class="seccion-activa mb-5 entrenamiento-grid entrenamiento-grid--stacked">
-      </div>
-
-      <!-- Template tarjeta de entrenamiento (se usa desde index.js) -->
-      <template id="entrenamiento-card-template">
-        <article class="training-card entrenamiento-card sombra-suave" data-entrenamiento-id="">
-          <header class="training-card__header">
+    <!-- NUEVO: Resumen semanal arriba -->
+    <div class="row g-3 mb-4">
+      <div class="col-12">
+        <section class="app-card app-card--summary">
+          <div class="d-flex justify-content-between flex-wrap gap-3 align-items-center">
             <div>
-              <h3 class="training-card__title entrenamiento-nombre">Nombre entrenamiento</h3>
-              <p class="training-card__meta entrenamiento-objetivo mb-1">
-                Objetivo · notas
+              <h2 class="h5 mb-1">Resumen de la semana</h2>
+              <p class="text-muted small mb-0" id="resumen-semana-rango">
+                Semana actual
               </p>
             </div>
-            <span class="chip chip-warning entrenamiento-fecha">--/--/----</span>
-          </header>
-
-          <div class="training-card__summary mt-2">
-            <!-- Aquí se pintarán los bloques estilo Garmin -->
-            <div class="bloques-preview" id="bloques-detalle-card"></div>
+            <div class="d-flex flex-wrap gap-4">
+              <div class="text-end">
+                <div class="small text-muted">Sesiones esta semana</div>
+                <div class="fw-semibold" id="resumen-semana-sesiones">-</div>
+              </div>
+              <div class="text-end">
+                <div class="small text-muted">Completadas</div>
+                <div class="fw-semibold text-success" id="resumen-semana-completadas">-</div>
+              </div>
+              <div class="text-end">
+                <div class="small text-muted">Pendientes</div>
+                <div class="fw-semibold text-warning" id="resumen-semana-pendientes">-</div>
+              </div>
+              <!-- Si más adelante calculamos km, aquí podríamos añadir otra “cajita” -->
+            </div>
           </div>
-
-          <footer class="training-card__actions mt-3">
-            <button type="button" class="btn btn-sm btn-outline-secondary btn-ver-detalles">
-              Ver detalles
-            </button>
-            <button type="button"
-                    class="btn btn-sm btn-outline-primary btn-feedback"
-                    data-bs-toggle="modal"
-                    data-bs-target="#modalFeedback">
-              Feedback
-            </button>
-            <button type="button"
-                    class="btn btn-sm btn-success btn-registrar-tiempos"
-                    data-bs-toggle="modal"
-                    data-bs-target="#modalTiempos">
-              Registrar
-            </button>
-          </footer>
-        </article>
-      </template>
-
-      <!-- Sección: Historial -->
-      <div id="entrenamientos-historial"
-           class="d-none mb-5 entrenamiento-grid entrenamiento-grid--stacked">
-      </div>
-
-      <!-- Sección: Perfil -->
-      <div id="perfil" class="d-none">
-        <div class="d-flex align-items-center gap-3 mb-3">
-          <img id="foto-perfil"
-               src="../img/default-avatar.jpg"
-               alt="Foto de perfil"
-               class="rounded-circle"
-               style="width:72px;height:72px;object-fit:cover;">
-          <h4 class="mb-0">Editar perfil</h4>
-        </div>
-
-        <form id="form-perfil" class="mt-3">
-          <div class="mb-3">
-            <label for="input-nombre" class="form-label">Nombre</label>
-            <input type="text" id="input-nombre" class="form-control" required>
-          </div>
-          <div class="mb-3">
-            <label for="input-apellidos" class="form-label">Apellidos</label>
-            <input type="text" id="input-apellidos" class="form-control" required>
-          </div>
-          <div class="mb-3">
-            <label for="input-foto" class="form-label">Foto de perfil</label>
-            <input type="file" id="input-foto" class="form-control">
-          </div>
-          <button type="submit" class="btn btn-primary">Guardar cambios</button>
-        </form>
-
-        <div class="mt-4">
-          <h5 class="mb-1">Zonas de entrenamiento</h5>
-          <p class="text-muted small mb-2">
-            Datos calculados a partir de tu última prueba, expresados en min/km.
-          </p>
-          <div id="zonas-perfil-empty" class="text-muted small">
-            Aún no hay zonas registradas.
-          </div>
-          <div id="zonas-perfil-container" class="table-responsive d-none">
-            <table class="table table-sm table-striped">
-              <thead>
-                <tr>
-                  <th>Zona</th>
-                  <th>Ritmo recomendado (min/km)</th>
-                </tr>
-              </thead>
-              <tbody id="zonas-perfil-body"></tbody>
-            </table>
-          </div>
-        </div>
+        </section>
       </div>
     </div>
 
-    <!-- Tarjeta resumen de feedbacks -->
-    <div class="app-card mt-4">
-      <h4>Feedbacks enviados</h4>
-      <p class="text-muted">Consulta si tu entrenador ya revisó tus últimos entrenamientos.</p>
-      <div id="feedbacks-enviados-lista" class="mt-3"></div>
+    <!-- FILA: Próximos entrenos / Pendiente de registrar -->
+    <div class="row g-4">
+      <!-- Columna: Próximos entrenamientos -->
+      <div class="col-12 col-xl-6">
+        <section class="app-card h-100">
+          <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div>
+              <h2 class="h4 mb-1">Próximos entrenamientos</h2>
+              <p class="text-muted mb-0 small">
+                Mostramos tus dos próximas sesiones visibles.
+              </p>
+            </div>
+            <a href="entrenamientos.html" class="btn btn-sm btn-outline-brand">
+              Ver agenda
+            </a>
+          </div>
+
+          <div id="lista-proximos" class="entrenamiento-grid entrenamiento-grid--stacked">
+            <p class="text-muted mb-0">Cargando entrenamientos...</p>
+          </div>
+        </section>
+      </div>
+
+      <!-- Columna: Pendiente de registrar -->
+      <div class="col-12 col-xl-6">
+        <section class="app-card h-100">
+          <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div>
+              <h2 class="h4 mb-1">Pendiente de registrar</h2>
+              <p class="text-muted mb-0 small">
+                Entrenamientos pasados sin tiempos registrados.
+              </p>
+            </div>
+            <a href="historial.html" class="btn btn-sm btn-outline-secondary">
+              Historial
+            </a>
+          </div>
+
+          <div id="lista-pendientes" class="entrenamiento-grid entrenamiento-grid--stacked">
+            <p class="text-muted mb-0">Revisando tus entrenamientos...</p>
+          </div>
+        </section>
+      </div>
     </div>
+
+    <!-- Footer común -->
+    <div data-include="../partials/footer.html" class="mt-5"></div>
   </div>
 
-  <!-- Modal Feedback -->
-  <div class="modal fade" id="modalFeedback" tabindex="-1"
-       aria-labelledby="modalFeedbackLabel" aria-hidden="true">
-    <div class="modal-dialog">
-      <form id="form-feedback" class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title" id="modalFeedbackLabel">Enviar Feedback</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-        </div>
-        <div class="modal-body">
-          <div class="mb-3">
-            <label for="enlace_entrenamiento" class="form-label">Enlace a Garmin/Polar/etc.</label>
-            <input type="url"
-                   class="form-control"
-                   id="enlace_entrenamiento"
-                   placeholder="https://connect.garmin.com/...">
+  <template id="inicio-entrenamiento-card">
+    <article class="training-card entrenamiento-card sombra-suave" data-entrenamiento-id="">
+      <header class="training-card__header">
+        <div class="training-card__header-main">
+          <div>
+            <h3 class="training-card__title entrenamiento-nombre">Nombre</h3>
+            <p class="training-card__objective entrenamiento-objetivo mb-1">Objetivo</p>
           </div>
-          <div class="mb-3">
-            <label for="tiempo_realizado" class="form-label">Tiempo realizado (minutos):</label>
-            <input type="number" class="form-control" id="tiempo_realizado" min="0" />
-          </div>
-          <div class="mb-3">
-            <label for="percepcion" class="form-label">Percepción del esfuerzo:</label>
-            <select class="form-select" id="percepcion">
-              <option value="">Selecciona una opción</option>
-              <option value="muy fácil">Muy fácil</option>
-              <option value="fácil">Fácil</option>
-              <option value="moderado">Moderado</option>
-              <option value="duro">Duro</option>
-              <option value="muy duro">Muy duro</option>
-            </select>
-          </div>
-          <div class="mb-3">
-            <label for="resultado_entrenamiento" class="form-label">Resultado / sensaciones</label>
-            <textarea class="form-control"
-                      id="resultado_entrenamiento"
-                      rows="2"
-                      placeholder="Ej: Ritmo medio 4:35/km, me costó el último bloque"></textarea>
-          </div>
-          <div class="mb-3">
-            <label for="comentario" class="form-label">Comentarios:</label>
-            <textarea class="form-control" id="comentario" rows="4" required></textarea>
+          <div class="d-flex flex-column align-items-end gap-2">
+            <span class="chip chip-warning entrenamiento-fecha">
+              <span>--/--/----</span>
+              <span class="entrenamiento-fecha-dayname"></span>
+            </span>
+            <span class="chip entrenamiento-estado">Pendiente</span>
           </div>
         </div>
-        <div class="modal-footer">
-          <input type="hidden" id="feedback-entrenamiento-id" />
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button type="submit" class="btn btn-primary">Enviar</button>
-        </div>
-      </form>
-    </div>
-  </div>
+      </header>
+        <div class="training-card__summary mt-2">
+          <div class="training-card-blocks"></div>
+      </div>
+      <footer class="training-card__actions mt-3">
+        <button class="btn btn-sm btn-outline-primary" data-role="primary-action" type="button">
+          Ver detalles
+        </button>
+      </footer>
+    </article>
+  </template>
 
-  <!-- Modal Registrar Tiempos -->
-  <div class="modal fade" id="modalTiempos" tabindex="-1"
-       aria-labelledby="modalTiemposLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
-      <form id="form-tiempos-bloques" class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title" id="modalTiemposLabel">Registrar tiempos</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-        </div>
-        <div class="modal-body">
-          <p class="text-muted small mb-3">
-            Introduce el tiempo real empleado en cada bloque (formato mm:ss).
-            Estos datos se usarán para seguimiento y gráficas.
-          </p>
-          <div id="lista-tiempos-bloques"></div>
-        </div>
-        <div class="modal-footer">
-          <input type="hidden" id="tiempos-entrenamiento-id">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button type="submit" class="btn btn-primary">Guardar tiempos</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Scripts -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"></script>
-  <script src="../js/atleta/index.js" type="module"></script>
-  <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      const seccionesIds = ["entrenamientos-asignados", "entrenamientos-historial", "perfil"];
-
-      document.querySelectorAll("#menu-navegacion .nav-link").forEach(link => {
-        link.addEventListener("click", (e) => {
-          e.preventDefault();
-
-          // Pestañas
-          document
-            .querySelectorAll("#menu-navegacion .nav-link")
-            .forEach(l => l.classList.remove("active"));
-          link.classList.add("active");
-
-          // Secciones principales
-          seccionesIds.forEach(id => {
-            const sec = document.getElementById(id);
-            if (!sec) return;
-            sec.classList.add("d-none");
-            sec.classList.remove("seccion-activa");
-          });
-
-          const id = link.dataset.section;
-          const seccionActiva = document.getElementById(id);
-          if (seccionActiva) {
-            seccionActiva.classList.remove("d-none");
-            seccionActiva.classList.add("seccion-activa");
-          }
-        });
-      });
-    });
+  <!-- Bootstrap JS -->
+  <script
+    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js">
   </script>
+
+  <!-- Lógica específica del inicio del atleta -->
+  <script src="../js/atleta/inicio.js" type="module"></script>
 </body>
 </html>
-

@@ -202,8 +202,6 @@ h1, h2 {
 .bloques-preview {
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 12px;
-  max-height: 220px;
-  overflow-y: auto;
   background-color: #f8f9fb;
 }
 
@@ -250,6 +248,29 @@ h1, h2 {
 .modal-footer .btn-secondary:focus-visible {
   background: #4a5565;
   color: #fff;
+}
+
+.metric-card {
+  background: linear-gradient(135deg, rgba(13, 110, 253, 0.08), rgba(13, 110, 253, 0.02));
+  border: 1px solid rgba(13, 110, 253, 0.15);
+  border-radius: 16px;
+  padding: 1rem 1.25rem;
+  min-height: 120px;
+}
+
+.metric-label {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6c757d;
+  margin-bottom: 0.25rem;
+}
+
+.metric-value {
+  font-size: 2rem;
+  font-weight: 700;
+  margin: 0;
+  color: #0b1f33;
 }
 
 /* ---------- Calendario ---------- */
@@ -485,6 +506,17 @@ h1, h2 {
 .training-card--active {
   border-color: #0d6efd;
   box-shadow: 0 6px 18px rgba(13, 110, 253, 0.18);
+}
+
+.training-card--completed {
+  border-color: rgba(25, 135, 84, 0.4);
+  box-shadow: 0 8px 24px rgba(25, 135, 84, 0.15);
+  background: #f4fbf6;
+}
+
+.training-card--pending {
+  background: #fff;
+  border-color: rgba(255, 193, 7, 0.5);
 }
 
 .training-card__header {
@@ -1100,6 +1132,29 @@ form .form-label {
 .chip-warning {
   background: rgba(243, 139, 42, 0.15);
   color: var(--pp-orange);
+}
+
+.entrenamiento-fecha {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  text-transform: capitalize;
+}
+
+.entrenamiento-fecha-dayname {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: rgba(4, 10, 19, 0.65);
+}
+
+#inicio-alertas .col-lg-6 {
+  margin-bottom: 1px;
+}
+
+#inicio-alertas {
+  padding-top: 4rem;
 }
 
 .app-card .list-group-item {
@@ -1859,19 +1914,25 @@ body {
 }
 
 .training-card__header {
+  padding-bottom: 0.5rem;
+}
+
+.training-card__header-main {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: 1rem;
+  align-items: flex-start;
 }
 
 .training-card__objective {
-  font-size: 0.8rem;
+  font-size: 0.85rem;
   color: #64748b;
+  margin: 0;
 }
 
-.training-card__notes {
-  font-size: 0.75rem;
-  color: #94a3b8;
+.entrenamiento-fecha {
+  align-self: flex-start;
 }
 
 /* Contenedor de bloques */
@@ -1973,4 +2034,460 @@ body {
   padding-left: 1.1rem;
   font-size: 0.74rem;
   color: #475569;
+}
+/* Contenedor de tarjetas de series */
+.registro-series {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* Tarjeta de cada bloque (ej: Bloque 2) */
+.registro-bloque-card {
+  border-radius: 0.75rem;
+  border: 1px solid rgba(0,0,0,0.06);
+  background: #ffffff;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
+  padding: 0.75rem 1rem 0.5rem;
+}
+
+/* Cabecera de cada bloque */
+.registro-bloque-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: .75rem;
+  margin-bottom: .5rem;
+}
+
+.registro-bloque-titulo {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.registro-bloque-detalles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .25rem;
+  margin-top: 0.15rem;
+}
+
+/* Chips pequeños (tipo Intervalos, Rec 90", 1000m, etc.) */
+.registro-chip {
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  background: #f3f4ff;
+  color: #4f46e5;
+}
+
+/* Lista de reps */
+.registro-reps-list {
+  margin-top: .25rem;
+  border-top: 1px dashed rgba(148, 163, 184, 0.6);
+  padding-top: .4rem;
+  display: flex;
+  flex-direction: column;
+  gap: .4rem;
+}
+
+/* Fila de cada repetición */
+.registro-rep-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1.4fr);
+  gap: .5rem;
+  align-items: center;
+}
+
+@media (max-width: 576px) {
+  .registro-rep-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Parte izquierda: info de la repetición */
+.registro-rep-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.8rem;
+}
+
+.registro-rep-label {
+  font-weight: 500;
+}
+
+.registro-rep-meta {
+  color: #64748b;
+}
+
+/* Caja del input tiempo real */
+.registro-rep-input .form-label {
+  font-size: 0.75rem;
+  margin-bottom: 0.15rem;
+}
+/* ===========================
+   MODAL REGISTRO DE TIEMPOS
+   =========================== */
+
+.modal-tiempos-dialog {
+  max-width: 900px;
+}
+
+.modal-tiempos-content {
+  border-radius: 18px;
+  border: none;
+  font-size: 1rem;               /* letra un pelín más grande */
+}
+
+.modal-tiempos-body {
+  background: #f5f7fb;           /* fondo muy suave */
+}
+
+/* Título + subtítulo */
+
+#modalTiemposLabel {
+  font-weight: 600;
+  font-size: 1.1rem;
+}
+
+#modalTiemposSubtitulo {
+  font-size: 0.9rem;
+  color: #6b7280;
+}
+
+/* Comentario para el entrenador */
+
+.registro-comentario-box {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 12px 14px;
+  border: 1px dashed #cbd5f5;
+}
+
+.registro-comentario-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.registro-comentario-textarea {
+  font-size: 0.95rem;
+  border-radius: 10px;
+  border: 1px solid #d1d5db;
+  resize: vertical;
+}
+
+.registro-comentario-textarea:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.registro-comentario-help {
+  font-size: 0.8rem;
+}
+
+/* Texto de instrucciones */
+
+.registro-instrucciones {
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.registro-instrucciones strong {
+  font-weight: 600;
+}
+
+.registro-instrucciones-code {
+  font-family: "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  background: #fee2e2;
+  color: #b91c1c;
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+
+/* Wrapper general de bloques */
+
+.registro-bloques-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Tarjeta de cada bloque */
+
+.registro-bloque-card {
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 12px 14px 10px;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+  border: 1px solid #e5e7eb;
+}
+
+.registro-bloque-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.registro-bloque-titulo {
+  font-weight: 600;
+  font-size: 0.98rem;
+  margin-bottom: 4px;
+}
+
+.registro-bloque-detalles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Chips de info (tipo, distancia, zona...) */
+
+.registro-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.75rem;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-weight: 500;
+}
+
+/* Lista de repeticiones */
+
+.registro-reps-list {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.registro-rep-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f9fafb;
+}
+
+.registro-rep-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.registro-rep-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.registro-rep-meta {
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+/* INPUT DE TIEMPO: grande y llamativo */
+
+.registro-rep-input label.form-label {
+  font-size: 0.8rem;
+  margin-bottom: 4px;
+  color: #4b5563;
+}
+
+.registro-rep-input input.form-control {
+  font-size: 1rem;                  /* más grande */
+  font-weight: 600;
+  text-align: center;
+  background: #eef2ff;              /* fondo lavanda que llama la atención */
+  border-radius: 999px;
+  border: 1px solid #818cf8;
+  padding: 6px 12px;
+}
+
+.registro-rep-input input.form-control::placeholder {
+  color: #9ca3af;
+}
+
+.registro-rep-input input.form-control:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.22);
+}
+
+/* Versión móvil */
+
+@media (max-width: 768px) {
+  .modal-tiempos-dialog {
+    max-width: 100%;
+    margin: 0 8px;
+  }
+
+  .registro-rep-row {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-tiempos-content {
+    border-radius: 14px;
+  }
+}
+/* Contenedor de todas las series */
+.registro-series-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Tarjeta de cada serie */
+.registro-serie-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 999px;
+  background: #f3f5ff; /* fondo suave para toda la fila */
+  border: 1px solid rgba(76, 107, 255, 0.25);
+}
+
+/* Info de la serie (texto) */
+.registro-serie-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.registro-serie-titulo {
+  font-weight: 600;
+  font-size: 1rem;
+  color: #1f2933;
+}
+
+.registro-serie-detalle {
+  font-size: 0.9rem;
+  color: #4b5563;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Contenedor del input */
+.registro-serie-input {
+  flex: 0 0 140px;
+}
+
+/* Input grande y muy visible */
+.registro-serie-input-control {
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-align: center;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  border: 2px solid #4c6bff;
+  background-color: #eef1ff;
+  color: #1f2933;
+  box-shadow: 0 0 0 2px rgba(76, 107, 255, 0.12);
+}
+
+.registro-serie-input-control::placeholder {
+  color: #9ca3af;
+}
+
+/* Estado inválido (si el formato no es correcto) */
+.registro-serie-input-control.is-invalid {
+  border-color: #e11d48;
+  box-shadow: 0 0 0 2px rgba(225, 29, 72, 0.15);
+}
+
+/* Responsive: en pantallas muy pequeñas apilar */
+@media (max-width: 576px) {
+  .registro-serie-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .registro-serie-input {
+    flex: 1;
+  }
+}
+/* Contenedor de todas las series */
+.registro-series-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Tarjeta de cada serie */
+.registro-serie-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 999px;
+  background: #f3f5ff; /* fondo suave para toda la fila */
+  border: 1px solid rgba(76, 107, 255, 0.25);
+}
+
+/* Info de la serie (texto) */
+.registro-serie-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.registro-serie-titulo {
+  font-weight: 600;
+  font-size: 1rem;
+  color: #1f2933;
+}
+
+.registro-serie-detalle {
+  font-size: 0.9rem;
+  color: #4b5563;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Contenedor del input */
+.registro-serie-input {
+  flex: 0 0 140px;
+}
+
+/* Input grande y muy visible */
+.registro-serie-input-control {
+  font-size: 1.1rem;
+  font-weight: 600;
+  text-align: center;
+  padding: 0.45rem 0.75rem;
+  border-radius: 999px;
+  border: 2px solid #4c6bff;
+  background-color: #eef1ff;
+  color: #1f2933;
+  box-shadow: 0 0 0 2px rgba(76, 107, 255, 0.12);
+}
+
+.registro-serie-input-control::placeholder {
+  color: #9ca3af;
+}
+
+/* Estado inválido (si el formato no es correcto) */
+.registro-serie-input-control.is-invalid {
+  border-color: #e11d48;
+  box-shadow: 0 0 0 2px rgba(225, 29, 72, 0.15);
+}
+
+/* Responsive: en pantallas muy pequeñas apilar */
+@media (max-width: 576px) {
+  .registro-serie-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .registro-serie-input {
+    flex: 1;
+  }
 }
