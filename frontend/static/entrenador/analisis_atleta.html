@@ -48,9 +48,56 @@
                   <div class="small text-muted">Pendientes</div>
                   <div class="fw-semibold text-warning" id="resumen-semana-pendientes-entrenador">-</div>
                 </div>
+                <div class="text-end">
+                  <div class="small text-muted">Km planificados</div>
+                  <div class="fw-semibold" id="resumen-semana-km-plan">-</div>
+                </div>
+                <div class="text-end">
+                  <div class="small text-muted">Km realizados</div>
+                  <div class="fw-semibold text-success" id="resumen-semana-km-real">-</div>
+                </div>
               </div>
             </div>
           </section>
+        </div>
+      </div>
+    </section>
+
+    <section class="app-card mt-3">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <div>
+          <h2 class="h5 mb-1">Kilómetros por semana</h2>
+          <p class="text-muted small mb-0">Previstos y realizados agrupados por semana.</p>
+        </div>
+      </div>
+      <div class="row g-3">
+        <div class="col-12 col-lg-6">
+          <div class="border rounded p-3 bg-white h-100">
+            <div class="d-flex justify-content-between align-items-center gap-2 mb-2 flex-wrap">
+              <h3 class="h6 mb-0">Kms previstos</h3>
+              <span class="text-muted small">Por semana</span>
+            </div>
+            <div class="chart-container" style="height: 220px;">
+              <canvas id="grafico-kms-plan-canvas"></canvas>
+            </div>
+            <p class="text-muted small mb-0 mt-2" id="grafico-kms-plan-estado">
+              Cargando kms previstos...
+            </p>
+          </div>
+        </div>
+        <div class="col-12 col-lg-6">
+          <div class="border rounded p-3 bg-white h-100">
+            <div class="d-flex justify-content-between align-items-center gap-2 mb-2 flex-wrap">
+              <h3 class="h6 mb-0">Kms reales</h3>
+              <span class="text-muted small">Por semana</span>
+            </div>
+            <div class="chart-container" style="height: 220px;">
+              <canvas id="grafico-kms-real-canvas"></canvas>
+            </div>
+            <p class="text-muted small mb-0 mt-2" id="grafico-kms-real-estado">
+              Cargando kms reales...
+            </p>
+          </div>
         </div>
       </div>
     </section>
@@ -68,6 +115,20 @@
       </div>
       <div id="comparativa-contenido">
         <p class="text-muted mb-0">Selecciona un entrenamiento para ver los tiempos.</p>
+      </div>
+      <div class="mt-4">
+        <div class="d-flex justify-content-between align-items-center gap-2 mb-2 flex-wrap">
+          <h3 class="h6 mb-0">Evolución por fecha</h3>
+          <span class="text-muted small">Tiempo propuesto vs tiempo real</span>
+        </div>
+        <div class="border rounded p-3 bg-white">
+          <div class="chart-container" style="height: 220px;">
+            <canvas id="grafico-tiempo-canvas"></canvas>
+          </div>
+          <p class="text-muted small mb-0 mt-2" id="grafico-tiempo-estado">
+            Selecciona un entrenamiento para ver el gráfico.
+          </p>
+        </div>
       </div>
     </section>
 
@@ -92,6 +153,7 @@
   </template>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="../js/entrenador/analisis_atleta.js" type="module"></script>
 </body>
 </html>

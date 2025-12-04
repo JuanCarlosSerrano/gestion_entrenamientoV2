@@ -68,7 +68,9 @@ const obtenerResultadosEstado = async (entrenamientoId) => {
     const datos = await fetchJSON(
       `${API}/entrenamientos_asignados/${entrenamientoId}/resultados`
     );
-    const hay = Array.isArray(datos) && datos.length > 0;
+    const hay =
+      (Array.isArray(datos) && datos.length > 0) ||
+      Boolean(datos?.km_realizados_total);
     resultadosCache.set(entrenamientoId, hay);
     return hay;
   } catch (err) {
@@ -404,8 +406,8 @@ btnGuardarTiempos?.addEventListener("click", async () => {
     }
   });
 
-  if (!seriesPayload.length) {
-    alert("Introduce al menos un tiempo válido.");
+  if (!seriesPayload.length && !kmRealizadosValor && !comentario) {
+    alert("Introduce al menos un tiempo válido o los kilómetros realizados.");
     return;
   }
 

@@ -42,7 +42,13 @@ const obtenerResultadosDetalle = async (entrenamientoId) => {
     const datos = await fetchJSON(
       `${API}/entrenamientos_asignados/${entrenamientoId}/resultados`
     );
-    resultadosCache.set(entrenamientoId, Array.isArray(datos) ? datos : []);
+    if (Array.isArray(datos) && datos.length) {
+      resultadosCache.set(entrenamientoId, datos);
+    } else if (datos && datos.km_realizados_total) {
+      resultadosCache.set(entrenamientoId, [datos]);
+    } else {
+      resultadosCache.set(entrenamientoId, Array.isArray(datos) ? datos : []);
+    }
     return resultadosCache.get(entrenamientoId);
   } catch (err) {
     console.warn("No se pudieron obtener resultados", entrenamientoId, err);
@@ -53,7 +59,9 @@ const obtenerResultadosDetalle = async (entrenamientoId) => {
 
 const obtenerResultadosEstado = async (entrenamientoId) => {
   const datos = await obtenerResultadosDetalle(entrenamientoId);
-  return Array.isArray(datos) && datos.length > 0;
+  if (!Array.isArray(datos)) return false;
+  if (datos.length > 0) return true;
+  return Boolean(datos.find?.((d) => d?.km_realizados_total));
 };
 
 const parseFecha = (valor) => {
@@ -428,8 +436,8 @@ btnGuardarTiempos?.addEventListener("click", async () => {
     }
   });
 
-  if (!seriesPayload.length) {
-    alert("Introduce al menos un tiempo válido.");
+  if (!seriesPayload.length && !kmRealizadosValor && !comentario) {
+    alert("Introduce al menos un tiempo válido o los kilómetros realizados.");
     return;
   }
 
