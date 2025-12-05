@@ -12,6 +12,15 @@ const authHeader = () =>
   "Basic " +
   btoa(`${localStorage.getItem("userEmail")}:${localStorage.getItem("userPassword")}`);
 
+const formatFechaCorta = (valor) => {
+  const d = new Date(valor);
+  if (Number.isNaN(d.getTime())) return valor || "";
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}-${mm}-${yyyy}`;
+};
+
 const renderTablaBloques = (bloques = []) => {
   if (!Array.isArray(bloques) || !bloques.length) {
     return '<p class="text-muted small mb-0">Este entrenamiento no tiene bloques configurados.</p>';
@@ -80,7 +89,7 @@ document.addEventListener("DOMContentLoaded", async () => {
               ${fb.tiempo_realizado ? `<small><strong>Tiempo:</strong> ${fb.tiempo_realizado}</small><br>` : ""}
               ${fb.percepcion ? `<small><strong>Percepción:</strong> ${fb.percepcion}</small><br>` : ""}
               ${fb.enlace ? `<a href="${fb.enlace}" target="_blank" rel="noopener" class="link-primary">Ver registro</a><br>` : ""}
-              <small class="text-muted">${new Date(fb.fecha).toLocaleString()}</small>
+              <small class="text-muted">${formatFechaCorta(fb.fecha)}</small>
               ${fb.respuesta ? `
                 <div class="mt-3 p-3 rounded border border-success bg-light">
                   <strong class="text-success">Respuesta enviada:</strong>
@@ -141,13 +150,14 @@ window.abrirModalFeedback = async function (feedbackId) {
       document.getElementById('modal-feedback-body').innerHTML = `
         <p><strong>Atleta:</strong> ${fb.atleta}</p>
         <p><strong>Entrenamiento:</strong> ${fb.entrenamiento_nombre || '-'}</p>
-        <p><strong>Fecha del entrenamiento:</strong> ${new Date(fb.fecha_entreno).toLocaleDateString()}</p>
+        <p><strong>Fecha del entrenamiento:</strong> ${formatFechaCorta(fb.fecha_entreno)}</p>
         <p><strong>Comentario:</strong> ${fb.comentario}</p>
+        ${fb.url_datos ? `<p><strong>Actividad:</strong> <a href="${fb.url_datos}" target="_blank" rel="noopener">${fb.url_datos}</a></p>` : ''}
         ${fb.resultado ? `<p><strong>Resultado:</strong> ${fb.resultado}</p>` : ''}
         ${fb.tiempo_realizado ? `<p><strong>Tiempo:</strong> ${fb.tiempo_realizado}</p>` : ''}
         ${fb.percepcion ? `<p><strong>Percepción del esfuerzo:</strong> ${fb.percepcion}</p>` : ''}
         ${fb.enlace ? `<p><strong>Enlace:</strong> <a href="${fb.enlace}" target="_blank" rel="noopener">${fb.enlace}</a></p>` : ''}
-        <p><strong>Fecha del feedback:</strong> ${new Date(fb.fecha).toLocaleString()}</p>
+        <p><strong>Fecha del feedback:</strong> ${formatFechaCorta(fb.fecha)}</p>
         <p><strong>Estado:</strong> ${fb.leido ? 'Leído' : 'No leído'}</p>
         ${tablaBloques}
         ${respuestaHtml}

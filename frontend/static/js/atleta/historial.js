@@ -13,6 +13,7 @@ const entrenamientosPorId = new Map();
 const modalEl = document.getElementById("modalRegistrarTiempos");
 const listaIntervalos = document.getElementById("lista-intervalos-tiempos");
 const comentarioInput = document.getElementById("comentario-feedback");
+const urlDatosInput = document.getElementById("url-datos");
 const btnGuardarTiempos = document.getElementById("btn-guardar-tiempos");
 const modalTitulo = modalEl?.querySelector(".modal-title");
 const modalRegistrar = modalEl ? new window.bootstrap.Modal(modalEl) : null;
@@ -127,9 +128,10 @@ modalEl?.addEventListener("hidden.bs.modal", () => {
   if (comentarioInput) comentarioInput.value = "";
   if (kmInput) kmInput.value = "";
   if (kmHelper) kmHelper.textContent = "Introduce el volumen real completado.";
+  if (urlDatosInput) urlDatosInput.value = "";
 });
 
-const enviarFeedback = async (entrenamientoId, comentario) => {
+const enviarFeedback = async (entrenamientoId, comentario, url_datos) => {
   if (!comentario) return;
   const csrf = await getCsrfToken();
   const response = await fetch(`${API}/feedback`, {
@@ -142,7 +144,8 @@ const enviarFeedback = async (entrenamientoId, comentario) => {
     },
     body: JSON.stringify({
       entrenamiento_id: entrenamientoId,
-      comentario
+      comentario,
+      url_datos
     })
   });
   const data = await response.json().catch(() => ({}));
@@ -467,7 +470,7 @@ btnGuardarTiempos?.addEventListener("click", async () => {
     resultadosCache.set(entrenamientoActivo.id, seriesPayload);
 
     if (comentario) {
-      await enviarFeedback(entrenamientoActivo.id, comentario);
+      await enviarFeedback(entrenamientoActivo.id, comentario, urlDatosInput?.value?.trim() || null);
     }
 
     alert("Tiempos actualizados correctamente");

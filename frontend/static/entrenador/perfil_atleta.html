@@ -128,12 +128,49 @@
             </thead>
             <tbody id="tabla-zonas"></tbody>
           </table>
-          <button id="guardar-zonas" class="btn btn-success">Guardar zonas en base de datos</button>
-          <a href="atletas.html" class="btn btn-primary">
+          <div class="d-flex flex-wrap gap-2">
+            <button id="guardar-zonas" class="btn btn-success">Guardar zonas en base de datos</button>
+            <button id="btn-editar-zonas" class="btn btn-outline-primary" type="button">Editar zonas manualmente</button>
+            <a href="atletas.html" class="btn btn-primary">
             ← Volver
-          </a>
+            </a>
+          </div>
         </div>
+        <div id="form-zonas-manual" class="mt-3 d-none">
+          <h6 class="mb-2">Editar zonas manualmente</h6>
+          <div class="row g-2">
+            <div class="col-6 col-md-4">
+              <label class="form-label small mb-1">Z1 (mm:ss)</label>
+              <input type="text" class="form-control form-control-sm zona-input" id="input-z1" inputmode="numeric" pattern="[0-9:]*" placeholder="4:30" />
+            </div>
+            <div class="col-6 col-md-4">
+              <label class="form-label small mb-1">Z2 (mm:ss)</label>
+              <input type="text" class="form-control form-control-sm zona-input" id="input-z2" inputmode="numeric" pattern="[0-9:]*" placeholder="4:10" />
+            </div>
+            <div class="col-6 col-md-4">
+              <label class="form-label small mb-1">Z3 (mm:ss)</label>
+              <input type="text" class="form-control form-control-sm zona-input" id="input-z3" inputmode="numeric" pattern="[0-9:]*" placeholder="3:50" />
+            </div>
+            <div class="col-6 col-md-4">
+              <label class="form-label small mb-1">Z4 (mm:ss)</label>
+              <input type="text" class="form-control form-control-sm zona-input" id="input-z4" inputmode="numeric" pattern="[0-9:]*" placeholder="3:30" />
+            </div>
+            <div class="col-6 col-md-4">
+              <label class="form-label small mb-1">Z5 (mm:ss)</label>
+              <input type="text" class="form-control form-control-sm zona-input" id="input-z5" inputmode="numeric" pattern="[0-9:]*" placeholder="3:15" />
+            </div>
+            <div class="col-6 col-md-4">
+              <label class="form-label small mb-1">Z6 (mm:ss)</label>
+              <input type="text" class="form-control form-control-sm zona-input" id="input-z6" inputmode="numeric" pattern="[0-9:]*" placeholder="3:00" />
+            </div>
+          </div>
+          <div class="mt-3 d-flex gap-2">
+            <button id="btn-guardar-manual" class="btn btn-brand btn-sm" type="button">Guardar zonas manuales</button>
+            <button id="btn-cancelar-manual" class="btn btn-outline-secondary btn-sm" type="button">Cancelar</button>
+          </div>
         </div>
+      </div>
+      </div>
       <div data-include="../partials/footer.html"></div>
     </div>
   </div>

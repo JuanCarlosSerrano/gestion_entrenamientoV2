@@ -1,8 +1,12 @@
 import { API, authHeader, getAtletaId, fetchJSON } from "./api.js";
+import "../utils/csrf.js";
 
 const formPerfil = document.getElementById("form-perfil");
 const inputNombre = document.getElementById("input-nombre");
 const inputApellidos = document.getElementById("input-apellidos");
+const inputEmail = document.getElementById("input-email");
+const inputTelefono = document.getElementById("input-telefono");
+const inputFecha = document.getElementById("input-fecha");
 const inputFoto = document.getElementById("input-foto");
 const fotoPerfil = document.getElementById("foto-perfil");
 const zonasEmpty = document.getElementById("zonas-empty");
@@ -51,6 +55,9 @@ const cargarPerfil = async () => {
     const perfil = await fetchJSON(`${API}/perfil_atleta/${atletaId}`);
     inputNombre.value = perfil.nombre || "";
     inputApellidos.value = perfil.apellidos || "";
+    inputEmail.value = perfil.email || "";
+    inputTelefono.value = perfil.telefono || "";
+    inputFecha.value = perfil.fecha_nacimiento || "";
     if (perfil.foto_url && fotoPerfil) fotoPerfil.src = perfil.foto_url;
   } catch (err) {
     console.error("Error al cargar perfil:", err);
@@ -67,9 +74,17 @@ const cargarPerfil = async () => {
 
 const actualizarPerfil = async (event) => {
   event.preventDefault();
+  const csrf = await window.CSRF.ensureToken().catch(() => null);
+  if (!csrf) {
+    alert("No se pudo obtener token CSRF. Recarga la página.");
+    return;
+  }
   const formData = new FormData();
   formData.append("nombre", inputNombre.value.trim());
   formData.append("apellidos", inputApellidos.value.trim());
+  formData.append("email", inputEmail.value.trim());
+  formData.append("telefono", inputTelefono.value.trim());
+  formData.append("fecha_nacimiento", inputFecha.value);
   if (inputFoto.files[0]) {
     formData.append("foto", inputFoto.files[0]);
   }
@@ -78,7 +93,8 @@ const actualizarPerfil = async (event) => {
       method: "POST",
       credentials: "include",
       headers: {
-        Authorization: authHeader()
+        Authorization: authHeader(),
+        "X-CSRF-Token": csrf
       },
       body: formData
     });
@@ -95,4 +111,51 @@ const actualizarPerfil = async (event) => {
 document.addEventListener("DOMContentLoaded", () => {
   cargarPerfil();
   formPerfil?.addEventListener("submit", actualizarPerfil);
+});
+
+// Cambio de contraseña
+const formPassword = document.getElementById("form-password");
+const inputPassActual = document.getElementById("input-pass-actual");
+const inputPassNueva = document.getElementById("input-pass-nueva");
+const inputPassConfirm = document.getElementById("input-pass-confirm");
+
+const cambiarPassword = async (event) => {
+  event.preventDefault();
+  if (inputPassNueva.value !== inputPassConfirm.value) {
+    alert("La confirmación de contraseña no coincide.");
+    return;
+  }
+  const csrf = await window.CSRF.ensureToken().catch(() => null);
+  if (!csrf) {
+    alert("No se pudo obtener token CSRF. Recarga la página.");
+    return;
+  }
+  try {
+    const res = await fetch(`${API}/usuarios/password`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: authHeader(),
+        "X-CSRF-Token": csrf
+      },
+      body: JSON.stringify({
+        password_actual: inputPassActual.value,
+        password_nueva: inputPassNueva.value
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || "No se pudo cambiar la contraseña");
+    alert("Contraseña actualizada correctamente");
+    inputPassActual.value = "";
+    inputPassNueva.value = "";
+    inputPassConfirm.value = "";
+  } catch (err) {
+    console.error("Error al cambiar contraseña:", err);
+    alert(err.message || "No se pudo cambiar la contraseña");
+  }
+};
+
+document.addEventListener("DOMContentLoaded", () => {
+  formPassword?.addEventListener("submit", cambiarPassword);
 });

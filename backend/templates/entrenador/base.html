@@ -27,14 +27,10 @@
               <li class="nav-item">
                 <a class="nav-link {% if active_nav == 'inicio' %}active{% endif %}" href="{{ url_for('entrenador_dashboard') }}">Inicio</a>
               </li>
-              <li class="nav-item dropdown">
-                <a class="nav-link dropdown-toggle {% if active_nav and 'atletas' in active_nav %}active{% endif %}" href="#" id="dropdownAtletas" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              <li class="nav-item">
+                <a class="nav-link {% if active_nav and 'atletas' in active_nav %}active{% endif %}" href="{{ url_for('static', filename='entrenador/atletas.html') }}">
                   Mis Atletas
                 </a>
-                <ul class="dropdown-menu" aria-labelledby="dropdownAtletas">
-                  <li><a class="dropdown-item" href="{{ url_for('static', filename='entrenador/atletas.html') }}">Lista de Atletas</a></li>
-                  <li><a class="dropdown-item" href="{{ url_for('static', filename='entrenador/aprobar_atletas.html') }}">Aprobar Solicitudes</a></li>
-                </ul>
               </li>
               <li class="nav-item">
                 <a class="nav-link {% if active_nav == 'grupos' %}active{% endif %}" href="{{ url_for('static', filename='entrenador/grupo_entrenamiento.html') }}">Gestión de grupos</a>

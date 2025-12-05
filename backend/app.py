@@ -2,13 +2,18 @@ from flask import Flask, jsonify, request, session
 from flask import redirect, url_for
 from flask_cors import CORS
 from flask_session import Session
-import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import os
 from werkzeug.utils import secure_filename
 import secrets
+import sqlite3
+
+try:
+    import mariadb  # type: ignore
+except ImportError:  # El paquete se instala sólo cuando se usa MariaDB
+    mariadb = None
 
 app = Flask(__name__, static_folder='../frontend/static')  # Configuración correcta de static_folder
 CORS(app)
@@ -23,9 +28,146 @@ app.config["SESSION_COOKIE_SECURE"] = True  # 1 hora de duración de la sesión
 Session(app)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE = os.path.join(BASE_DIR, 'atletas.db')
+DB_ENGINE = os.getenv("DB_ENGINE", "mariadb").lower()  # mariadb | sqlite
+MARIADB_CONFIG = {
+    "host": os.getenv("DB_HOST", "127.0.0.1"),
+    "port": int(os.getenv("DB_PORT", "3306")),
+    "user": os.getenv("DB_USER", "root"),
+    "password": os.getenv("DB_PASSWORD", ""),
+    "database": os.getenv("DB_NAME", "gestion_entrenamiento"),
+}
+DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError,)
+if mariadb:
+    DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError, mariadb.IntegrityError)
+
+
+def ensure_meta_columns():
+    """
+    Asegura columnas de propietario (creador_id) y extras (force_password_change, url_datos).
+    """
+    tablas_owner = ("entrenamientos", "microciclos", "mesociclos", "macrociclos")
+    if DB_ENGINE == "mariadb":
+        conn = get_db()
+        cur = conn.cursor()
+        try:
+            for tabla in tablas_owner:
+                try:
+                    cur.execute(f"ALTER TABLE {tabla} ADD COLUMN IF NOT EXISTS creador_id INT NULL")
+                    cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{tabla}_creador ON {tabla}(creador_id)")
+                except Exception:
+                    pass
+            try:
+                cur.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS force_password_change TINYINT DEFAULT 0")
+            except Exception:
+                pass
+            try:
+                cur.execute("ALTER TABLE feedbacks ADD COLUMN IF NOT EXISTS url_datos TEXT")
+            except Exception:
+                pass
+            conn.commit()
+        finally:
+            cur.close()
+            conn.close()
+    else:
+        conn = get_db()
+        cur = conn.cursor()
+        try:
+            for tabla in tablas_owner:
+                try:
+                    cur.execute(f"PRAGMA table_info({tabla})")
+                    cols = [row[1] for row in cur.fetchall()]
+                    if "creador_id" not in cols:
+                        cur.execute(f"ALTER TABLE {tabla} ADD COLUMN creador_id INTEGER")
+                except Exception:
+                    pass
+            try:
+                cur.execute("PRAGMA table_info(usuarios)")
+                cols = [row[1] for row in cur.fetchall()]
+                if "force_password_change" not in cols:
+                    cur.execute("ALTER TABLE usuarios ADD COLUMN force_password_change INTEGER DEFAULT 0")
+            except Exception:
+                pass
+            try:
+                cur.execute("PRAGMA table_info(feedbacks)")
+                cols = [row[1] for row in cur.fetchall()]
+                if "url_datos" not in cols:
+                    cur.execute("ALTER TABLE feedbacks ADD COLUMN url_datos TEXT")
+            except Exception:
+                pass
+            conn.commit()
+        finally:
+            cur.close()
+            conn.close()
+
+
+def ensure_owner_columns():
+    """
+    Asegura columnas creador_id en tablas clave para limitar visibilidad por entrenador.
+    """
+    tablas = ("entrenamientos", "microciclos", "mesociclos", "macrociclos")
+    if DB_ENGINE == "mariadb":
+        conn = get_db()
+        cur = conn.cursor()
+        for tabla in tablas:
+            try:
+                cur.execute(f"ALTER TABLE {tabla} ADD COLUMN IF NOT EXISTS creador_id INT NULL")
+                cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{tabla}_creador ON {tabla}(creador_id)")
+            except Exception:
+                pass
+        conn.commit()
+        cur.close()
+        conn.close()
+    else:
+        conn = get_db()
+        cur = conn.cursor()
+        for tabla in tablas:
+            try:
+                cur.execute(f"PRAGMA table_info({tabla})")
+                cols = [row[1] for row in cur.fetchall()]
+                if "creador_id" not in cols:
+                    cur.execute(f"ALTER TABLE {tabla} ADD COLUMN creador_id INTEGER")
+            except Exception:
+                pass
+        conn.commit()
+        cur.close()
+        conn.close()
+
+
+class MariaDBConnectionWrapper:
+    """
+    Envuelve la conexión de MariaDB para ofrecer cursores en modo diccionario
+    y tolerar asignaciones a row_factory que hace el código legado.
+    """
+    def __init__(self, conn):
+        object.__setattr__(self, "_conn", conn)
+        object.__setattr__(self, "_row_factory", None)
+
+    def cursor(self):
+        return self._conn.cursor(dictionary=True)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def __setattr__(self, name, value):
+        if name in ("_conn", "_row_factory"):
+            object.__setattr__(self, name, value)
+        elif name == "row_factory":
+            object.__setattr__(self, "_row_factory", value)
+        else:
+            setattr(self._conn, name, value)
 
 
 def get_db():
+    """
+    Devuelve una conexión según el motor configurado (MariaDB por defecto).
+    """
+    if DB_ENGINE == "mariadb":
+        if not mariadb:
+            raise RuntimeError("DB_ENGINE=mariadb pero el paquete mariadb no está instalado")
+        conn = mariadb.connect(**MARIADB_CONFIG)
+        conn.autocommit = False
+        return MariaDBConnectionWrapper(conn)
+
     conn = sqlite3.connect(DATABASE)
     conn.row_factory = sqlite3.Row
     return conn
@@ -33,7 +175,8 @@ def get_db():
 
 def query_db(query, args=(), one=False):
     conn = get_db()
-    cur = conn.execute(query, args)
+    cur = conn.cursor()
+    cur.execute(query, args)
     rv = cur.fetchall()
     cur.close()
     conn.close()
@@ -42,18 +185,69 @@ def query_db(query, args=(), one=False):
 
 def execute_db(query, args=()):
     conn = get_db()
-    cur = conn.execute(query, args)
+    cur = conn.cursor()
+    cur.execute(query, args)
     conn.commit()
+    last_id = cur.lastrowid
     cur.close()
     conn.close()
+    return last_id
+
+
+def upsert_km_realizados(cur, entrenamiento_asignado_id, km_planificados, km_realizados, fecha):
+    """
+    Inserta/actualiza la tabla de km realizados respetando el motor de BD.
+    """
+    if DB_ENGINE == "mariadb":
+        cur.execute(
+            """
+            INSERT INTO km_realizados_entrenamientos (
+                entrenamiento_asignado_id, km_planificados, km_realizados, fecha
+            ) VALUES (?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                km_planificados = VALUES(km_planificados),
+                km_realizados = VALUES(km_realizados),
+                fecha = VALUES(fecha)
+            """,
+            (entrenamiento_asignado_id, km_planificados, km_realizados, fecha),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT INTO km_realizados_entrenamientos (
+                entrenamiento_asignado_id, km_planificados, km_realizados, fecha
+            ) VALUES (?, ?, ?, ?)
+            ON CONFLICT(entrenamiento_asignado_id)
+            DO UPDATE SET km_planificados = excluded.km_planificados,
+                          km_realizados = excluded.km_realizados,
+                          fecha = excluded.fecha
+            """,
+            (entrenamiento_asignado_id, km_planificados, km_realizados, fecha),
+        )
 
 
 def init_db():
+    schema_file = "schema_mariadb.sql" if DB_ENGINE == "mariadb" else "schema.sql"
+    schema_path = os.path.join(BASE_DIR, schema_file)
+
+    if not os.path.exists(schema_path):
+        raise FileNotFoundError(f"No se encontró el esquema {schema_path}")
+
     with app.app_context():
-        db = get_db()
-        with open('schema.sql', 'r') as f:
-            db.cursor().executescript(f.read())
-        db.commit()
+        conn = get_db()
+        with open(schema_path, "r") as f:
+            script = f.read()
+
+        if DB_ENGINE == "sqlite":
+            conn.executescript(script)
+        else:
+            cur = conn.cursor()
+            statements = [s.strip() for s in script.split(";") if s.strip()]
+            for stmt in statements:
+                cur.execute(stmt)
+            cur.close()
+        conn.commit()
+        conn.close()
 
 
 @app.cli.command('initdb')
@@ -62,6 +256,8 @@ def initdb_command():
     init_db()
     print('Initialized the database.')
 
+# Aseguramos columnas auxiliares en tablas clave
+ensure_meta_columns()
 
 # Función para verificar el rol del usuario (decorator)
 def requires_roles(*roles):
@@ -170,10 +366,8 @@ def register_user():
 
     password_hash = generate_password_hash(password)
 
-    # Lógica de aprobado:
-    # - atletas: pendiente (0)
-    # - resto: aprobado directamente (1) -> ajusta si quieres validar también
-    aprobado = 0 if rol == 'atleta' else 1
+    # Lógica de aprobado: ahora todos se marcan como aprobados al crearse.
+    aprobado = 1
 
     try:
         conn = get_db()
@@ -211,7 +405,7 @@ def register_user():
 
         return jsonify({'message': mensaje}), 201
 
-    except sqlite3.IntegrityError as e:
+    except DB_INTEGRITY_ERRORS as e:
         print("Error de integridad al registrar:", e)
         return jsonify({'error': 'Error al registrar el usuario (integridad de datos)'}), 500
 
@@ -233,7 +427,7 @@ def login_user():
         print('Email o password faltantes')
         return jsonify({'error': 'Correo electrónico y contraseña son obligatorios'}), 400
 
-    user = query_db('SELECT id, rol, email, password_hash FROM usuarios WHERE email = ?', (email,), one=True)
+    user = query_db('SELECT id, rol, email, password_hash, force_password_change FROM usuarios WHERE email = ?', (email,), one=True)
     print(f'Usuario recuperado: {user}')
 
     if user and check_password_hash(user['password_hash'], password):
@@ -242,10 +436,16 @@ def login_user():
         session["user_rol"] = user["rol"]
         session["user_email"] = user["email"]
 
+        try:
+            force_change = user["force_password_change"]
+        except Exception:
+            force_change = None
+
         response = {
             'message': 'Inicio de sesión exitoso',
             'rol': user['rol'],
-            'user_id': user['id']
+            'user_id': user['id'],
+            'force_password_change': force_change
         }
 
         if user['rol'] == 'atleta':
@@ -299,11 +499,11 @@ def create_user(current_user):
 
     try:
         execute_db(
-            'INSERT INTO usuarios (nombre, apellidos, email, password_hash, rol) VALUES (?, ?, ?, ?, ?)',
+            'INSERT INTO usuarios (nombre, apellidos, email, password_hash, rol, force_password_change) VALUES (?, ?, ?, ?, ?, 0)',
             (nombre, apellidos, email, password_hash, rol)
         )
         return jsonify({'message': 'Usuario creado exitosamente'}), 201
-    except sqlite3.IntegrityError:
+    except DB_INTEGRITY_ERRORS:
         return jsonify({'error': 'Error al crear el usuario'}), 500
 
 @app.route('/atletas/<int:id>', methods=['PUT'])
@@ -381,16 +581,12 @@ def crear_atleta_desde_entrenador(current_user):
     grupo = (data.get('grupo') or '').strip() or None
     subgrupo = (data.get('subgrupo') or '').strip() or None
 
-    # OJO: nombres de campos tal como los mande tu JS
-    password = data.get('password') or data.get('contrasena') or ''
-    password_confirm = (data.get('confirmPassword') or data.get('confirmar_contrasena') or None)
+    # Contraseña temporal fija
+    password = "cambiame"
 
     # --- Validaciones básicas ---
     if not nombre or not apellidos or not email:
         return jsonify({'error': 'Nombre, apellidos y email son obligatorios'}), 400
-
-    if not password:
-        return jsonify({'error': 'La contraseña temporal es obligatoria'}), 400
 
     # ¿Ya existe ese email?
     existente = query_db(
@@ -412,8 +608,8 @@ def crear_atleta_desde_entrenador(current_user):
                 nombre, apellidos, email, password_hash,
                 telefono, fecha_nacimiento,
                 categoria, grupo, subgrupo,
-                rol, entrenador_id, aprobado
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "atleta", ?, 1)
+                rol, entrenador_id, aprobado, force_password_change
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, "atleta", ?, 1, 1)
             ''',
             (
                 nombre,
@@ -473,6 +669,7 @@ def update_user(current_user, id):
     apellidos = data.get('apellidos')
     email = data.get('email')
     rol = data.get('rol')
+    password = data.get('password')
 
     if not nombre or not apellidos or not email or not rol:
         return jsonify({'error': 'Todos los campos son obligatorios'}), 400
@@ -480,10 +677,22 @@ def update_user(current_user, id):
     if rol not in ('admin', 'entrenador', 'atleta'):
         return jsonify({'error': 'Rol inválido'}), 400
 
-    execute_db(
-        'UPDATE usuarios SET nombre = ?, apellidos = ?, email = ?, rol = ? WHERE id = ?',
-        (nombre, apellidos, email, rol, id)
-    )
+    if password:
+        password_hash = generate_password_hash(password)
+        # Al cambiar contraseña desde admin forzamos que el usuario la renueve
+        execute_db(
+            '''
+            UPDATE usuarios
+            SET nombre = ?, apellidos = ?, email = ?, rol = ?, password_hash = ?, force_password_change = 1
+            WHERE id = ?
+            ''',
+            (nombre, apellidos, email, rol, password_hash, id)
+        )
+    else:
+        execute_db(
+            'UPDATE usuarios SET nombre = ?, apellidos = ?, email = ?, rol = ? WHERE id = ?',
+            (nombre, apellidos, email, rol, id)
+        )
     return jsonify({'message': 'Usuario actualizado exitosamente'}), 200
 
 
@@ -492,6 +701,55 @@ def update_user(current_user, id):
 def delete_user(current_user, id):
     execute_db('DELETE FROM usuarios WHERE id = ?', (id,))
     return jsonify({'message': 'Usuario eliminado exitosamente'}), 200
+
+
+@app.route('/usuarios/password', methods=['POST'])
+@requires_roles('admin', 'entrenador', 'atleta')
+def cambiar_password(current_user):
+    data = request.get_json(silent=True) or {}
+    password_actual = data.get('password_actual') or data.get('current_password')
+    password_nueva = data.get('password_nueva') or data.get('new_password')
+
+    if not password_nueva:
+        return jsonify({'error': 'Falta la nueva contraseña'}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("SELECT password_hash, force_password_change FROM usuarios WHERE id = ?", (current_user['id'],))
+        row = cur.fetchone()
+        if not row:
+            return jsonify({'error': 'Usuario no encontrado'}), 404
+
+        stored_hash = row["password_hash"] if isinstance(row, dict) else row[0]
+        force_flag = row["force_password_change"] if isinstance(row, dict) else row[1]
+
+        # Si hay contraseña actual, validamos. Si no hay y hay flag de cambio forzado, permitimos.
+        if password_actual:
+            if not check_password_hash(stored_hash, password_actual):
+                return jsonify({'error': 'Contraseña actual incorrecta'}), 400
+        else:
+            if not force_flag:
+                return jsonify({'error': 'Debes indicar tu contraseña actual'}), 400
+
+        new_hash = generate_password_hash(password_nueva)
+        cur.execute(
+            "UPDATE usuarios SET password_hash = ?, force_password_change = 0 WHERE id = ?",
+            (new_hash, current_user['id'])
+        )
+        conn.commit()
+        return jsonify({'message': 'Contraseña actualizada'}), 200
+    except Exception as e:
+        print("Error al cambiar contraseña:", e)
+        conn.rollback()
+        return jsonify({'error': 'No se pudo actualizar la contraseña'}), 500
+    finally:
+        try:
+            cur.close()
+            conn.close()
+        except Exception:
+            pass
 
 
 # --- Rutas para Atletas ---
@@ -554,8 +812,23 @@ def actualizar_perfil(current_user):
         usuario_id = current_user['id']
         nombre = request.form.get('nombre')
         apellidos = request.form.get('apellidos')
+        email = (request.form.get('email') or '').strip()
+        telefono = (request.form.get('telefono') or '').strip() or None
+        fecha_nacimiento = (request.form.get('fecha_nacimiento') or '').strip() or None
         foto = request.files.get('foto')
         foto_url = None
+
+        if not nombre or not apellidos or not email:
+            return jsonify({"error": "Nombre, apellidos y email son obligatorios"}), 400
+
+        # Comprobar email único
+        existente = query_db(
+            "SELECT id FROM usuarios WHERE email = ? AND id != ?",
+            (email, usuario_id),
+            one=True
+        )
+        if existente:
+            return jsonify({"error": "Ese correo ya está en uso"}), 409
 
         if foto:
             # Carpeta de destino
@@ -575,14 +848,22 @@ def actualizar_perfil(current_user):
 
             # Actualizar con imagen
             execute_db(
-                "UPDATE usuarios SET nombre = ?, apellidos = ?, foto_url = ? WHERE id = ?",
-                (nombre, apellidos, foto_url, usuario_id)
+                """
+                UPDATE usuarios
+                SET nombre = ?, apellidos = ?, email = ?, telefono = ?, fecha_nacimiento = ?, foto_url = ?
+                WHERE id = ?
+                """,
+                (nombre, apellidos, email, telefono, fecha_nacimiento, foto_url, usuario_id)
             )
         else:
             # Actualizar sin imagen
             execute_db(
-                "UPDATE usuarios SET nombre = ?, apellidos = ? WHERE id = ?",
-                (nombre, apellidos, usuario_id)
+                """
+                UPDATE usuarios
+                SET nombre = ?, apellidos = ?, email = ?, telefono = ?, fecha_nacimiento = ?
+                WHERE id = ?
+                """,
+                (nombre, apellidos, email, telefono, fecha_nacimiento, usuario_id)
             )
 
         return jsonify({
@@ -621,7 +902,6 @@ def crear_entrenamiento(current_user):
     if km_totales < 0:
         km_totales = 0
     conn = get_db()
-    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
     try:
@@ -672,10 +952,10 @@ def crear_entrenamiento(current_user):
         # ====== 2) Insertar en entrenamientos ======
         cur.execute(
             """
-            INSERT INTO entrenamientos (nombre, objetivo, notas, bloque_principal, km_totales)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO entrenamientos (nombre, objetivo, notas, bloque_principal, km_totales, creador_id)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (nombre, objetivo, notas, bloque_principal, km_totales)
+            (nombre, objetivo, notas, bloque_principal, km_totales, current_user["id"])
         )
         entrenamiento_id = cur.lastrowid
 
@@ -792,17 +1072,22 @@ def calcular_km_totales_desde_pasos(pasos):
 @app.route('/entrenamientos', methods=['GET'])
 @requires_roles('admin', 'entrenador', 'atleta')
 def obtener_entrenamientos(current_user):
-    entrenamientos = query_db('SELECT * FROM entrenamientos')
+    if current_user["rol"] == "entrenador":
+        entrenamientos = query_db(
+            "SELECT * FROM entrenamientos WHERE creador_id = ? OR creador_id IS NULL",
+            (current_user["id"],),
+        )
+    else:
+        entrenamientos = query_db('SELECT * FROM entrenamientos')
     return jsonify([dict(entrenamiento) for entrenamiento in entrenamientos])
 
-def get_entrenamiento_con_pasos(entrenamiento_id: int):
+def get_entrenamiento_con_pasos(entrenamiento_id: int, current_user=None):
     conn = get_db()
-    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
     # 1) Datos básicos del entrenamiento
     cur.execute("""
-        SELECT id, nombre, objetivo, notas, bloque_principal, km_totales
+        SELECT id, nombre, objetivo, notas, bloque_principal, km_totales, creador_id
         FROM entrenamientos
         WHERE id = ?
     """, (entrenamiento_id,))
@@ -812,6 +1097,12 @@ def get_entrenamiento_con_pasos(entrenamiento_id: int):
         cur.close()
         conn.close()
         return None
+    if current_user and current_user.get("rol") == "entrenador":
+        creador = row.get("creador_id") if isinstance(row, dict) else row[6]
+        if creador not in (None, current_user.get("id")):
+            cur.close()
+            conn.close()
+            return None
 
     entrenamiento = {
         "id": row["id"],
@@ -891,7 +1182,7 @@ def get_entrenamiento_con_pasos(entrenamiento_id: int):
 @requires_roles('admin', 'entrenador')
 def obtener_entrenamiento(current_user, id):
     try:
-        entrenamiento = get_entrenamiento_con_pasos(id)
+        entrenamiento = get_entrenamiento_con_pasos(id, current_user)
         if not entrenamiento:
             return jsonify({"error": "Entrenamiento no encontrado"}), 404
         return jsonify(entrenamiento), 200
@@ -1080,6 +1371,14 @@ def get_calendario(current_user, atleta_id):
             (atleta_id,)
         )
 
+        def fecha_to_iso(val):
+            try:
+                if hasattr(val, "isoformat"):
+                    return val.isoformat()
+            except Exception:
+                pass
+            return str(val) if val is not None else None
+
         eventos = []
         for e in entrenamientos_asignados:
             # visible puede ser None en algunos registros antiguos
@@ -1095,7 +1394,7 @@ def get_calendario(current_user, atleta_id):
             eventos.append({
                 "id": e["id"],
                 "title": e["nombre"],
-                "start": e["fecha"],
+                "start": fecha_to_iso(e["fecha"]),
                 "visible": visible,
             })
 
@@ -1135,10 +1434,6 @@ def get_calendario(current_user, atleta_id):
         return jsonify({'error': 'Error al cargar el calendario'}), 500
 
 
-from flask import redirect, url_for
-import sqlite3
-from datetime import datetime
-
 # ============================================================
 # Helper: clonar detalle de un entrenamiento base a uno asignado
 # ============================================================
@@ -1148,12 +1443,16 @@ def clonar_detalle_entrenamiento(cur, plantilla_ent_id, asignado_id):
     Copia los pasos de entrenamientos_detalle → entrenamientos_asignados_detalle,
     respetando jerarquía (parent_id / orden).
     """
-    detalles = cur.execute("""
+    cur.execute(
+        """
         SELECT *
         FROM entrenamientos_detalle
         WHERE entrenamiento_id = ?
         ORDER BY parent_id IS NOT NULL, parent_id, orden, id
-    """, (plantilla_ent_id,)).fetchall()
+        """,
+        (plantilla_ent_id,),
+    )
+    detalles = cur.fetchall()
 
     id_map = {}  # plantilla_id → asignado_detalle_id
 
@@ -1209,8 +1508,6 @@ def clonar_entrenamiento_para_atleta(
     macrociclo_id = meta.get("macrociclo_id")
     mesociclo_id = meta.get("mesociclo_id")
     microciclo_id = meta.get("microciclo_id")
-    categoria = meta.get("categoria")
-    intensidad = meta.get("intensidad")
 
     if isinstance(fecha, datetime):
         fecha_str = fecha.isoformat()
@@ -1222,14 +1519,15 @@ def clonar_entrenamiento_para_atleta(
     cur = conn.cursor()
 
     try:
-        entrenamiento = cur.execute(
+        cur.execute(
             """
             SELECT id, nombre, objetivo, notas, km_totales
             FROM entrenamientos
             WHERE id = ?
             """,
             (entrenamiento_id,),
-        ).fetchone()
+        )
+        entrenamiento = cur.fetchone()
 
         if entrenamiento is None:
             raise ValueError("Entrenamiento base no encontrado")
@@ -1240,10 +1538,9 @@ def clonar_entrenamiento_para_atleta(
             INSERT INTO entrenamientos_asignados (
                 atleta_id, fecha, entrenamiento_id, visible,
                 ciclo_tipo, ciclo_id, macrociclo_id, mesociclo_id, microciclo_id,
-                categoria, intensidad,
                 nombre, objetivo, notas, km_previstos, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 atleta_id,
@@ -1255,8 +1552,6 @@ def clonar_entrenamiento_para_atleta(
                 macrociclo_id,
                 mesociclo_id,
                 microciclo_id,
-                categoria,
-                intensidad,
                 entrenamiento["nombre"],
                 entrenamiento["objetivo"],
                 entrenamiento["notas"],
@@ -1330,11 +1625,12 @@ def crear_entrenamiento_asignado(current_user):
 
     try:
         # Snapshot del entrenamiento base
-        ent = cur.execute("""
+        cur.execute("""
             SELECT id, nombre, objetivo, notas, km_totales
             FROM entrenamientos
             WHERE id = ?
-        """, (entrenamiento_id,)).fetchone()
+        """, (entrenamiento_id,))
+        ent = cur.fetchone()
 
         if not ent:
             return jsonify({'error': 'Entrenamiento base no encontrado'}), 404
@@ -1366,16 +1662,7 @@ def crear_entrenamiento_asignado(current_user):
 
         # Registrar km planificados en tabla resumen
         try:
-            cur.execute(
-                """
-                INSERT INTO km_realizados_entrenamientos (entrenamiento_asignado_id, km_planificados, km_realizados, fecha)
-                VALUES (?, ?, NULL, ?)
-                ON CONFLICT(entrenamiento_asignado_id)
-                DO UPDATE SET km_planificados = excluded.km_planificados,
-                              fecha = excluded.fecha
-                """,
-                (asignado_id, km_previstos, now)
-            )
+            upsert_km_realizados(cur, asignado_id, km_previstos, None, now)
         except Exception as e:
             print("Aviso: no se pudo registrar km planificados en km_realizados_entrenamientos", e)
 
@@ -1430,25 +1717,29 @@ def obtener_entrenamientos_asignados(current_user, atleta_id):
 @requires_roles('admin', 'entrenador', 'atleta')
 def obtener_entrenamiento_asignado(current_user, id):
     conn = get_db()
-    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
     # Cabecera del entrenamiento asignado
-    entrenamiento = cur.execute(
+    cur.execute(
         "SELECT * FROM entrenamientos_asignados WHERE id = ?",
         (id,)
-    ).fetchone()
+    )
+    entrenamiento = cur.fetchone()
 
     if not entrenamiento:
         return jsonify({'error': 'Entrenamiento no encontrado'}), 404
 
     # Detalle de pasos
-    detalles = cur.execute("""
+    cur.execute(
+        """
         SELECT *
         FROM entrenamientos_asignados_detalle
         WHERE entrenamiento_asignado_id = ?
         ORDER BY parent_id IS NOT NULL, parent_id, orden, id
-    """, (id,)).fetchall()
+        """,
+        (id,),
+    )
+    detalles = cur.fetchall()
 
     # Reconstruir árbol de pasos
     pasos_dict = {}
@@ -1503,11 +1794,12 @@ def editar_entrenamiento_asignado(current_user, id):
     cur = conn.cursor()
 
     try:
-        actual = cur.execute("""
+        cur.execute("""
             SELECT *
             FROM entrenamientos_asignados
             WHERE id = ?
-        """, (id,)).fetchone()
+        """, (id,))
+        actual = cur.fetchone()
 
         if not actual:
             return jsonify({'error': 'Entrenamiento asignado no encontrado'}), 404
@@ -1525,11 +1817,12 @@ def editar_entrenamiento_asignado(current_user, id):
         now = datetime.now().isoformat(' ')
 
         # Snapshot del nuevo entrenamiento base (por si cambia)
-        ent_base = cur.execute("""
+        cur.execute("""
             SELECT id, objetivo, notas, km_totales
             FROM entrenamientos
             WHERE id = ?
-        """, (entrenamiento_id_nuevo,)).fetchone()
+        """, (entrenamiento_id_nuevo,))
+        ent_base = cur.fetchone()
 
         if not ent_base:
             return jsonify({'error': 'Entrenamiento base no encontrado'}), 404
@@ -1874,16 +2167,19 @@ def asignar_ciclo_interno(tipo, ciclo_id, atletas, fecha_inicio_str, notas=None,
         return jsonify({'error': 'Lista de atletas inválida'}), 400
 
     conn = get_db()
-    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
     def expand_micro(micro_id, base_offset=0, meso_id=None, macro_id=None):
-        filas = cur.execute("""
+        cur.execute(
+            """
             SELECT dia_relativo, sesion_indice, entrenamiento_id
             FROM microciclos_entrenamientos
             WHERE microciclo_id = ?
             ORDER BY dia_relativo, sesion_indice, orden, id
-        """, (micro_id,)).fetchall()
+            """,
+            (micro_id,),
+        )
+        filas = cur.fetchall()
 
         out = []
         for f in filas:
@@ -1892,12 +2188,16 @@ def asignar_ciclo_interno(tipo, ciclo_id, atletas, fecha_inicio_str, notas=None,
         return out
 
     def expand_meso(meso_id, base_offset=0, macro_id=None):
-        filas = cur.execute("""
+        cur.execute(
+            """
             SELECT id, microciclo_id, orden
             FROM mesociclos_microciclos
             WHERE mesociclo_id = ?
             ORDER BY orden, id
-        """, (meso_id,)).fetchall()
+            """,
+            (meso_id,),
+        )
+        filas = cur.fetchall()
 
         items = []
         for f in filas:
@@ -1908,12 +2208,16 @@ def asignar_ciclo_interno(tipo, ciclo_id, atletas, fecha_inicio_str, notas=None,
         return items, len(filas)
 
     def expand_macro(macro_id, base_offset=0):
-        filas = cur.execute("""
+        cur.execute(
+            """
             SELECT id, mesociclo_id, orden
             FROM macrociclos_mesociclos
             WHERE macrociclo_id = ?
             ORDER BY orden, id
-        """, (macro_id,)).fetchall()
+            """,
+            (macro_id,),
+        )
+        filas = cur.fetchall()
 
         items = []
         current_offset = base_offset
@@ -1939,12 +2243,16 @@ def asignar_ciclo_interno(tipo, ciclo_id, atletas, fecha_inicio_str, notas=None,
         return jsonify({'error': 'El ciclo no tiene entrenamientos'}), 400
 
     def clonar_detalle(plantilla_ent_id, asignado_id):
-        detalles = cur.execute("""
+        cur.execute(
+            """
             SELECT *
             FROM entrenamientos_detalle
             WHERE entrenamiento_id = ?
             ORDER BY parent_id IS NOT NULL, parent_id, orden, id
-        """, (plantilla_ent_id,)).fetchall()
+            """,
+            (plantilla_ent_id,),
+        )
+        detalles = cur.fetchall()
 
         id_map = {}  # plantilla_id → asignado_id
 
@@ -1982,11 +2290,12 @@ def asignar_ciclo_interno(tipo, ciclo_id, atletas, fecha_inicio_str, notas=None,
     try:
         for atleta_id in atleta_ids:
             for offset, entrenamiento_id, micro_id, meso_id, macro_id in items:
-                ent = cur.execute("""
+                cur.execute("""
                     SELECT id, nombre, objetivo, km_totales
                     FROM entrenamientos
                     WHERE id = ?
-                """, (entrenamiento_id,)).fetchone()
+                """, (entrenamiento_id,))
+                ent = cur.fetchone()
 
                 if ent is None:
                     print("❌ ERROR: entrenamiento_id inexistente en ciclo →", entrenamiento_id)
@@ -2022,19 +2331,12 @@ def asignar_ciclo_interno(tipo, ciclo_id, atletas, fecha_inicio_str, notas=None,
 
                 # Registrar km planificados en tabla resumen
                 try:
-                    cur.execute(
-                        """
-                        INSERT INTO km_realizados_entrenamientos (entrenamiento_asignado_id, km_planificados, km_realizados, fecha)
-                        VALUES (?, ?, NULL, ?)
-                        ON CONFLICT(entrenamiento_asignado_id)
-                        DO UPDATE SET km_planificados = excluded.km_planificados,
-                                      fecha = excluded.fecha
-                        """,
-                        (
-                            asignado_id,
-                            ent["km_totales"] if ent["km_totales"] is not None else None,
-                            now
-                        )
+                    upsert_km_realizados(
+                        cur,
+                        asignado_id,
+                        ent["km_totales"] if ent["km_totales"] is not None else None,
+                        None,
+                        now,
                     )
                 except Exception as e:
                     print("Aviso: no se pudo registrar km planificados (ciclo):", e)
@@ -2076,38 +2378,6 @@ def asignar_ciclo_alias(current_user, tipo, ciclo_id):
     notas = (data.get('notas') or '').strip() or None
     anclar_en = (data.get('anclar_en') or '').strip().lower() or None
     return asignar_ciclo_interno(tipo, ciclo_id, atletas, fecha_inicio_str, notas, anclar_en)
-@app.route('/atletas_pendientes', methods=['GET'])
-@requires_roles('entrenador')
-def obtener_atletas_pendientes(current_user):
-    try:
-        atletas = query_db(
-            '''SELECT * FROM usuarios 
-               WHERE rol = 'atleta' AND entrenador_id = ? AND aprobado = 0''',
-            (current_user['id'],)
-        )
-        return jsonify([dict(a) for a in atletas]), 200
-    except Exception as e:
-        print("Error al obtener atletas pendientes:", e)
-        return jsonify({'error': 'Error al obtener atletas pendientes'}), 500
-
-# --- Aprobar atleta y asignar grupo/subgrupo ---
-@app.route('/atletas/aprobar/<int:atleta_id>', methods=['PUT'])
-@requires_roles('entrenador')
-def aprobar_atleta(current_user, atleta_id):
-    data = request.get_json()
-    grupo = data.get('grupo')
-    subgrupo = data.get('subgrupo')
-
-    try:
-        execute_db(
-            '''UPDATE usuarios SET aprobado = 1, grupo = ?, subgrupo = ? 
-               WHERE id = ? AND entrenador_id = ? AND rol = 'atleta' ''',
-            (grupo, subgrupo, atleta_id, current_user['id'])
-        )
-        return jsonify({'message': 'Atleta aprobado correctamente'}), 200
-    except Exception as e:
-        print("Error al aprobar atleta:", e)
-        return jsonify({'error': 'Error al aprobar atleta'}), 500
         
 @app.route('/atletas_filtrados', methods=['GET'])
 @requires_roles('entrenador')
@@ -2189,6 +2459,7 @@ def enviar_feedback(current_user):
     data = request.get_json()
     entrenamiento_id = data.get("entrenamiento_id")
     comentario = data.get("comentario")
+    url_datos = data.get("url_datos")
     atleta_id = current_user['id']
 
     if not entrenamiento_id or not comentario:
@@ -2196,9 +2467,9 @@ def enviar_feedback(current_user):
 
     try:
         execute_db(
-            '''INSERT INTO feedbacks (entrenamiento_asignado_id, atleta_id, comentario) 
-               VALUES (?, ?, ?)''',
-            (entrenamiento_id, atleta_id, comentario)
+            '''INSERT INTO feedbacks (entrenamiento_asignado_id, atleta_id, comentario, url_datos) 
+               VALUES (?, ?, ?, ?)''',
+            (entrenamiento_id, atleta_id, comentario, url_datos)
         )
         return jsonify({"message": "Feedback enviado correctamente"}), 200
     except Exception as e:
@@ -2214,8 +2485,9 @@ def feedbacks_no_leidos(current_user):
                 f.id,
                 f.comentario,
                 f.fecha,
-                u.nombre || ' ' || u.apellidos AS atleta,
-                ea.fecha AS fecha_entreno
+                CONCAT_WS(' ', u.nombre, u.apellidos) AS atleta,
+                ea.fecha AS fecha_entreno,
+                f.url_datos
             FROM feedbacks f
             JOIN usuarios u
               ON f.atleta_id = u.id
@@ -2254,8 +2526,9 @@ def ver_feedback(current_user, feedback_id):
     try:
         query = '''
             SELECT f.id, f.comentario, f.fecha, f.leido, f.respuesta,
-                   u.nombre || ' ' || u.apellidos AS atleta,
-                   ea.fecha AS fecha_entreno
+                   CONCAT_WS(' ', u.nombre, u.apellidos) AS atleta,
+                   ea.fecha AS fecha_entreno,
+                   f.url_datos
             FROM feedbacks f
             JOIN usuarios u ON f.atleta_id = u.id
             LEFT JOIN entrenamientos_asignados ea ON f.entrenamiento_asignado_id = ea.id
@@ -2274,8 +2547,9 @@ def obtener_todos_los_feedbacks(current_user):
     try:
         query = '''
             SELECT f.id, f.comentario, f.fecha, f.leido, f.respuesta,
-                   u.nombre || ' ' || u.apellidos AS atleta,
-                   ea.fecha AS fecha_entreno
+                   CONCAT_WS(' ', u.nombre, u.apellidos) AS atleta,
+                   ea.fecha AS fecha_entreno,
+                   f.url_datos
             FROM feedbacks f
             JOIN usuarios u ON f.atleta_id = u.id
             LEFT JOIN entrenamientos_asignados ea ON f.entrenamiento_asignado_id = ea.id
@@ -2355,10 +2629,24 @@ def calcular_zonas(current_user, atleta_id):
             'z6': round(vam * 1.10, 2)
         }
 
-        execute_db('''
-            INSERT INTO zonas_entrenamiento (atleta_id, vam, z1, z2, z3, z4, z5, z6)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (atleta_id, vam, zonas['z1'], zonas['z2'], zonas['z3'], zonas['z4'], zonas['z5'], zonas['z6']))
+        fecha_inicio = data.get("fecha_inicio") or datetime.utcnow().date().isoformat()
+        try:
+            fin_anterior = (datetime.fromisoformat(fecha_inicio) - timedelta(days=1)).date().isoformat()
+        except Exception:
+            fin_anterior = fecha_inicio
+
+        execute_db(
+            "UPDATE zonas_entrenamiento SET fecha_fin = ? WHERE atleta_id = ? AND fecha_fin IS NULL",
+            (fin_anterior, atleta_id)
+        )
+
+        execute_db(
+            '''
+            INSERT INTO zonas_entrenamiento (atleta_id, vam, z1, z2, z3, z4, z5, z6, fecha_inicio)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''',
+            (atleta_id, vam, zonas['z1'], zonas['z2'], zonas['z3'], zonas['z4'], zonas['z5'], zonas['z6'], fecha_inicio)
+        )
 
         return jsonify({'vam': vam, 'zonas': zonas}), 200
     except Exception as e:
@@ -2378,18 +2666,28 @@ def guardar_zonas(current_user):
         z4 = data.get("z4")
         z5 = data.get("z5")
         z6 = data.get("z6")
+        fecha_inicio = data.get("fecha_inicio") or datetime.utcnow().date().isoformat()
 
         if not all([atleta_id, vam, z1, z2, z3, z4, z5, z6]):
             return jsonify({"error": "Datos incompletos"}), 400
 
-        # Eliminar zonas anteriores si existen
-        execute_db("DELETE FROM zonas_entrenamiento WHERE atleta_id = ?", (atleta_id,))
+        try:
+            fin_anterior = (datetime.fromisoformat(fecha_inicio) - timedelta(days=1)).date().isoformat()
+        except Exception:
+            fin_anterior = fecha_inicio
 
-        # Insertar las nuevas zonas
-        execute_db('''
-            INSERT INTO zonas_entrenamiento (atleta_id, vam, z1, z2, z3, z4, z5, z6)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (atleta_id, vam, z1, z2, z3, z4, z5, z6))
+        execute_db(
+            "UPDATE zonas_entrenamiento SET fecha_fin = ? WHERE atleta_id = ? AND fecha_fin IS NULL",
+            (fin_anterior, atleta_id)
+        )
+
+        execute_db(
+            '''
+            INSERT INTO zonas_entrenamiento (atleta_id, vam, z1, z2, z3, z4, z5, z6, fecha_inicio)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''',
+            (atleta_id, vam, z1, z2, z3, z4, z5, z6, fecha_inicio)
+        )
 
         return jsonify({"message": "Zonas guardadas correctamente"}), 200
 
@@ -2398,6 +2696,28 @@ def guardar_zonas(current_user):
         return jsonify({"error": "No se pudieron guardar las zonas"}), 500
 
 from datetime import datetime, timedelta  # asegúrate de tener esto arriba del todo
+from email.utils import parsedate_to_datetime
+
+
+def _normalizar_fecha(value):
+    """
+    Normaliza diferentes formatos de fecha (iso, rfc2822) a string YYYY-MM-DD.
+    Devuelve None si no puede parsear.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    try:
+        # ISO (YYYY-MM-DD o con tiempo)
+        return datetime.fromisoformat(str(value)).date().isoformat()
+    except Exception:
+        pass
+    try:
+        # Formatos tipo "Mon, 06 Oct 2025 00:00:00 GMT"
+        return parsedate_to_datetime(str(value)).date().isoformat()
+    except Exception:
+        return None
 
 @app.route('/entrenamientos_asignados/visibilidad', methods=['POST'])
 def actualizar_visibilidad_entrenamientos_asignados():
@@ -2428,7 +2748,7 @@ def actualizar_visibilidad_entrenamientos_asignados():
         visible_val = 1 if bool(visible) else 0
 
     try:
-        conn = sqlite3.connect(DATABASE)
+        conn = get_db()
         cur = conn.cursor()
 
         placeholders = ','.join(['?'] * len(atletas))
@@ -2446,14 +2766,13 @@ def actualizar_visibilidad_entrenamientos_asignados():
             params.extend(atletas)
 
         elif fecha:
+            fecha_norm = _normalizar_fecha(fecha)
+            if not fecha_norm:
+                return jsonify({'error': 'Fecha inválida'}), 400
             # actualizar por fecha, con soporte para "dia" o "semana"
             if modo == 'semana':
                 # calcular lunes–domingo de la semana de 'fecha'
-                try:
-                    fecha_dt = datetime.strptime(fecha, "%Y-%m-%d").date()
-                except ValueError:
-                    return jsonify({'error': 'Fecha inválida'}), 400
-
+                fecha_dt = datetime.fromisoformat(fecha_norm).date()
                 inicio_semana = fecha_dt - timedelta(days=fecha_dt.weekday())  # lunes
                 fin_semana = inicio_semana + timedelta(days=6)                # domingo
 
@@ -2474,7 +2793,7 @@ def actualizar_visibilidad_entrenamientos_asignados():
                      WHERE DATE(fecha) = DATE(?)
                        AND atleta_id IN ({placeholders})
                 """
-                params.append(fecha)
+                params.append(fecha_norm)
                 params.extend(atletas)
 
         else:
@@ -2489,8 +2808,12 @@ def actualizar_visibilidad_entrenamientos_asignados():
         cur.execute(query, tuple(params))
         conn.commit()
         updated = cur.rowcount if hasattr(cur, 'rowcount') else None
-        if updated is None or updated < 0:
-            updated = conn.total_changes
+        if updated is None or (isinstance(updated, int) and updated < 0):
+            # Fallback para SQLite
+            try:
+                updated = conn.total_changes
+            except Exception:
+                updated = 0
 
         return jsonify({'ok': True, 'updated': updated}), 200
 
@@ -2501,6 +2824,9 @@ def actualizar_visibilidad_entrenamientos_asignados():
     finally:
         try:
             cur.close()
+        except Exception:
+            pass
+        try:
             conn.close()
         except Exception:
             pass
@@ -2639,15 +2965,28 @@ def actualizar_detalle_entrenamiento_asignado(current_user, id):
 @requires_roles('entrenador', 'atleta')
 def obtener_zonas_atleta(current_user, atleta_id):
     try:
-        resultado = query_db(
-            '''SELECT vam, z1, z2, z3, z4, z5, z6
-               FROM zonas_entrenamiento
-               WHERE atleta_id = ?
-               ORDER BY fecha_creacion DESC
-               LIMIT 1''',
-            (atleta_id,),
-            one=True
-        )
+        fecha_ref = request.args.get("fecha")
+        params = [atleta_id]
+        if fecha_ref:
+            params.extend([fecha_ref, fecha_ref])
+            query = '''
+                SELECT vam, z1, z2, z3, z4, z5, z6, fecha_inicio, fecha_fin
+                FROM zonas_entrenamiento
+                WHERE atleta_id = ?
+                  AND fecha_inicio <= ?
+                  AND (fecha_fin IS NULL OR fecha_fin >= ?)
+                ORDER BY fecha_inicio DESC
+                LIMIT 1
+            '''
+        else:
+            query = '''
+                SELECT vam, z1, z2, z3, z4, z5, z6, fecha_inicio, fecha_fin
+                FROM zonas_entrenamiento
+                WHERE atleta_id = ?
+                ORDER BY fecha_inicio DESC
+                LIMIT 1
+            '''
+        resultado = query_db(query, tuple(params), one=True)
         if resultado:
             return jsonify(dict(resultado)), 200
         else:
@@ -2910,22 +3249,26 @@ def borrar_microciclo(current_user, micro_id):
 @app.route("/microciclos/<int:micro_id>/entrenamientos", methods=["GET"])
 @requires_roles("entrenador", "admin")
 def listar_entrenamientos_microciclo(current_user, micro_id):
-    db = get_db()
+    conn = get_db()
+    cur = conn.cursor()
 
     # Comprobamos que el microciclo existe
-    micro = db.execute(
+    cur.execute(
         """
         SELECT id, mesociclo_id, nombre, objetivo, created_at
         FROM microciclos
         WHERE id = ?
         """,
         (micro_id,),
-    ).fetchone()
+    )
+    micro = cur.fetchone()
 
     if micro is None:
+        cur.close()
+        conn.close()
         return jsonify({"error": "Microciclo no encontrado"}), 404
 
-    rows = db.execute(
+    cur.execute(
         """
         SELECT
             me.id,
@@ -2943,7 +3286,8 @@ def listar_entrenamientos_microciclo(current_user, micro_id):
         ORDER BY me.dia_relativo, me.sesion_indice, me.orden
         """,
         (micro_id,),
-    ).fetchall()
+    )
+    rows = cur.fetchall()
 
     detalles = []
     for r in rows:
@@ -2960,17 +3304,18 @@ def listar_entrenamientos_microciclo(current_user, micro_id):
             }
         )
 
+    cur.close()
+    conn.close()
+
     # Respuesta con el microciclo + sus entrenamientos
-    return jsonify(
-        {
-            "id": micro["id"],
-            "mesociclo_id": micro["mesociclo_id"],
-            "nombre": micro["nombre"],
-            "objetivo": micro["objetivo"],
-            "created_at": micro["created_at"],
-            "detalles": detalles,
-        }
-    )
+    return jsonify({
+        "id": micro["id"],
+        "mesociclo_id": micro["mesociclo_id"],
+        "nombre": micro["nombre"],
+        "objetivo": micro["objetivo"],
+        "created_at": micro["created_at"],
+        "detalles": detalles,
+    })
 
 # ---------- MESO CICLOS ----------
 
@@ -3384,11 +3729,11 @@ def borrar_macrociclo(current_user, macro_id):
 @requires_roles('atleta')
 def mis_feedbacks(current_user):
     conn = get_db()
-    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
 
     try:
-        rows = cur.execute("""
+        cur.execute(
+            """
             SELECT
                 f.id,
                 f.entrenamiento_asignado_id AS entrenamiento_id,
@@ -3397,13 +3742,17 @@ def mis_feedbacks(current_user):
                 f.leido,
                 f.respuesta,
                 ea.nombre AS entrenamiento_nombre,
-                ea.fecha AS fecha_entreno
+                ea.fecha AS fecha_entreno,
+                f.url_datos
             FROM feedbacks f
             LEFT JOIN entrenamientos_asignados ea
                    ON ea.id = f.entrenamiento_asignado_id
             WHERE f.atleta_id = ?
             ORDER BY f.fecha DESC
-        """, (current_user["id"],)).fetchall()
+            """,
+            (current_user["id"],),
+        )
+        rows = cur.fetchall()
 
         return jsonify([dict(r) for r in rows]), 200
 
@@ -3430,11 +3779,12 @@ def obtener_resultados_entrenamiento(current_user, entrenamiento_id):
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     try:
-        ent = cur.execute("""
+        cur.execute("""
             SELECT ea.atleta_id
             FROM entrenamientos_asignados ea
             WHERE ea.id = ?
-        """, (entrenamiento_id,)).fetchone()
+        """, (entrenamiento_id,))
+        ent = cur.fetchone()
 
         if not ent:
             return jsonify({'error': 'Entrenamiento no encontrado'}), 404
@@ -3442,23 +3792,25 @@ def obtener_resultados_entrenamiento(current_user, entrenamiento_id):
         if current_user['rol'] == 'atleta' and current_user['id'] != ent['atleta_id']:
             return jsonify({'error': 'No tienes permiso para ver este entrenamiento'}), 403
 
-        filas = cur.execute("""
+        cur.execute("""
             SELECT
                 paso_detalle_id,
                 repeticion,
                 tiempo_real_seg
             FROM resultados_entrenamientos
             WHERE entrenamiento_asignado_id = ?
-        """, (entrenamiento_id,)).fetchall()
+        """, (entrenamiento_id,))
+        filas = cur.fetchall()
 
-        km_row = cur.execute(
+        cur.execute(
             """
             SELECT km_realizados
             FROM km_realizados_entrenamientos
             WHERE entrenamiento_asignado_id = ?
             """,
             (entrenamiento_id,)
-        ).fetchone()
+        )
+        km_row = cur.fetchone()
         km_real_total = km_row["km_realizados"] if km_row else None
 
         payload = []
@@ -3509,29 +3861,47 @@ def guardar_resultados_series(current_user, entrenamiento_id):
 
     # Garantizamos tabla simple para guardar km totales por entrenamiento asignado
     try:
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS km_realizados_entrenamientos (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                entrenamiento_asignado_id INTEGER UNIQUE,
-                km_planificados REAL,
-                km_realizados REAL,
-                fecha TEXT
+        if DB_ENGINE == "mariadb":
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS km_realizados_entrenamientos (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    entrenamiento_asignado_id INT UNIQUE,
+                    km_planificados DOUBLE,
+                    km_realizados DOUBLE,
+                    fecha DATETIME NOT NULL,
+                    CONSTRAINT fk_km_entrenamiento
+                        FOREIGN KEY (entrenamiento_asignado_id)
+                        REFERENCES entrenamientos_asignados(id)
+                        ON DELETE CASCADE
+                )
+                """
             )
-            """
-        )
+        else:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS km_realizados_entrenamientos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    entrenamiento_asignado_id INTEGER UNIQUE,
+                    km_planificados REAL,
+                    km_realizados REAL,
+                    fecha TEXT
+                )
+                """
+            )
     except Exception as e:
         print("Aviso: no se pudo asegurar la tabla km_realizados_entrenamientos", e)
 
     # ---------------- Comprobar que el entrenamiento pertenece al atleta actual ----------------
-    atleta = cur.execute(
+    cur.execute(
         """
         SELECT ea.id, ea.atleta_id, ea.km_previstos, ea.fecha
         FROM entrenamientos_asignados ea
         WHERE ea.id = ?
         """,
         (entrenamiento_id,)
-    ).fetchone()
+    )
+    atleta = cur.fetchone()
 
     if not atleta:
         return jsonify({"error": "Entrenamiento asignado no encontrado."}), 404
@@ -3558,14 +3928,15 @@ def guardar_resultados_series(current_user, entrenamiento_id):
         if paso_id in pasos_cache:
             return pasos_cache[paso_id]
 
-        row = cur.execute(
+        cur.execute(
             """
             SELECT objetivo_tipo, objetivo_valor, unidad
             FROM entrenamientos_asignados_detalle
             WHERE id = ?
             """,
             (paso_id,)
-        ).fetchone()
+        )
+        row = cur.fetchone()
 
         km = 0.0
         if row:
@@ -3640,7 +4011,7 @@ def guardar_resultados_series(current_user, entrenamiento_id):
     km_plan_total = total_plan_km if total_plan_km > 0 else None
     km_real_suma = 0.0
 
-    paso_fallback_row = cur.execute(
+    cur.execute(
         """
         SELECT id FROM entrenamientos_asignados_detalle
         WHERE entrenamiento_asignado_id = ?
@@ -3648,7 +4019,8 @@ def guardar_resultados_series(current_user, entrenamiento_id):
         LIMIT 1
         """,
         (entrenamiento_id,)
-    ).fetchone()
+    )
+    paso_fallback_row = cur.fetchone()
     paso_fallback_id = paso_fallback_row["id"] if paso_fallback_row else None
 
     for registro in registros:
@@ -3693,30 +4065,22 @@ def guardar_resultados_series(current_user, entrenamiento_id):
         except Exception:
             fecha_entrenamiento = None
         if not fecha_entrenamiento:
-            fila_fecha = cur.execute(
+            cur.execute(
                 "SELECT fecha FROM entrenamientos_asignados WHERE id = ?",
                 (entrenamiento_id,)
-            ).fetchone()
+            )
+            fila_fecha = cur.fetchone()
             if fila_fecha:
                 try:
                     fecha_entrenamiento = fila_fecha["fecha"]
                 except Exception:
                     fecha_entrenamiento = None
-        cur.execute(
-            """
-            INSERT INTO km_realizados_entrenamientos (entrenamiento_asignado_id, km_planificados, km_realizados, fecha)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(entrenamiento_asignado_id)
-            DO UPDATE SET km_planificados = excluded.km_planificados,
-                          km_realizados = excluded.km_realizados,
-                          fecha = excluded.fecha
-            """,
-            (
-                entrenamiento_id,
-                float(km_plan_total) if isinstance(km_plan_total, (int, float)) else km_previstos_asignado,
-                km_total_guardar,
-                fecha_entrenamiento or now_ts,
-            ),
+        upsert_km_realizados(
+            cur,
+            entrenamiento_id,
+            float(km_plan_total) if isinstance(km_plan_total, (int, float)) else km_previstos_asignado,
+            km_total_guardar,
+            fecha_entrenamiento or now_ts,
         )
 
     conn.commit()
@@ -3762,11 +4126,8 @@ def estadisticas_listar_atletas(current_user):
 @requires_roles('entrenador', 'admin', 'atleta')
 def estadisticas_analisis_atleta(current_user, atleta_id):
     try:
-        import sqlite3
-        from datetime import datetime, timedelta
-
         # Normalizamos current_user a diccionario
-        user = dict(current_user) if isinstance(current_user, sqlite3.Row) else current_user
+        user = current_user if isinstance(current_user, dict) else dict(current_user)
 
         # 1) Datos del atleta
         atleta = query_db("""
@@ -3799,48 +4160,90 @@ def estadisticas_analisis_atleta(current_user, atleta_id):
             WHERE ea.atleta_id = ?
         """, (atleta_id,), one=True)["total"]
 
-        total_sin_registro = query_db("""
-            SELECT COUNT(*) AS total
-            FROM entrenamientos_asignados ea
-            WHERE ea.atleta_id = ?
-              AND DATE(ea.fecha) <= DATE('now')
-              AND NOT EXISTS (
-                SELECT 1
-                FROM resultados_entrenamientos re
-                WHERE re.entrenamiento_asignado_id = ea.id
-              )
-        """, (atleta_id,), one=True)["total"]
+        if DB_ENGINE == "mariadb":
+            total_sin_registro = query_db("""
+                SELECT COUNT(*) AS total
+                FROM entrenamientos_asignados ea
+                WHERE ea.atleta_id = ?
+                  AND DATE(ea.fecha) <= CURDATE()
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM resultados_entrenamientos re
+                    WHERE re.entrenamiento_asignado_id = ea.id
+                  )
+            """, (atleta_id,), one=True)["total"]
 
-        # 3) Kms por semana (lunes–domingo) usando km_realizados_entrenamientos
+            lunes_plan = "DATE_SUB(DATE(ea.fecha), INTERVAL WEEKDAY(ea.fecha) DAY)"
+            base_real = "COALESCE(kre.fecha, ea.fecha)"
+            lunes_real = f"DATE_SUB(DATE({base_real}), INTERVAL WEEKDAY({base_real}) DAY)"
 
-        # Kms planificados: usamos km_previstos de entrenamientos_asignados,
-        # y si existe fila en km_realizados_entrenamientos usamos también su km_planificados
-        plan_rows = query_db("""
-            SELECT
-              date(ea.fecha, 'weekday 1', '-7 days') AS lunes_semana,
-              SUM(
-                COALESCE(kre.km_planificados, ea.km_previstos, 0)
-              ) AS km_planificados
-            FROM entrenamientos_asignados ea
-            LEFT JOIN km_realizados_entrenamientos kre
-              ON kre.entrenamiento_asignado_id = ea.id
-            WHERE ea.atleta_id = ?
-            GROUP BY lunes_semana
-            ORDER BY lunes_semana
-        """, (atleta_id,))
+            plan_rows = query_db(f"""
+                SELECT
+                  {lunes_plan} AS lunes_semana,
+                  SUM(
+                    COALESCE(kre.km_planificados, ea.km_previstos, 0)
+                  ) AS km_planificados
+                FROM entrenamientos_asignados ea
+                LEFT JOIN km_realizados_entrenamientos kre
+                  ON kre.entrenamiento_asignado_id = ea.id
+                WHERE ea.atleta_id = ?
+                GROUP BY lunes_semana
+                ORDER BY lunes_semana
+            """, (atleta_id,))
 
-        # Kms realizados: solo de km_realizados_entrenamientos
-        real_rows = query_db("""
-            SELECT
-              date(COALESCE(kre.fecha, ea.fecha), 'weekday 1', '-7 days') AS lunes_semana,
-              SUM(COALESCE(kre.km_realizados, 0)) AS km_realizados
-            FROM km_realizados_entrenamientos kre
-            JOIN entrenamientos_asignados ea
-              ON ea.id = kre.entrenamiento_asignado_id
-            WHERE ea.atleta_id = ?
-            GROUP BY lunes_semana
-            ORDER BY lunes_semana
-        """, (atleta_id,))
+            real_rows = query_db(f"""
+                SELECT
+                  {lunes_real} AS lunes_semana,
+                  SUM(COALESCE(kre.km_realizados, 0)) AS km_realizados
+                FROM km_realizados_entrenamientos kre
+                JOIN entrenamientos_asignados ea
+                  ON ea.id = kre.entrenamiento_asignado_id
+                WHERE ea.atleta_id = ?
+                GROUP BY lunes_semana
+                ORDER BY lunes_semana
+            """, (atleta_id,))
+        else:
+            total_sin_registro = query_db("""
+                SELECT COUNT(*) AS total
+                FROM entrenamientos_asignados ea
+                WHERE ea.atleta_id = ?
+                  AND DATE(ea.fecha) <= DATE('now')
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM resultados_entrenamientos re
+                    WHERE re.entrenamiento_asignado_id = ea.id
+                  )
+            """, (atleta_id,), one=True)["total"]
+
+            # 3) Kms por semana (lunes–domingo) usando km_realizados_entrenamientos
+            # Kms planificados: usamos km_previstos de entrenamientos_asignados,
+            # y si existe fila en km_realizados_entrenamientos usamos también su km_planificados
+            plan_rows = query_db("""
+                SELECT
+                  date(ea.fecha, 'weekday 1', '-7 days') AS lunes_semana,
+                  SUM(
+                    COALESCE(kre.km_planificados, ea.km_previstos, 0)
+                  ) AS km_planificados
+                FROM entrenamientos_asignados ea
+                LEFT JOIN km_realizados_entrenamientos kre
+                  ON kre.entrenamiento_asignado_id = ea.id
+                WHERE ea.atleta_id = ?
+                GROUP BY lunes_semana
+                ORDER BY lunes_semana
+            """, (atleta_id,))
+
+            # Kms realizados: solo de km_realizados_entrenamientos
+            real_rows = query_db("""
+                SELECT
+                  date(COALESCE(kre.fecha, ea.fecha), 'weekday 1', '-7 days') AS lunes_semana,
+                  SUM(COALESCE(kre.km_realizados, 0)) AS km_realizados
+                FROM km_realizados_entrenamientos kre
+                JOIN entrenamientos_asignados ea
+                  ON ea.id = kre.entrenamiento_asignado_id
+                WHERE ea.atleta_id = ?
+                GROUP BY lunes_semana
+                ORDER BY lunes_semana
+            """, (atleta_id,))
 
         plan_dict = {
             row["lunes_semana"]: round(row["km_planificados"] or 0, 2)

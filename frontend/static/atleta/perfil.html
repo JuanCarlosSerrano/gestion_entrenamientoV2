@@ -41,11 +41,44 @@
           <input type="text" class="form-control" id="input-apellidos" required />
         </div>
         <div class="col-md-6">
+          <label class="form-label">Correo electrónico</label>
+          <input type="email" class="form-control" id="input-email" required />
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Teléfono</label>
+          <input type="tel" class="form-control" id="input-telefono" placeholder="+34 600 000 000" />
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Fecha de nacimiento</label>
+          <input type="date" class="form-control" id="input-fecha" />
+        </div>
+        <div class="col-md-6">
           <label class="form-label">Foto</label>
           <input type="file" class="form-control" id="input-foto" accept="image/*" />
         </div>
         <div class="col-12">
           <button class="btn btn-brand" type="submit">Guardar cambios</button>
+        </div>
+      </form>
+    </section>
+
+    <section class="app-card mb-4">
+      <h2 class="h5 mb-3">Cambiar contraseña</h2>
+      <form id="form-password" class="row g-3">
+        <div class="col-md-6">
+          <label class="form-label">Contraseña actual</label>
+          <input type="password" class="form-control" id="input-pass-actual" required />
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Nueva contraseña</label>
+          <input type="password" class="form-control" id="input-pass-nueva" required />
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Confirmar nueva</label>
+          <input type="password" class="form-control" id="input-pass-confirm" required />
+        </div>
+        <div class="col-12">
+          <button class="btn btn-outline-brand" type="submit">Actualizar contraseña</button>
         </div>
       </form>
     </section>

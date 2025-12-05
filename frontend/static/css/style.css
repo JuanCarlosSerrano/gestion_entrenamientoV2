@@ -149,13 +149,16 @@ h1, h2 {
 }
 
 .btn-outline-brand {
-  border-color: rgba(255, 255, 255, 0.7);
-  color: #fff;
+  border-color: var(--pp-orange);
+  color: var(--pp-orange);
+  font-weight: 600;
+  border-width: 1.5px;
 }
 
 .btn-outline-brand:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--pp-orange);
   color: #fff;
+  box-shadow: 0 10px 20px rgba(243, 139, 42, 0.2);
 }
 
 .modal .btn-outline-brand {

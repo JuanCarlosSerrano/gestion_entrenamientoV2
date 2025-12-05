@@ -13,21 +13,19 @@ const resumenPendientesEl = document.getElementById("resumen-semana-pendientes")
 const resumenRangoEl = document.getElementById("resumen-semana-rango");
 let zonasAtleta = null;
 
-// dd/mm/yyyy
+// dd-mm-yyyy
 const formatearFecha = (valor) => {
   if (!valor) return "--/--/----";
   const fecha = new Date(valor);
-  return fecha.toLocaleDateString("es-ES", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric"
-  });
+  if (Number.isNaN(fecha.getTime())) return valor;
+  const dd = String(fecha.getDate()).padStart(2, "0");
+  const mm = String(fecha.getMonth() + 1).padStart(2, "0");
+  const yy = fecha.getFullYear();
+  return `${dd}-${mm}-${yy}`;
 };
 
-// lunes, martes...
 const formatearDia = (valor) => {
-  if (!valor) return "";
-  return new Date(valor).toLocaleDateString("es-ES", { weekday: "long" });
+  return "";
 };
 
 // Lunes como inicio de semana
@@ -41,14 +39,12 @@ const inicioDeSemana = (date) => {
 };
 
 const formatearRangoSemana = (inicio, fin) => {
-  const ini = inicio.toLocaleDateString("es-ES", {
-    day: "2-digit",
-    month: "2-digit"
-  });
-  const f = fin.toLocaleDateString("es-ES", {
-    day: "2-digit",
-    month: "2-digit"
-  });
+  const ini = `${String(inicio.getDate()).padStart(2, "0")}-${String(
+    inicio.getMonth() + 1
+  ).padStart(2, "0")}`;
+  const f = `${String(fin.getDate()).padStart(2, "0")}-${String(
+    fin.getMonth() + 1
+  ).padStart(2, "0")}`;
   return `${ini} – ${f}`;
 };
 

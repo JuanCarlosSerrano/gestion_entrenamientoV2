@@ -7,6 +7,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     const fotoPerfil = document.getElementById("foto-atleta");
     const zonasContainer = document.getElementById("zonas-result");
     const btnGuardarZonas = document.getElementById("guardar-zonas");
+    const btnEditarZonas = document.getElementById("btn-editar-zonas");
+    const formZonasManual = document.getElementById("form-zonas-manual");
+    const btnGuardarManual = document.getElementById("btn-guardar-manual");
+    const btnCancelarManual = document.getElementById("btn-cancelar-manual");
+    const zonaInputs = {
+      z1: document.getElementById("input-z1"),
+      z2: document.getElementById("input-z2"),
+      z3: document.getElementById("input-z3"),
+      z4: document.getElementById("input-z4"),
+      z5: document.getElementById("input-z5"),
+      z6: document.getElementById("input-z6"),
+    };
     const tablaZonas = document.getElementById("tabla-zonas");
   const cardPerfil = document.getElementById("card-perfil-existente");
   const cardAlta = document.getElementById("card-alta-atleta");
@@ -59,6 +71,25 @@ document.addEventListener("DOMContentLoaded", async () => {
       console.error("Error al cargar perfil del atleta:", err);
     }
   
+    const formatMMSS = (valor) => {
+      const total = Number(valor);
+      if (Number.isNaN(total)) return "-";
+      const min = Math.floor(total);
+      const seg = Math.round((total - min) * 60);
+      return `${min}:${seg.toString().padStart(2, "0")}`;
+    };
+
+    const parseMMSS = (val) => {
+      if (!val) return null;
+      const s = String(val).replace(/[^0-9]/g, "");
+      if (!s) return null;
+      // si es 440 => 4:40, 345 => 3:45, 45 => 0:45
+      const seg = s.slice(-2);
+      const min = s.slice(0, -2) || "0";
+      const total = parseFloat(min) + parseFloat(seg) / 60;
+      return Number(total.toFixed(2));
+    };
+
     const pintarZonas = (zonas) => {
       const zonasDef = [
         "Zona 1 - Recuperación",
@@ -74,13 +105,24 @@ document.addEventListener("DOMContentLoaded", async () => {
         const valor = zonas[`z${i + 1}`];
         if (valor) {
           const fila = document.createElement("tr");
-          fila.innerHTML = `<td>${zona}</td><td>${Number(valor).toFixed(2)}</td>`;
+          fila.innerHTML = `<td>${zona}</td><td>${formatMMSS(valor)}</td>`;
           tablaZonas.appendChild(fila);
         }
       });
     };
-  
+
+    const rellenarManual = (zonas) => {
+      Object.entries(zonaInputs).forEach(([key, input]) => {
+        if (input && zonas && zonas[key]) {
+          input.value = formatMMSS(zonas[key]);
+        } else if (input) {
+          input.value = "";
+        }
+      });
+    };
+
     // Cargar zonas guardadas
+    let zonasGuardadas = null;
     try {
       const resZonas = await fetch(`${window.API_BASE}/zonas_atleta/${atletaId}`, {
         credentials: "include",
@@ -91,10 +133,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       } else {
         const zonas = await resZonas.json().catch(() => null);
         if (zonas) {
+          zonasGuardadas = zonas;
           zonasContainer.classList.remove("d-none");
           tablaZonas.innerHTML = "";
 
           pintarZonas(zonas);
+          rellenarManual(zonas);
         }
       }
     } catch (err) {
@@ -138,21 +182,22 @@ document.addEventListener("DOMContentLoaded", async () => {
       zonasContainer.classList.remove("d-none");
       btnGuardarZonas.disabled = false;
       btnGuardarZonas.dataset.vam = vam.toFixed(2);
+      rellenarManual(null);
     });
-  
+
 
     // Guardar zonas en la base de datos
     btnGuardarZonas.addEventListener("click", async () => {
       const vam = btnGuardarZonas.dataset.vam;
       if (!vam) return;
-  
+
       const filas = tablaZonas.querySelectorAll("tr");
       const zonasPayload = {
         atleta_id: atletaId,
         vam: parseFloat(vam),
         z1: null, z2: null, z3: null, z4: null, z5: null, z6: null
       };
-  
+
       filas.forEach((fila, i) => {
         const ritmo = fila.children[1].textContent; // ej: "4:10"
         const [min, seg] = ritmo.split(":").map(Number);
@@ -175,12 +220,78 @@ document.addEventListener("DOMContentLoaded", async () => {
         if (res.ok) {
           alert(data?.message || "Zonas guardadas correctamente");
           pintarZonas(zonasPayload);
+          rellenarManual(zonasPayload, zonasPayload.vam);
         } else {
           alert(data?.error || "Error al guardar zonas");
         }
       } catch (err) {
         console.error("Error al guardar zonas:", err);
         alert("No se pudo guardar zonas");
+      }
+    });
+
+    const toggleManual = (show) => {
+      if (!formZonasManual) return;
+      formZonasManual.classList.toggle("d-none", !show);
+    };
+
+    btnEditarZonas?.addEventListener("click", () => {
+      toggleManual(true);
+      rellenarManual(zonasGuardadas);
+    });
+
+    btnCancelarManual?.addEventListener("click", () => {
+      toggleManual(false);
+    });
+
+    btnGuardarManual?.addEventListener("click", async () => {
+      const payload = {
+        atleta_id: atletaId,
+        vam: parseFloat(inputVam?.value || "0"),
+        z1: parseMMSS(zonaInputs.z1?.value),
+        z2: parseMMSS(zonaInputs.z2?.value),
+        z3: parseMMSS(zonaInputs.z3?.value),
+        z4: parseMMSS(zonaInputs.z4?.value),
+        z5: parseMMSS(zonaInputs.z5?.value),
+        z6: parseMMSS(zonaInputs.z6?.value),
+      };
+
+      if (!payload.vam || !payload.z1 || !payload.z2 || !payload.z3 || !payload.z4 || !payload.z5 || !payload.z6) {
+        alert("Completa VAM y todas las zonas.");
+        return;
+      }
+
+      let token = localStorage.getItem("csrfToken") || "";
+      if (window.CSRF?.ensureToken) {
+        try {
+          token = await window.CSRF.ensureToken(true);
+        } catch (err) {
+          console.error("No se pudo obtener CSRF:", err);
+        }
+      }
+
+      try {
+        const res = await fetch(`${window.API_BASE}/guardar_zonas`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRF-Token": token,
+          },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) {
+          alert(data?.error || "No se pudieron guardar las zonas");
+          return;
+        }
+        alert(data?.message || "Zonas guardadas correctamente");
+        zonasGuardadas = payload;
+        pintarZonas(payload);
+        toggleManual(false);
+      } catch (err) {
+        console.error("Error guardando zonas manuales:", err);
+        alert("Error al guardar zonas manualmente");
       }
     });
   });

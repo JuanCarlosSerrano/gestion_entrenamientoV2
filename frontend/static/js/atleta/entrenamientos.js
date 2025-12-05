@@ -8,6 +8,7 @@ const listaIntervalos = document.getElementById("lista-intervalos-tiempos");
 const kmInput = document.getElementById("km-realizados");
 const kmHelper = document.getElementById("km-realizados-helper");
 const comentarioInput = document.getElementById("comentario-feedback");
+const urlDatosInput = document.getElementById("url-datos");
 const btnGuardarTiempos = document.getElementById("btn-guardar-tiempos");
 const modalTitulo = modalEl?.querySelector(".modal-title");
 const modalRegistrar = modalEl ? new window.bootstrap.Modal(modalEl) : null;
@@ -356,7 +357,7 @@ const cargarEntrenamientos = async () => {
 
 document.addEventListener("DOMContentLoaded", cargarEntrenamientos);
 
-const enviarFeedback = async (entrenamientoId, comentario) => {
+const enviarFeedback = async (entrenamientoId, comentario, url_datos) => {
   if (!comentario) return;
   const csrf = await getCsrfToken();
   const response = await fetch(`${API}/feedback`, {
@@ -369,7 +370,8 @@ const enviarFeedback = async (entrenamientoId, comentario) => {
     },
     body: JSON.stringify({
       entrenamiento_id: entrenamientoId,
-      comentario
+      comentario,
+      url_datos
     })
   });
 
@@ -437,7 +439,7 @@ btnGuardarTiempos?.addEventListener("click", async () => {
       throw new Error(data?.error || "No se pudieron guardar los tiempos");
     }
 
-    await enviarFeedback(entrenamientoActivo.id, comentario);
+  await enviarFeedback(entrenamientoActivo.id, comentario, urlDatosInput?.value?.trim() || null);
     resultadosCache.set(entrenamientoActivo.id, true);
     feedbacksEnviados.add(Number(entrenamientoActivo.id));
 

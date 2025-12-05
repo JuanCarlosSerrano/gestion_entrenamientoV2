@@ -106,27 +106,79 @@
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
         <div>
           <h2 class="h5 mb-1">Comparativa objetivo vs real</h2>
-          <p class="text-muted small mb-0">Selecciona el tipo de entrenamiento.</p>
+          <p class="text-muted small mb-0">Selecciona el tipo de entrenamiento y marca las sesiones a comparar.</p>
         </div>
         <div class="d-flex flex-wrap align-items-center gap-2">
           <label for="filtro-nombre" class="form-label mb-0 small text-muted">Entrenamiento</label>
           <select id="filtro-nombre" class="form-select form-select-sm" style="min-width: 220px"></select>
         </div>
       </div>
-      <div id="comparativa-contenido">
+      <div id="comparativa-contenido" class="mb-3">
         <p class="text-muted mb-0">Selecciona un entrenamiento para ver los tiempos.</p>
+      </div>
+      <div id="comparativa-lista" class="table-responsive d-none">
+        <table class="table table-sm align-middle">
+          <thead class="table-light">
+            <tr>
+              <th style="width: 60px;">Elegir</th>
+              <th>Fecha</th>
+              <th>Nombre</th>
+            </tr>
+          </thead>
+          <tbody id="comparativa-tbody"></tbody>
+        </table>
+      </div>
+      <div class="row g-3">
+        <div class="col-12 col-lg-6">
+          <div class="border rounded p-3 bg-white">
+            <h6 class="mb-2">Sesiones del entrenamiento</h6>
+            <p class="text-muted small mb-2">Elige una fecha para ver sus series.</p>
+            <div class="table-responsive" style="max-height: 260px; overflow-y: auto;">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th style="width: 60px;">Elegir</th>
+                    <th>Fecha</th>
+                    <th>Nombre</th>
+                  </tr>
+                </thead>
+                <tbody id="tabla-sesiones"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-6">
+          <div class="border rounded p-3 bg-white">
+            <h6 class="mb-2">Series / bloques</h6>
+            <p class="text-muted small mb-2">Marca una serie para ver su comparación.</p>
+            <div class="table-responsive" style="max-height: 260px; overflow-y: auto;">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th style="width: 40px;">Elegir</th>
+                    <th>Bloque</th>
+                    <th>Repetición</th>
+                    <th>Distancia</th>
+                    <th>Zona</th>
+                  </tr>
+                </thead>
+                <tbody id="tabla-series"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="mt-4">
         <div class="d-flex justify-content-between align-items-center gap-2 mb-2 flex-wrap">
-          <h3 class="h6 mb-0">Evolución por fecha</h3>
-          <span class="text-muted small">Tiempo propuesto vs tiempo real</span>
+          <h3 class="h6 mb-0">Comparativa de serie</h3>
+          <span class="text-muted small">Tiempo propuesto vs real por fecha</span>
         </div>
         <div class="border rounded p-3 bg-white">
-          <div class="chart-container" style="height: 220px;">
+          <div class="chart-container" style="height: 260px;">
             <canvas id="grafico-tiempo-canvas"></canvas>
           </div>
           <p class="text-muted small mb-0 mt-2" id="grafico-tiempo-estado">
-            Selecciona un entrenamiento para ver el gráfico.
+            Selecciona un entrenamiento y una serie para ver el gráfico.
           </p>
         </div>
       </div>

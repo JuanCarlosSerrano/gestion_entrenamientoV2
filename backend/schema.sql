@@ -20,7 +20,8 @@ CREATE TABLE usuarios (
     grupo TEXT,
     subgrupo TEXT,
     aprobado INTEGER,                -- Solo atletas
-    foto_url TEXT
+    foto_url TEXT,
+    force_password_change INTEGER DEFAULT 0
 );
 
 -- Tabla de entrenamientos tipo (plantillas)
@@ -101,7 +102,8 @@ CREATE TABLE IF NOT EXISTS feedbacks (
     comentario TEXT NOT NULL,
     leido INTEGER DEFAULT 0,
     fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    respuesta TEXT NOT NULL,
+    respuesta TEXT,
+    url_datos TEXT,
     FOREIGN KEY (entrenamiento_asignado_id) REFERENCES entrenamientos_asignados(id),
     FOREIGN KEY (atleta_id) REFERENCES usuarios(id)
 );
@@ -115,6 +117,8 @@ CREATE TABLE zonas_entrenamiento (
     z4 REAL,
     z5 REAL,
     z6 REAL,
+    fecha_inicio DATE NOT NULL DEFAULT (DATE('now')),
+    fecha_fin DATE NULL,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (atleta_id) REFERENCES usuarios(id)
 );

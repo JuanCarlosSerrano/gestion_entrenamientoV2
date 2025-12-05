@@ -16,6 +16,8 @@ const elements = {
   nombre: document.getElementById("athlete-name"),
   filtroNombre: document.getElementById("filtro-nombre"),
   comparativa: document.getElementById("comparativa-contenido"),
+  tablaSesiones: document.getElementById("tabla-sesiones"),
+  tablaSeries: document.getElementById("tabla-series"),
   resumenRango: document.getElementById("resumen-semana-rango-entrenador"),
   resumenSesiones: document.getElementById("resumen-semana-sesiones-entrenador"),
   resumenCompletadas: document.getElementById("resumen-semana-completadas-entrenador"),
@@ -32,10 +34,15 @@ const elements = {
 
 let entrenamientosCargados = [];
 let zonasAtleta = null;
+const zonasPorFechaCache = new Map();
 const resultadosCache = new Map();
 let graficoLineas = null;
 let graficoKmsPlan = null;
 let graficoKmsReal = null;
+let entrenamientosFiltrados = [];
+let sesionesSeleccionadas = new Set();
+let entrenamientoSeleccionado = null;
+let serieSeleccionada = null;
 
 const formatearFecha = (valor) => {
   if (!valor) return "--/--/----";
@@ -121,6 +128,42 @@ const cargarZonas = async () => {
   }
 };
 
+const obtenerZonasPorFecha = async (fecha) => {
+  if (!fecha) return zonasAtleta;
+  let clave = "";
+  try {
+    const d = new Date(fecha);
+    if (!Number.isNaN(d.getTime())) {
+      clave = d.toISOString().slice(0, 10);
+    }
+  } catch (e) {
+    // noop
+  }
+  if (!clave) {
+    const str = String(fecha);
+    const partes = str.split(/[ T]/);
+    clave = partes[0] || str;
+  }
+  if (zonasPorFechaCache.has(clave)) return zonasPorFechaCache.get(clave);
+  try {
+    const res = await fetch(
+      `${API_BASE}/zonas_atleta/${atletaId}?fecha=${encodeURIComponent(clave)}`,
+      {
+        credentials: "include",
+        headers: { Authorization: authHeader() }
+      }
+    );
+    if (!res.ok) throw new Error("No zonas en fecha");
+    const data = await res.json();
+    zonasPorFechaCache.set(clave, data);
+    return data;
+  } catch (err) {
+    console.warn("No se pudieron obtener zonas para fecha", clave, err);
+    zonasPorFechaCache.set(clave, zonasAtleta);
+    return zonasAtleta;
+  }
+};
+
 const obtenerResultados = async (entrenamientoId) => {
   if (resultadosCache.has(entrenamientoId)) return resultadosCache.get(entrenamientoId);
   try {
@@ -166,13 +209,23 @@ const cargarAtleta = async () => {
 };
 
 const aplicarFiltro = () => {
-  const seleccionado = elements.filtroNombre?.value || "todos";
-  const filtrados =
-    seleccionado === "todos"
-      ? entrenamientosCargados
-      : entrenamientosCargados.filter((e) => (e.nombre || "").trim() === seleccionado);
-
-  renderComparativa(filtrados);
+  const seleccionado = elements.filtroNombre?.value || "";
+  if (!seleccionado) {
+    sesionesSeleccionadas.clear();
+    entrenamientosFiltrados = [];
+    entrenamientoSeleccionado = null;
+    serieSeleccionada = null;
+    renderListaSesiones();
+    renderComparativa([]);
+    return;
+  }
+  entrenamientosFiltrados = entrenamientosCargados.filter((e) => (e.nombre || "").trim() === seleccionado);
+  // no seleccionar por defecto
+  sesionesSeleccionadas.clear();
+  entrenamientoSeleccionado = null;
+  serieSeleccionada = null;
+  renderListaSesiones();
+  renderComparativa([]);
 };
 
 const poblarSelectNombres = () => {
@@ -185,11 +238,91 @@ const poblarSelectNombres = () => {
     )
   ).sort();
 
-  const opciones = ['<option value="todos">Todos los entrenamientos</option>'].concat(
+  const opciones = ['<option value="">Selecciona entrenamiento</option>'].concat(
     nombres.map((n) => `<option value="${n}">${n}</option>`)
   );
   elements.filtroNombre.innerHTML = opciones.join("");
   elements.filtroNombre.onchange = aplicarFiltro;
+};
+
+const renderListaSesiones = () => {
+  if (!elements.tablaSesiones) return;
+  elements.tablaSesiones.innerHTML = "";
+  entrenamientoSeleccionado = null;
+  serieSeleccionada = null;
+  renderListaSeries([]);
+  renderGraficoTiempos([]);
+
+  if (!entrenamientosFiltrados.length) {
+    elements.comparativa.innerHTML =
+      '<p class="text-muted mb-0">Selecciona un entrenamiento para ver los tiempos.</p>';
+    return;
+  }
+
+  const filas = entrenamientosFiltrados
+    .slice()
+    .sort((a, b) => new Date(a.fecha) - new Date(b.fecha))
+    .map((ent) => {
+      const fechaTxt = formatearFecha(ent.fecha);
+      return `
+        <tr>
+          <td><input type="checkbox" class="form-check-input" data-ent-id="${ent.id}"></td>
+          <td>${fechaTxt}</td>
+          <td>${ent.nombre || "-"}</td>
+        </tr>
+      `;
+    });
+  elements.tablaSesiones.innerHTML = filas.join("");
+  elements.tablaSesiones.querySelectorAll('input[type="checkbox"]').forEach((chk) => {
+    chk.addEventListener("change", () => {
+      const id = Number(chk.dataset.entId);
+      if (chk.checked) {
+        sesionesSeleccionadas.add(id);
+      } else {
+        sesionesSeleccionadas.delete(id);
+      }
+      serieSeleccionada = null;
+      // Tomamos la primera sesión seleccionada para listar series
+      const firstId = Array.from(sesionesSeleccionadas)[0];
+      entrenamientoSeleccionado =
+        entrenamientosFiltrados.find((e) => e.id === firstId) || null;
+      renderListaSeries(entrenamientoSeleccionado);
+      const activos = entrenamientosFiltrados.filter((e) => sesionesSeleccionadas.has(e.id));
+      renderComparativa(activos);
+    });
+  });
+};
+
+const renderListaSeries = (entrenamiento) => {
+  if (!elements.tablaSeries) return;
+  elements.tablaSeries.innerHTML = "";
+  if (!entrenamiento || !(entrenamiento.pasos || []).length) return;
+
+  const intervalos = extraerIntervalos(entrenamiento.pasos, entrenamiento.zonas || zonasAtleta);
+  const filas = intervalos.map((item, idx) => {
+    return `
+      <tr>
+        <td><input type="radio" name="serie-radio" class="form-check-input" data-serie-id="${item.pasoId}" data-bloque="${item.bloque}" data-rep="${item.repeticion}" data-idx="${idx}" data-dist="${item.distancia || ""}" data-zona="${item.zona || ""}"></td>
+        <td>${item.bloque}</td>
+        <td>${item.repeticion || 1}</td>
+        <td>${item.distancia || "—"}</td>
+        <td>${item.zona || "-"}</td>
+      </tr>
+    `;
+  });
+  elements.tablaSeries.innerHTML = filas.join("");
+  elements.tablaSeries.querySelectorAll('input[type="radio"]').forEach((radio) => {
+    radio.addEventListener("change", () => {
+      const rep = Number(radio.dataset.rep) || 1;
+      const pasoId = Number(radio.dataset.serieId);
+      const dist = radio.dataset.dist || "";
+      const zona = radio.dataset.zona || "";
+      const bloque = Number(radio.dataset.bloque) || null;
+      serieSeleccionada = { pasoId, rep, dist, zona, bloque };
+      const activos = entrenamientosFiltrados.filter((e) => sesionesSeleccionadas.has(e.id));
+      renderComparativa(activos);
+    });
+  });
 };
 
 const extraerIntervalos = (pasos, zonas, bloquePrefix = []) => {
@@ -223,62 +356,61 @@ const extraerIntervalos = (pasos, zonas, bloquePrefix = []) => {
 
 const renderGraficoTiempos = (puntos, mensajeVacio = null) => {
   if (!elements.graficoCanvas || !elements.graficoEstado) return;
+
   if (graficoLineas) {
     graficoLineas.destroy();
     graficoLineas = null;
   }
-
   elements.graficoEstado.hidden = false;
 
   if (!window.Chart) {
     elements.graficoEstado.textContent = "No se pudo cargar el gráfico.";
-    elements.graficoEstado.hidden = false;
     return;
   }
 
-  const datosValidos = (puntos || []).filter(
-    (p) => Number.isFinite(p.objetivoSeg) || Number.isFinite(p.realSeg)
-  );
+  const datos = Array.isArray(puntos) ? puntos : [];
+  const tieneDatos =
+    datos.some((p) => Number.isFinite(p.objetivoSeg)) || datos.some((p) => Number.isFinite(p.realSeg));
 
-  if (!datosValidos.length) {
+  if (!datos.length || !tieneDatos) {
     elements.graficoEstado.textContent =
       mensajeVacio ||
       "No hay datos numéricos para graficar. Completa entrenamientos con tiempos reales.";
-    elements.graficoEstado.hidden = false;
     return;
   }
 
-  const labels = datosValidos.map((p) => p.etiqueta);
-  const distancias = datosValidos.map((p) => p.distancia || "—");
-  const propuestos = datosValidos.map((p) => (Number.isFinite(p.objetivoSeg) ? p.objetivoSeg : null));
-  const reales = datosValidos.map((p) => (Number.isFinite(p.realSeg) ? p.realSeg : null));
+  const labels = datos.map((p) => p.etiqueta || "");
+  const dataProp = datos.map((p) => (Number.isFinite(p.objetivoSeg) ? p.objetivoSeg : null));
+  const dataReal = datos.map((p) => (Number.isFinite(p.realSeg) ? p.realSeg : null));
 
   elements.graficoEstado.hidden = true;
-
   graficoLineas = new Chart(elements.graficoCanvas.getContext("2d"), {
     type: "line",
     data: {
       labels,
       datasets: [
         {
-          label: "Tiempo propuesto",
-          data: propuestos,
-          distancias,
-          tension: 0.3,
-          borderColor: "#0d6efd",
-          backgroundColor: "rgba(13, 110, 253, 0.08)",
-          fill: false,
-          spanGaps: true
+          label: "Propuesto",
+          data: dataProp,
+          borderColor: "#0d6efd99",
+          backgroundColor: "rgba(13,110,253,0.08)",
+          borderDash: [6, 4],
+          tension: 0.2,
+          spanGaps: true,
+          pointRadius: 3,
+          pointBackgroundColor: "#0d6efd99",
+          borderWidth: 1.5
         },
         {
-          label: "Tiempo real",
-          data: reales,
-          distancias,
-          tension: 0.3,
+          label: "Real",
+          data: dataReal,
           borderColor: "#198754",
-          backgroundColor: "rgba(25, 135, 84, 0.12)",
-          fill: false,
-          spanGaps: true
+          backgroundColor: "rgba(25,135,84,0.12)",
+          tension: 0.25,
+          spanGaps: true,
+          pointRadius: 4,
+          pointBackgroundColor: "#198754",
+          borderWidth: 2
         }
       ]
     },
@@ -293,21 +425,16 @@ const renderGraficoTiempos = (puntos, mensajeVacio = null) => {
             label: (ctx) => {
               const valor = ctx.parsed.y;
               const tiempo = Number.isFinite(valor) ? formatearTiempo(valor) : "—";
-              const dist = ctx.dataset.distancias?.[ctx.dataIndex];
-              return dist ? `${ctx.dataset.label}: ${tiempo} · ${dist}` : `${ctx.dataset.label}: ${tiempo}`;
+              return `${ctx.dataset.label}: ${tiempo}`;
             }
           }
         }
       },
       scales: {
-        x: {
-          title: { display: true, text: "Fecha" }
-        },
+        x: { title: { display: true, text: "Sesiones seleccionadas" } },
         y: {
           title: { display: true, text: "Tiempo (mm:ss)" },
-          ticks: {
-            callback: (val) => formatearTiempo(val)
-          },
+          ticks: { callback: (val) => formatearTiempo(val) },
           beginAtZero: false
         }
       }
@@ -447,10 +574,10 @@ const renderGraficoKmsReal = (datos, mensajeVacio = null) => {
 
 const renderComparativa = async (entrenos) => {
   if (!elements.comparativa) return;
-  if (!entrenos.length) {
+  if (!entrenos.length || !serieSeleccionada) {
     elements.comparativa.innerHTML =
-      '<p class="text-muted mb-0">Selecciona un entrenamiento para ver los tiempos.</p>';
-    renderGraficoTiempos([], "Selecciona un entrenamiento para ver el gráfico.");
+      '<p class="text-muted mb-0">Selecciona una sesión y una serie para ver el gráfico.</p>';
+    renderGraficoTiempos([], "Selecciona una sesión y una serie para ver el gráfico.");
     return;
   }
 
@@ -458,41 +585,53 @@ const renderComparativa = async (entrenos) => {
   let tieneIntervalos = false;
   for (const ent of entrenos) {
     const resultados = await obtenerResultados(ent.id);
-    const intervalos = extraerIntervalos(ent.pasos || [], zonasAtleta);
+    const intervalos = extraerIntervalos(ent.pasos || [], ent.zonas || zonasAtleta);
     if (intervalos.length) tieneIntervalos = true;
     const fechaObj = ent.fecha ? new Date(ent.fecha) : null;
     const fechaEtiqueta = formatearFecha(ent.fecha);
     const fechaOrden = fechaObj && !Number.isNaN(fechaObj.getTime()) ? fechaObj.getTime() : null;
-    intervalos.forEach((item) => {
-      const encontrado = (resultados || []).find(
-        (r) =>
-          Number(r.paso_detalle_id) === Number(item.pasoId) &&
-          Number(r.repeticion) === Number(item.repeticion)
-      );
-      const objetivoSeg = parseSegundos(item.objetivo);
-      const realSeg = parseSegundos(encontrado?.tiempo_real_seg);
-      if (fechaEtiqueta && fechaOrden !== null) {
-        puntosGrafico.push({
-          etiqueta: fechaEtiqueta,
-          objetivoSeg: Number.isFinite(objetivoSeg) ? objetivoSeg : null,
-          realSeg: Number.isFinite(realSeg) ? realSeg : null,
-          orden: fechaOrden,
-          distancia: item.distancia
-        });
-      }
-    });
+    intervalos
+      .filter((item) => {
+        const matchPaso =
+          Number(item.pasoId) === Number(serieSeleccionada.pasoId) ||
+          (serieSeleccionada.bloque != null &&
+            Number(item.bloque) === Number(serieSeleccionada.bloque));
+        const matchRep = Number(item.repeticion || 1) === Number(serieSeleccionada.rep);
+        const matchDist =
+          (serieSeleccionada.dist || "") === "" ||
+          (item.distancia || "") === serieSeleccionada.dist;
+        return matchPaso && matchRep && matchDist;
+      })
+      .forEach((item) => {
+        const encontrado = (resultados || []).find(
+          (r) =>
+            Number(r.paso_detalle_id) === Number(item.pasoId) &&
+            Number(r.repeticion) === Number(item.repeticion)
+        );
+        const objetivoSeg = parseSegundos(item.objetivo);
+        const realSeg = parseSegundos(encontrado?.tiempo_real_seg);
+        if (fechaEtiqueta && fechaOrden !== null) {
+          puntosGrafico.push({
+            etiqueta: fechaEtiqueta,
+            objetivoSeg: Number.isFinite(objetivoSeg) ? objetivoSeg : null,
+            realSeg: Number.isFinite(realSeg) ? realSeg : null,
+            orden: fechaOrden,
+            distancia: item.distancia || `Serie ${item.bloque}`
+          });
+        }
+      });
   }
 
-  if (!tieneIntervalos) {
+  if (!tieneIntervalos || puntosGrafico.length === 0) {
     elements.comparativa.innerHTML =
-      '<p class="text-muted mb-0">No hay intervalos con zona definida en estos entrenamientos.</p>';
+      '<p class="text-muted mb-0">No hay datos para esa serie en la sesión seleccionada.</p>';
     renderGraficoTiempos([], "No hay intervalos con tiempos propuestos para graficar.");
     return;
   }
 
   puntosGrafico.sort((a, b) => a.orden - b.orden);
   elements.comparativa.innerHTML =
-    '<p class="text-muted mb-0">El gráfico refleja los intervalos de este entrenamiento.</p>';
+    '<p class="text-muted mb-0">El gráfico refleja la serie seleccionada en las sesiones elegidas.</p>';
   renderGraficoTiempos(puntosGrafico);
 };
 
@@ -543,9 +682,11 @@ const cargarEntrenamientos = async () => {
         console.warn("No se pudo obtener detalle de", ent.id, err);
       }
       const resultados = await obtenerResultados(ent.id);
+      const zonasDeFecha = await obtenerZonasPorFecha(ent.fecha);
       entrenamientosCargados.push({
         ...ent,
         pasos,
+        zonas: zonasDeFecha,
         _tieneResultados: Array.isArray(resultados) && resultados.length > 0
       });
     }
@@ -680,8 +821,8 @@ async function cargarKmsSemanales() {
   }
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  cargarAtleta();
-  cargarZonas();
-  cargarEntrenamientos();
+document.addEventListener("DOMContentLoaded", async () => {
+  await cargarAtleta();
+  await cargarZonas();
+  await cargarEntrenamientos();
 });

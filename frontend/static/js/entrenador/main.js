@@ -7,6 +7,15 @@ let entrenoSeleccionado = null;
 let modalVisibilidad = null;
 let cachedAtletasIds = null;
 
+const formatFechaCorta = (valor) => {
+  const d = new Date(valor);
+  if (Number.isNaN(d.getTime())) return valor || "";
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}-${mm}-${yyyy}`;
+};
+
 // Helper para CSRF: usa window.CSRF si existe, o localStorage
 const getCsrfToken = () =>
   (window.CSRF && typeof window.CSRF.getToken === "function"
@@ -118,7 +127,8 @@ async function mostrarFeedbacksPendientes() {
       li.innerHTML = `
         <a href="feedback.html?id=${fb.id}" class="text-decoration-none">
           <strong>${fb.atleta}:</strong> ${fb.comentario.slice(0, 40)}...
-          <br><small>${new Date(fb.fecha).toLocaleString()}</small>
+          ${fb.url_datos ? `<br><small><a href="${fb.url_datos}" target="_blank" rel="noopener">Actividad</a></small>` : ""}
+          <br><small>${formatFechaCorta(fb.fecha)}</small>
         </a>
       `;
       lista.appendChild(li);
@@ -177,9 +187,7 @@ async function cargarProximosEntrenamientos() {
         <div class="d-flex justify-content-between align-items-center">
           <div>
             <strong>${e.nombre}</strong><br>
-            <small>${new Date(e.fecha).toLocaleDateString()} · ${
-        e.num_atletas
-      } atletas</small>
+            <small>${formatFechaCorta(e.fecha)} · ${e.num_atletas} atletas</small>
           </div>
           <span class="badge ${esVisible ? "bg-success" : "bg-primary"}">
             ${estadoTexto}
@@ -192,9 +200,7 @@ async function cargarProximosEntrenamientos() {
         entrenoSeleccionado = e;
         const info = document.getElementById("modal-entreno-info");
         if (info) {
-          info.textContent = `${e.nombre} · ${new Date(
-            e.fecha
-          ).toLocaleDateString()} · ${e.num_atletas} atletas`;
+          info.textContent = `${e.nombre} · ${formatFechaCorta(e.fecha)} · ${e.num_atletas} atletas`;
         }
         if (modalVisibilidad) {
           modalVisibilidad.show();

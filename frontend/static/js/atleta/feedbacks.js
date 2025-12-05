@@ -18,6 +18,11 @@ const renderFeedback = (fb) => {
   if (fb.comentario) {
     contenido.push(`<p class="mb-1"><strong>Comentario:</strong> ${fb.comentario}</p>`);
   }
+  if (fb.url_datos) {
+    contenido.push(
+      `<p class="mb-1"><a href="${fb.url_datos}" target="_blank" rel="noopener" class="link-primary">Ver actividad</a></p>`
+    );
+  }
   if (fb.respuesta) {
     contenido.push(
       `<div class="alert alert-info mb-0"><strong>Respuesta:</strong> ${fb.respuesta}</div>`
