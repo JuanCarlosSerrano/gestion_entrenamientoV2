@@ -16,7 +16,18 @@ except ImportError:  # El paquete se instala sólo cuando se usa MariaDB
     mariadb = None
 
 app = Flask(__name__, static_folder='../frontend/static')  # Configuración correcta de static_folder
-CORS(app)
+
+# Config CORS con soporte de credenciales y orígenes configurables
+_cors_origins = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:8080,http://127.0.0.1:8080,http://12.0.1.8:8080",
+)
+_cors_origins_list = [o.strip() for o in _cors_origins.split(",") if o.strip()]
+CORS(
+    app,
+    supports_credentials=True,
+    resources={r"/*": {"origins": _cors_origins_list}},
+)
 app.config["SESSION_PERMANENT"] = False  # Las sesiones expiran cuando se cierra el navegador
 app.config["SESSION_TYPE"] = "filesystem"  # Almacena las sesiones en el sistema de archivos (para desarrollo)
 app.config["SESSION_FILE_DIR"] = "flask_session"  # Directorio para almacenar archivos de sesión
@@ -2541,6 +2552,185 @@ def ver_feedback(current_user, feedback_id):
     except Exception as e:
         print("Error al obtener el detalle del feedback:", e)
         return jsonify({'error': 'No se pudo obtener el feedback'}), 500
+
+
+@app.route('/resultados/entrenador', methods=['GET'])
+@requires_roles('entrenador', 'admin')
+def listar_resultados_entrenador(current_user):
+    """
+    Devuelve los entrenamientos con resultados de los atletas del entrenador, ordenados por fecha desc.
+    """
+    try:
+        filtros = []
+        params = []
+        if current_user["rol"] == "entrenador":
+            filtros.append("u.entrenador_id = ?")
+            params.append(current_user["id"])
+
+        where_clause = ""
+        if filtros:
+            where_clause = "WHERE " + " AND ".join(filtros)
+
+        nombre_atleta_expr = (
+            "CONCAT_WS(' ', u.nombre, u.apellidos)"
+            if DB_ENGINE == "mariadb"
+            else "u.nombre || ' ' || COALESCE(u.apellidos, '')"
+        )
+
+        query = f"""
+            SELECT
+                ea.id AS entrenamiento_asignado_id,
+                ea.fecha,
+                COALESCE(ea.nombre, e.nombre, 'Entrenamiento') AS entrenamiento_nombre,
+                u.id AS atleta_id,
+                {nombre_atleta_expr} AS atleta_nombre,
+                AVG(re.tiempo_real_seg) AS tiempo_real_seg,
+                COUNT(re.id) AS num_series,
+                kre.km_planificados,
+                kre.km_realizados
+            FROM resultados_entrenamientos re
+            JOIN entrenamientos_asignados ea ON ea.id = re.entrenamiento_asignado_id
+            JOIN usuarios u ON u.id = ea.atleta_id
+            LEFT JOIN entrenamientos e ON e.id = ea.entrenamiento_id
+            LEFT JOIN km_realizados_entrenamientos kre ON kre.entrenamiento_asignado_id = ea.id
+            {where_clause}
+            GROUP BY ea.id, ea.fecha, entrenamiento_nombre, u.id, atleta_nombre, kre.km_planificados, kre.km_realizados
+            ORDER BY DATE(ea.fecha) DESC, ea.id DESC
+            LIMIT 300
+        """
+        filas = query_db(query, tuple(params))
+        resultados = []
+        for f in filas:
+            atleta_nombre = f["atleta_nombre"]
+            try:
+                atleta_nombre = str(atleta_nombre).strip()
+            except Exception:
+                atleta_nombre = str(atleta_nombre)
+
+            resultados.append({
+                "entrenamiento_asignado_id": f["entrenamiento_asignado_id"],
+                "fecha": f["fecha"],
+                "entrenamiento": f["entrenamiento_nombre"],
+                "atleta_id": f["atleta_id"],
+                "atleta": atleta_nombre,
+                "tiempo_real_seg": f["tiempo_real_seg"],
+                "num_series": f["num_series"],
+                "km_planificados": f.get("km_planificados"),
+                "km_realizados": f.get("km_realizados"),
+            })
+        return jsonify(resultados), 200
+    except Exception as e:
+        print("Error listando resultados de entrenador:", e)
+        return jsonify({'error': 'No se pudieron obtener los resultados'}), 500
+
+
+@app.route('/resultados/entrenador/<int:asignado_id>', methods=['GET'])
+@requires_roles('entrenador', 'admin')
+def detalle_resultado_entrenador(current_user, asignado_id):
+    """
+    Devuelve detalle de un entrenamiento asignado (cabecera, pasos, resultados y feedbacks).
+    """
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+
+        cur.execute(
+            """
+            SELECT ea.*, u.nombre AS atleta_nombre, u.apellidos AS atleta_apellidos, u.entrenador_id,
+                   e.nombre AS plantilla_nombre
+            FROM entrenamientos_asignados ea
+            JOIN usuarios u ON u.id = ea.atleta_id
+            LEFT JOIN entrenamientos e ON e.id = ea.entrenamiento_id
+            WHERE ea.id = ?
+            """,
+            (asignado_id,),
+        )
+        asignado = cur.fetchone()
+        if not asignado:
+            return jsonify({'error': 'Entrenamiento no encontrado'}), 404
+        if current_user["rol"] == "entrenador" and asignado["entrenador_id"] != current_user["id"]:
+            return jsonify({'error': 'No tienes permiso para ver este entrenamiento'}), 403
+
+        cur.execute(
+            """
+            SELECT
+                id,
+                parent_id,
+                orden,
+                tipo_paso,
+                repeticiones,
+                objetivo_tipo,
+                objetivo_valor,
+                unidad,
+                zona,
+                recuperacion_valor,
+                recuperacion_unidad,
+                intensidad,
+                descripcion
+            FROM entrenamientos_asignados_detalle
+            WHERE entrenamiento_asignado_id = ?
+            ORDER BY orden, id
+            """,
+            (asignado_id,),
+        )
+        pasos = [dict(p) for p in cur.fetchall()]
+
+        cur.execute(
+            """
+            SELECT
+                paso_detalle_id,
+                repeticion,
+                tiempo_real_seg,
+                fecha
+            FROM resultados_entrenamientos
+            WHERE entrenamiento_asignado_id = ?
+            ORDER BY fecha
+            """,
+            (asignado_id,),
+        )
+        resultados = [dict(r) for r in cur.fetchall()]
+
+        cur.execute(
+            """
+            SELECT comentario, url_datos, fecha
+            FROM feedbacks
+            WHERE entrenamiento_asignado_id = ?
+            ORDER BY fecha DESC
+            """,
+            (asignado_id,),
+        )
+        feedbacks = [dict(fb) for fb in cur.fetchall()]
+
+        cur.execute(
+            """
+            SELECT km_planificados, km_realizados
+            FROM km_realizados_entrenamientos
+            WHERE entrenamiento_asignado_id = ?
+            """,
+            (asignado_id,),
+        )
+        km_row = cur.fetchone()
+
+        payload = {
+            "entrenamiento": {
+                "id": asignado["id"],
+                "nombre": asignado["nombre"] or asignado.get("plantilla_nombre") or "Entrenamiento",
+                "fecha": asignado["fecha"],
+                "objetivo": asignado.get("objetivo"),
+                "notas": asignado.get("notas"),
+                "km_previstos": asignado.get("km_previstos"),
+                "km_realizados": km_row["km_realizados"] if km_row else None,
+                "km_planificados": km_row["km_planificados"] if km_row else None,
+                "atleta": f"{asignado['atleta_nombre']} {asignado.get('atleta_apellidos') or ''}".strip(),
+            },
+            "pasos": pasos,
+            "resultados": resultados,
+            "feedbacks": feedbacks,
+        }
+        return jsonify(payload), 200
+    except Exception as e:
+        print("Error obteniendo detalle de resultado:", e)
+        return jsonify({'error': 'No se pudo obtener el detalle del entrenamiento'}), 500
 @app.route('/feedbacks', methods=['GET'])
 @requires_roles('entrenador')
 def obtener_todos_los_feedbacks(current_user):

@@ -1,2 +1,48 @@
+# Entornos virtuales
+venv/
+env/
+.venv/
+
+# Archivos de entorno
 .env
+<<<<<<< HEAD
 .env
+=======
+.env.*
+!.env.example
+
+# Archivos temporales de Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Sesiones Flask
+flask_session/
+
+# Archivos de logs y dumps
+*.log
+*.sqlite3
+*.db
+nohup.out
+
+# Archivos creados por Flask o herramientas locales
+instance/
+*.pid
+
+# Archivos de PyInstaller o build
+dist/
+build/
+*.spec
+
+# Archivos de VS Code u otros editores
+.vscode/
+.idea/
+*.swp
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+
+# Sockets/PIDs varios
+*.sock
+>>>>>>> pre
