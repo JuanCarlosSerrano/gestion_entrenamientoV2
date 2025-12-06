@@ -22,6 +22,12 @@ const getCsrfToken = () =>
     ? window.CSRF.getToken()
     : localStorage.getItem("csrfToken"));
 
+const API_BASE =
+  window.API_BASE_URL ||
+  (window.location && window.location.origin
+    ? window.location.origin
+    : "http://127.0.0.1:5002");
+
 // --- Inicialización por página ---
 document.addEventListener("DOMContentLoaded", () => {
   console.log("main.js cargado");
@@ -92,7 +98,7 @@ async function mostrarFeedbacksPendientes() {
   if (!contenedor) return;
 
   try {
-    const res = await fetch("http://127.0.0.1:5000/feedbacks_pendientes", {
+    const res = await fetch(`${API_BASE}/feedbacks_pendientes`, {
       credentials: "include",
     });
 
@@ -148,7 +154,7 @@ async function cargarProximosEntrenamientos() {
   if (!contenedor) return;
 
   try {
-    const res = await fetch("http://127.0.0.1:5000/entrenamientos_proximos", {
+    const res = await fetch(`${API_BASE}/entrenamientos_proximos`, {
       credentials: "include",
     });
 
@@ -240,7 +246,7 @@ async function obtenerAtletasIdsEntrenador() {
     return cachedAtletasIds;
   }
 
-  const res = await fetch("http://127.0.0.1:5000/atletas", {
+  const res = await fetch(`${API_BASE}/atletas`, {
     credentials: "include",
   });
 
@@ -267,18 +273,15 @@ async function actualizarVisibilidad(visible) {
 
   console.log("Enviando actualización de visibilidad:", payload);
 
-  const res = await fetch(
-    "http://127.0.0.1:5000/entrenamientos_asignados/visibilidad",
-    {
-      method: "POST",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRF-Token": getCsrfToken(),
-      },
-      body: JSON.stringify(payload),
-    }
-  );
+  const res = await fetch(`${API_BASE}/entrenamientos_asignados/visibilidad`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": getCsrfToken(),
+    },
+    body: JSON.stringify(payload),
+  });
 
   if (!res.ok) {
     console.error("Respuesta HTTP al actualizar visibilidad:", res.status);
