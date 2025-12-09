@@ -809,16 +809,22 @@ def get_atleta(current_user, id):
 def obtener_perfil_atleta(current_user, atleta_id):
     try:
         query = '''
-            SELECT u.nombre, u.apellidos, u.email, u.foto_url, u.telefono,
-            u.fecha_nacimiento, u.categoria,u.grupo, u.subgrupo
+            SELECT u.id, u.nombre, u.apellidos, u.email, u.foto_url, u.telefono,
+                   u.fecha_nacimiento, u.categoria, u.grupo, u.subgrupo, u.entrenador_id, u.rol
             FROM usuarios u
             WHERE u.id = ?
         '''
         resultado = query_db(query, (atleta_id,), one=True)
-        if resultado:
-            return jsonify(dict(resultado)), 200
-        else:
+        if not resultado:
             return jsonify({'error': 'Atleta no encontrado'}), 404
+
+        # Si es entrenador, solo puede ver sus atletas
+        if current_user["rol"] == "entrenador":
+            ent_id = resultado.get("entrenador_id") if isinstance(resultado, dict) else None
+            if ent_id != current_user["id"]:
+                return jsonify({'error': 'No tienes permiso para ver este atleta'}), 403
+
+        return jsonify(dict(resultado)), 200
     except Exception as e:
         print("Error al obtener perfil del atleta:", e)
         return jsonify({'error': 'No se pudo obtener el perfil'}), 500
@@ -892,6 +898,69 @@ def actualizar_perfil(current_user):
     except Exception as e:
         print("Error al actualizar perfil:", e)
         return jsonify({"error": "No se pudo actualizar el perfil"}), 500
+
+
+@app.route('/perfil_atleta/<int:atleta_id>', methods=['PUT'])
+@requires_roles('admin', 'entrenador')
+def actualizar_perfil_atleta(current_user, atleta_id):
+    data = request.get_json(silent=True) or {}
+    nombre = (data.get("nombre") or "").strip()
+    apellidos = (data.get("apellidos") or "").strip()
+    email = (data.get("email") or "").strip()
+    telefono = (data.get("telefono") or "").strip() or None
+    fecha_nacimiento = (data.get("fecha_nacimiento") or "").strip() or None
+    categoria = (data.get("categoria") or "").strip() or None
+    grupo = (data.get("grupo") or "").strip() or None
+    subgrupo = (data.get("subgrupo") or "").strip() or None
+
+    if not nombre or not apellidos or not email:
+        return jsonify({"error": "Nombre, apellidos y email son obligatorios"}), 400
+
+    atleta = query_db(
+        "SELECT id, rol, entrenador_id FROM usuarios WHERE id = ?",
+        (atleta_id,),
+        one=True,
+    )
+    if not atleta or (atleta.get("rol") if isinstance(atleta, dict) else None) != "atleta":
+        return jsonify({"error": "Atleta no encontrado"}), 404
+
+    if current_user["rol"] == "entrenador":
+        entrenador_id = atleta.get("entrenador_id") if isinstance(atleta, dict) else None
+        if entrenador_id != current_user["id"]:
+            return jsonify({"error": "No tienes permiso para editar este atleta"}), 403
+
+    existente = query_db(
+        "SELECT id FROM usuarios WHERE email = ? AND id != ?",
+        (email, atleta_id),
+        one=True,
+    )
+    if existente:
+        return jsonify({"error": "Ese correo ya está en uso"}), 409
+
+    try:
+        execute_db(
+            """
+            UPDATE usuarios
+            SET nombre = ?, apellidos = ?, email = ?, telefono = ?, fecha_nacimiento = ?,
+                categoria = ?, grupo = ?, subgrupo = ?
+            WHERE id = ?
+            """,
+            (
+                nombre,
+                apellidos,
+                email,
+                telefono,
+                fecha_nacimiento,
+                categoria,
+                grupo,
+                subgrupo,
+                atleta_id,
+            ),
+        )
+        return jsonify({"message": "Perfil de atleta actualizado"}), 200
+    except Exception as e:
+        print("Error al actualizar perfil de atleta:", e)
+        return jsonify({"error": "No se pudo actualizar el perfil del atleta"}), 500
 
 # --- Rutas para Entrenamientos ---
 @app.route('/entrenamientos', methods=['POST'])
