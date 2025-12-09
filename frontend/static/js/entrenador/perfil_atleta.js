@@ -25,6 +25,24 @@ document.addEventListener("DOMContentLoaded", async () => {
   const formAlta = document.getElementById("form-alta-atleta");
   const seccionZonas = document.getElementById("seccion-zonas");
   const formZonas = document.getElementById("form-zonas");
+  const formDatos = document.getElementById("form-datos-atleta");
+  const alertDatos = document.getElementById("alert-datos");
+
+  const inputNombre = document.getElementById("input-nombre");
+  const inputApellidos = document.getElementById("input-apellidos");
+  const inputEmail = document.getElementById("input-email");
+  const inputTelefono = document.getElementById("input-telefono");
+  const inputFecha = document.getElementById("input-fecha");
+  const inputCategoria = document.getElementById("input-categoria");
+  const inputGrupo = document.getElementById("input-grupo");
+  const inputSubgrupo = document.getElementById("input-subgrupo");
+
+  const ensureCsrfToken = async () => {
+    if (window.CSRF && typeof window.CSRF.ensureToken === "function") {
+      return window.CSRF.ensureToken();
+    }
+    return localStorage.getItem("csrfToken");
+  };
 
   if (modoNuevo) {
     if (cardPerfil) cardPerfil.classList.add("d-none");
@@ -58,15 +76,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (atleta.foto_url) {
         fotoPerfil.src = atleta.foto_url;
       }
-  
-      document.getElementById("dato-nombre").textContent = atleta.nombre;
-      document.getElementById("dato-apellidos").textContent = atleta.apellidos;
-      document.getElementById("dato-email").textContent = atleta.email;
-      document.getElementById("dato-telefono").textContent = atleta.telefono || "-";
-      document.getElementById("dato-fecha_nacimiento").textContent = atleta.fecha_nacimiento || "-";
-      document.getElementById("dato-categoria").textContent = atleta.categoria || "-";
-      document.getElementById("dato-grupo").textContent = atleta.grupo || "-";
-      document.getElementById("dato-subgrupo").textContent = atleta.subgrupo || "-";
+
+      if (inputNombre) inputNombre.value = atleta.nombre || "";
+      if (inputApellidos) inputApellidos.value = atleta.apellidos || "";
+      if (inputEmail) inputEmail.value = atleta.email || "";
+      if (inputTelefono) inputTelefono.value = atleta.telefono || "";
+      if (inputFecha) inputFecha.value = atleta.fecha_nacimiento || "";
+      if (inputCategoria) inputCategoria.value = atleta.categoria || "";
+      if (inputGrupo) inputGrupo.value = atleta.grupo || "";
+      if (inputSubgrupo) inputSubgrupo.value = atleta.subgrupo || "";
     } catch (err) {
       console.error("Error al cargar perfil del atleta:", err);
     }
@@ -184,6 +202,62 @@ document.addEventListener("DOMContentLoaded", async () => {
       btnGuardarZonas.dataset.vam = vam.toFixed(2);
       rellenarManual(null);
     });
+
+    // Guardar datos personales
+    if (formDatos) {
+      formDatos.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (alertDatos) {
+          alertDatos.classList.add("d-none");
+          alertDatos.textContent = "";
+        }
+
+        const payload = {
+          nombre: inputNombre?.value || "",
+          apellidos: inputApellidos?.value || "",
+          email: inputEmail?.value || "",
+          telefono: inputTelefono?.value || "",
+          fecha_nacimiento: inputFecha?.value || "",
+          categoria: inputCategoria?.value || "",
+          grupo: inputGrupo?.value || "",
+          subgrupo: inputSubgrupo?.value || "",
+        };
+
+        try {
+          const csrf = await ensureCsrfToken();
+          const res = await fetch(`${window.API_BASE}/perfil_atleta/${atletaId}`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              ...(csrf ? { "X-CSRF-Token": csrf } : {}),
+            },
+            credentials: "include",
+            body: JSON.stringify(payload),
+          });
+
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            const msg = data.error || "No se pudo actualizar el perfil";
+            throw new Error(msg);
+          }
+
+          if (alertDatos) {
+            alertDatos.className = "alert alert-success";
+            alertDatos.textContent = "Datos personales actualizados";
+            alertDatos.classList.remove("d-none");
+          }
+        } catch (err) {
+          console.error("Error guardando datos del atleta", err);
+          if (alertDatos) {
+            alertDatos.className = "alert alert-danger";
+            alertDatos.textContent = err.message || "No se pudo actualizar el perfil";
+            alertDatos.classList.remove("d-none");
+          } else {
+            alert(err.message || "No se pudo actualizar el perfil");
+          }
+        }
+      });
+    }
 
 
     // Guardar zonas en la base de datos
