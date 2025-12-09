@@ -3233,7 +3233,7 @@ def listar_microciclos_plantillas(current_user):
         where = ""
         params = []
         if current_user["rol"] == "entrenador":
-            where = "WHERE creador_id = ? OR creador_id IS NULL"
+            where = "WHERE creador_id = ?"
             params.append(current_user["id"])
 
         filas = query_db(
@@ -3254,7 +3254,7 @@ def listar_microciclos(current_user):
     where_clause = ""
     params = []
     if current_user["rol"] == "entrenador":
-        where_clause = "WHERE creador_id = ? OR creador_id IS NULL"
+        where_clause = "WHERE creador_id = ?"
         params.append(current_user["id"])
 
     micros = db.execute(
@@ -3502,7 +3502,7 @@ def listar_entrenamientos_microciclo(current_user, micro_id):
 
     if current_user["rol"] == "entrenador":
         creador = micro["creador_id"] if isinstance(micro, dict) else None
-        if creador not in (None, current_user["id"]):
+        if creador != current_user["id"]:
             cur.close()
             conn.close()
             return jsonify({"error": "No tienes permiso para ver este microciclo"}), 403
@@ -3565,7 +3565,7 @@ def listar_mesociclos(current_user):
         where = ""
         params = []
         if current_user["rol"] == "entrenador":
-            where = "WHERE creador_id = ? OR creador_id IS NULL"
+            where = "WHERE creador_id = ?"
             params.append(current_user["id"])
 
         filas = query_db(
@@ -3589,7 +3589,7 @@ def listar_mesociclos_plantillas(current_user):
         where = ""
         params = []
         if current_user["rol"] == "entrenador":
-            where = "WHERE creador_id = ? OR creador_id IS NULL"
+            where = "WHERE creador_id = ?"
             params.append(current_user["id"])
 
         # Datos base de mesociclos
@@ -3648,7 +3648,7 @@ def obtener_mesociclo(current_user, meso_id):
             return jsonify({'error': 'Mesociclo no encontrado'}), 404
         if current_user["rol"] == "entrenador":
             creador = meso.get("creador_id") if isinstance(meso, dict) else None
-            if creador not in (None, current_user["id"]):
+            if creador != current_user["id"]:
                 return jsonify({'error': 'No tienes permiso para ver este mesociclo'}), 403
 
         filas = query_db(
@@ -3842,7 +3842,7 @@ def obtener_macrociclo(current_user, macro_id):
             return jsonify({'error': 'Macrociclo no encontrado'}), 404
         if current_user["rol"] == "entrenador":
             creador = macro.get("creador_id") if isinstance(macro, dict) else None
-            if creador not in (None, current_user["id"]):
+            if creador != current_user["id"]:
                 return jsonify({'error': 'No tienes permiso para ver este macrociclo'}), 403
 
         filas = query_db(
@@ -3875,7 +3875,7 @@ def listar_macrociclos(current_user):
         where = ""
         params = []
         if current_user["rol"] == "entrenador":
-            where = "WHERE creador_id = ? OR creador_id IS NULL"
+            where = "WHERE creador_id = ?"
             params.append(current_user["id"])
 
         filas = query_db(
