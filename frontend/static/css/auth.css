@@ -10,6 +10,7 @@ body.auth-page {
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   background: linear-gradient(135deg, var(--auth-bg-primary) 0%, var(--auth-bg-secondary) 100%);
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 2rem 1rem;
@@ -121,6 +122,14 @@ body.auth-page {
 .extra-atleta {
   display: none;
   margin-top: 1rem;
+}
+
+.auth-page .site-footer {
+  margin-top: 1rem;
+  width: 100%;
+  text-align: center;
+  padding: 1rem 0.5rem 0.5rem;
+  color: var(--pp-muted);
 }
 
 @media (max-width: 576px) {
