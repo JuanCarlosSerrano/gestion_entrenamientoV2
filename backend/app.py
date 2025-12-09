@@ -80,36 +80,43 @@ def ensure_meta_columns():
             cur.close()
             conn.close()
     else:
+        # SQLite no soporta IF NOT EXISTS en ALTER COLUMN, así que comprobamos con PRAGMA
         conn = get_db()
         cur = conn.cursor()
+
+        def column_exists(table, column):
+            cur.execute(f"PRAGMA table_info({table})")
+            cols = {row[1] for row in cur.fetchall()}
+            return column in cols
+
         try:
             for tabla in tablas_owner:
-                try:
-                    cur.execute(f"PRAGMA table_info({tabla})")
-                    cols = [row[1] for row in cur.fetchall()]
-                    if "creador_id" not in cols:
+                if not column_exists(tabla, "creador_id"):
+                    try:
                         cur.execute(f"ALTER TABLE {tabla} ADD COLUMN creador_id INTEGER")
+                    except Exception:
+                        pass
+                try:
+                    cur.execute(f"CREATE INDEX IF NOT EXISTS idx_{tabla}_creador ON {tabla}(creador_id)")
                 except Exception:
                     pass
-            try:
-                cur.execute("PRAGMA table_info(usuarios)")
-                cols = [row[1] for row in cur.fetchall()]
-                if "force_password_change" not in cols:
+
+            if not column_exists("usuarios", "force_password_change"):
+                try:
                     cur.execute("ALTER TABLE usuarios ADD COLUMN force_password_change INTEGER DEFAULT 0")
-            except Exception:
-                pass
-            try:
-                cur.execute("PRAGMA table_info(feedbacks)")
-                cols = [row[1] for row in cur.fetchall()]
-                if "url_datos" not in cols:
+                except Exception:
+                    pass
+
+            if not column_exists("feedbacks", "url_datos"):
+                try:
                     cur.execute("ALTER TABLE feedbacks ADD COLUMN url_datos TEXT")
-            except Exception:
-                pass
+                except Exception:
+                    pass
+
             conn.commit()
         finally:
             cur.close()
             conn.close()
-
 
 def ensure_owner_columns():
     """
@@ -3223,8 +3230,15 @@ def listar_microciclos_plantillas(current_user):
     /microciclos -> mismo resultado que /microciclos
     """
     try:
+        where = ""
+        params = []
+        if current_user["rol"] == "entrenador":
+            where = "WHERE creador_id = ? OR creador_id IS NULL"
+            params.append(current_user["id"])
+
         filas = query_db(
-            "SELECT id, nombre, objetivo FROM microciclos ORDER BY id DESC"
+            f"SELECT id, nombre, objetivo FROM microciclos {where} ORDER BY id DESC",
+            tuple(params)
         )
         return jsonify([dict(f) for f in filas]), 200
     except Exception as e:
@@ -3237,12 +3251,20 @@ def listar_microciclos_plantillas(current_user):
 def listar_microciclos(current_user):
     db = get_db()
 
+    where_clause = ""
+    params = []
+    if current_user["rol"] == "entrenador":
+        where_clause = "WHERE creador_id = ? OR creador_id IS NULL"
+        params.append(current_user["id"])
+
     micros = db.execute(
-        """
+        f"""
         SELECT id, mesociclo_id, nombre, objetivo, created_at
         FROM microciclos
+        {where_clause}
         ORDER BY created_at DESC
-        """
+        """,
+        params
     ).fetchall()
 
     # Contamos sesiones por microciclo
@@ -3315,10 +3337,10 @@ def crear_microciclo(current_user):
         now = datetime.now().isoformat(' ')
         cur.execute(
             """
-            INSERT INTO microciclos (mesociclo_id, nombre, objetivo, created_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO microciclos (mesociclo_id, nombre, objetivo, created_at, creador_id)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (None, nombre, objetivo, now)
+            (None, nombre, objetivo, now, current_user["id"])
         )
         micro_id = cur.lastrowid
 
@@ -3368,11 +3390,18 @@ def actualizar_microciclo(current_user, micro_id):
         cur = conn.cursor()
 
         # Comprobar que existe
-        cur.execute("SELECT id FROM microciclos WHERE id = ?", (micro_id,))
-        if not cur.fetchone():
+        cur.execute("SELECT id, creador_id FROM microciclos WHERE id = ?", (micro_id,))
+        row = cur.fetchone()
+        if not row:
             cur.close()
             conn.close()
             return jsonify({'error': 'Microciclo no encontrado'}), 404
+        if current_user["rol"] == "entrenador":
+            creador = row["creador_id"] if isinstance(row, dict) else None
+            if creador not in (None, current_user["id"]):
+                cur.close()
+                conn.close()
+                return jsonify({'error': 'No tienes permiso para editar este microciclo'}), 403
 
         now = datetime.now().isoformat(' ')
 
@@ -3424,6 +3453,19 @@ def borrar_microciclo(current_user, micro_id):
         conn = get_db()
         cur = conn.cursor()
 
+        cur.execute("SELECT creador_id FROM microciclos WHERE id = ?", (micro_id,))
+        owner_row = cur.fetchone()
+        if not owner_row:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Microciclo no encontrado'}), 404
+        if current_user["rol"] == "entrenador":
+            creador = owner_row["creador_id"] if isinstance(owner_row, dict) else None
+            if creador not in (None, current_user["id"]):
+                cur.close()
+                conn.close()
+                return jsonify({'error': 'No tienes permiso para eliminar este microciclo'}), 403
+
         cur.execute("DELETE FROM microciclos_entrenamientos WHERE microciclo_id = ?", (micro_id,))
         cur.execute("DELETE FROM microciclos WHERE id = ?", (micro_id,))
 
@@ -3445,7 +3487,7 @@ def listar_entrenamientos_microciclo(current_user, micro_id):
     # Comprobamos que el microciclo existe
     cur.execute(
         """
-        SELECT id, mesociclo_id, nombre, objetivo, created_at
+        SELECT id, mesociclo_id, nombre, objetivo, created_at, creador_id
         FROM microciclos
         WHERE id = ?
         """,
@@ -3457,6 +3499,13 @@ def listar_entrenamientos_microciclo(current_user, micro_id):
         cur.close()
         conn.close()
         return jsonify({"error": "Microciclo no encontrado"}), 404
+
+    if current_user["rol"] == "entrenador":
+        creador = micro["creador_id"] if isinstance(micro, dict) else None
+        if creador not in (None, current_user["id"]):
+            cur.close()
+            conn.close()
+            return jsonify({"error": "No tienes permiso para ver este microciclo"}), 403
 
     cur.execute(
         """
@@ -3513,8 +3562,15 @@ def listar_entrenamientos_microciclo(current_user, micro_id):
 @requires_roles('admin', 'entrenador')
 def listar_mesociclos(current_user):
     try:
+        where = ""
+        params = []
+        if current_user["rol"] == "entrenador":
+            where = "WHERE creador_id = ? OR creador_id IS NULL"
+            params.append(current_user["id"])
+
         filas = query_db(
-            "SELECT id, nombre, objetivo FROM mesociclos ORDER BY id DESC"
+            f"SELECT id, nombre, objetivo FROM mesociclos {where} ORDER BY id DESC",
+            tuple(params)
         )
         return jsonify([dict(f) for f in filas]), 200
     except Exception as e:
@@ -3530,9 +3586,16 @@ def listar_mesociclos_plantillas(current_user):
     tal como el frontend necesita.
     """
     try:
+        where = ""
+        params = []
+        if current_user["rol"] == "entrenador":
+            where = "WHERE creador_id = ? OR creador_id IS NULL"
+            params.append(current_user["id"])
+
         # Datos base de mesociclos
         meso_rows = query_db(
-            "SELECT id, nombre, objetivo FROM mesociclos ORDER BY id DESC"
+            f"SELECT id, nombre, objetivo FROM mesociclos {where} ORDER BY id DESC",
+            tuple(params)
         )
 
         resultado = []
@@ -3577,12 +3640,16 @@ def obtener_mesociclo(current_user, meso_id):
     """
     try:
         meso = query_db(
-            "SELECT id, nombre, objetivo FROM mesociclos WHERE id = ?",
+            "SELECT id, nombre, objetivo, creador_id FROM mesociclos WHERE id = ?",
             (meso_id,),
             one=True
         )
         if not meso:
             return jsonify({'error': 'Mesociclo no encontrado'}), 404
+        if current_user["rol"] == "entrenador":
+            creador = meso.get("creador_id") if isinstance(meso, dict) else None
+            if creador not in (None, current_user["id"]):
+                return jsonify({'error': 'No tienes permiso para ver este mesociclo'}), 403
 
         filas = query_db(
             """
@@ -3626,8 +3693,8 @@ def crear_mesociclo(current_user):
         cur = conn.cursor()
 
         cur.execute(
-            "INSERT INTO mesociclos (nombre, objetivo) VALUES (?, ?)",
-            (nombre, objetivo)
+            "INSERT INTO mesociclos (nombre, objetivo, creador_id) VALUES (?, ?, ?)",
+            (nombre, objetivo, current_user["id"])
         )
         meso_id = cur.lastrowid
 
@@ -3674,11 +3741,18 @@ def actualizar_mesociclo(current_user, meso_id):
         cur = conn.cursor()
 
         # comprobar que existe
-        cur.execute("SELECT id FROM mesociclos WHERE id = ?", (meso_id,))
-        if not cur.fetchone():
+        cur.execute("SELECT id, creador_id FROM mesociclos WHERE id = ?", (meso_id,))
+        row = cur.fetchone()
+        if not row:
             cur.close()
             conn.close()
             return jsonify({'error': 'Mesociclo no encontrado'}), 404
+        if current_user["rol"] == "entrenador":
+            creador = row["creador_id"] if isinstance(row, dict) else None
+            if creador not in (None, current_user["id"]):
+                cur.close()
+                conn.close()
+                return jsonify({'error': 'No tienes permiso para editar este mesociclo'}), 403
 
         cur.execute(
             "UPDATE mesociclos SET nombre = ?, objetivo = ? WHERE id = ?",
@@ -3721,6 +3795,19 @@ def borrar_mesociclo(current_user, meso_id):
         conn = get_db()
         cur = conn.cursor()
 
+        cur.execute("SELECT creador_id FROM mesociclos WHERE id = ?", (meso_id,))
+        row = cur.fetchone()
+        if not row:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Mesociclo no encontrado'}), 404
+        if current_user["rol"] == "entrenador":
+            creador = row["creador_id"] if isinstance(row, dict) else None
+            if creador not in (None, current_user["id"]):
+                cur.close()
+                conn.close()
+                return jsonify({'error': 'No tienes permiso para eliminar este mesociclo'}), 403
+
         cur.execute("DELETE FROM mesociclos WHERE id = ?", (meso_id,))
         deleted = cur.rowcount
 
@@ -3747,12 +3834,16 @@ def obtener_macrociclo(current_user, macro_id):
     """
     try:
         macro = query_db(
-            "SELECT id, nombre, objetivo_general FROM macrociclos WHERE id = ?",
+            "SELECT id, nombre, objetivo_general, creador_id FROM macrociclos WHERE id = ?",
             (macro_id,),
             one=True
         )
         if not macro:
             return jsonify({'error': 'Macrociclo no encontrado'}), 404
+        if current_user["rol"] == "entrenador":
+            creador = macro.get("creador_id") if isinstance(macro, dict) else None
+            if creador not in (None, current_user["id"]):
+                return jsonify({'error': 'No tienes permiso para ver este macrociclo'}), 403
 
         filas = query_db(
             """
@@ -3781,8 +3872,15 @@ def obtener_macrociclo(current_user, macro_id):
 @requires_roles('admin', 'entrenador')
 def listar_macrociclos(current_user):
     try:
+        where = ""
+        params = []
+        if current_user["rol"] == "entrenador":
+            where = "WHERE creador_id = ? OR creador_id IS NULL"
+            params.append(current_user["id"])
+
         filas = query_db(
-            "SELECT id, nombre, objetivo_general FROM macrociclos ORDER BY id DESC"
+            f"SELECT id, nombre, objetivo_general FROM macrociclos {where} ORDER BY id DESC",
+            tuple(params)
         )
         return jsonify([dict(f) for f in filas]), 200
     except Exception as e:
@@ -3807,8 +3905,8 @@ def crear_macrociclo(current_user):
         cur = conn.cursor()
 
         cur.execute(
-            "INSERT INTO macrociclos (nombre, objetivo_general) VALUES (?, ?)",
-            (nombre, objetivo_general)
+            "INSERT INTO macrociclos (nombre, objetivo_general, creador_id) VALUES (?, ?, ?)",
+            (nombre, objetivo_general, current_user["id"])
         )
         macro_id = cur.lastrowid
 
@@ -3853,11 +3951,18 @@ def actualizar_macrociclo(current_user, macro_id):
         conn = get_db()
         cur = conn.cursor()
 
-        cur.execute("SELECT id FROM macrociclos WHERE id = ?", (macro_id,))
-        if not cur.fetchone():
+        cur.execute("SELECT id, creador_id FROM macrociclos WHERE id = ?", (macro_id,))
+        row = cur.fetchone()
+        if not row:
             cur.close()
             conn.close()
             return jsonify({'error': 'Macrociclo no encontrado'}), 404
+        if current_user["rol"] == "entrenador":
+            creador = row["creador_id"] if isinstance(row, dict) else None
+            if creador not in (None, current_user["id"]):
+                cur.close()
+                conn.close()
+                return jsonify({'error': 'No tienes permiso para editar este macrociclo'}), 403
 
         cur.execute(
             "UPDATE macrociclos SET nombre = ?, objetivo_general = ? WHERE id = ?",
