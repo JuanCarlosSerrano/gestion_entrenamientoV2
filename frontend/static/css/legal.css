@@ -1,0 +1,115 @@
+:root {
+  --legal-soft-bg: #f7fafc;
+}
+
+.legal-page .page-context-bar {
+  margin-top: 1.25rem;
+}
+
+.legal-lead {
+  color: var(--pp-muted);
+  max-width: 880px;
+  font-size: 1rem;
+}
+
+.legal-toc {
+  margin-top: 1.25rem;
+}
+
+.legal-links-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.legal-pill {
+  background: #fff;
+  border: 1px solid var(--pp-border);
+  border-radius: 999px;
+  color: var(--pp-navy);
+  padding: 0.5rem 0.95rem;
+  font-weight: 600;
+  text-decoration: none;
+  box-shadow: 0 10px 20px rgba(5, 26, 48, 0.06);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.legal-pill:hover {
+  color: var(--pp-navy-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(5, 26, 48, 0.08);
+}
+
+.legal-section {
+  margin-top: 1.25rem;
+}
+
+.legal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.legal-meta {
+  background: var(--legal-soft-bg);
+  border: 1px solid var(--pp-border);
+  border-radius: 0.85rem;
+  padding: 0.9rem 1rem;
+}
+
+.legal-badge {
+  border: 1px solid var(--pp-border);
+}
+
+.legal-list {
+  margin: 1rem 0 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.5rem;
+  color: #243444;
+}
+
+.legal-highlight {
+  background: linear-gradient(120deg, rgba(15, 169, 196, 0.08), #fff 60%);
+  border: 1px solid var(--pp-border);
+  border-radius: 1.1rem;
+  padding: 1rem 1.25rem;
+}
+
+.legal-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.75rem;
+}
+
+.legal-table th,
+.legal-table td {
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid var(--pp-border);
+  text-align: left;
+  font-size: 0.95rem;
+}
+
+.legal-table th {
+  background: #f9fbfd;
+  color: var(--pp-navy);
+  font-weight: 700;
+}
+
+.legal-table code {
+  color: var(--pp-navy-dark);
+  font-weight: 700;
+}
+
+@media (max-width: 576px) {
+  .legal-page .page-heading {
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .legal-links-grid {
+    flex-direction: column;
+  }
+}

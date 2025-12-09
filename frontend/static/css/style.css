@@ -1557,6 +1557,25 @@ form .form-label {
   color: var(--pp-muted);
 }
 
+.footer-links {
+  margin-top: 0.35rem;
+  display: flex;
+  gap: 0.9rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.footer-links a {
+  color: var(--pp-navy);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.footer-links a:hover {
+  color: var(--pp-orange);
+  text-decoration: underline;
+}
+
 .entreno-visible,
 .entreno-oculto {
   display: block;

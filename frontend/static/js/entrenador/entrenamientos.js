@@ -1261,7 +1261,11 @@ async function hydrateMicroDetalles() {
         credentials: 'include'
       });
 
-      if (!res.ok) return;
+      if (!res.ok) {
+        // Si no tenemos permiso (403), ignoramos ese microciclo en la hidratación
+        if (res.status === 403) return;
+        return;
+      }
 
       const data = await res.json().catch(() => null);
       if (data && Array.isArray(data.detalles)) {
