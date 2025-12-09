@@ -810,15 +810,21 @@ def obtener_perfil_atleta(current_user, atleta_id):
     try:
         query = '''
             SELECT u.id, u.nombre, u.apellidos, u.email, u.foto_url, u.telefono,
-            u.fecha_nacimiento, u.categoria,u.grupo, u.subgrupo, u.entrenador_id
+                   u.fecha_nacimiento, u.categoria, u.grupo, u.subgrupo, u.entrenador_id, u.rol
             FROM usuarios u
             WHERE u.id = ?
         '''
         resultado = query_db(query, (atleta_id,), one=True)
-        if resultado:
-            return jsonify(dict(resultado)), 200
-        else:
+        if not resultado:
             return jsonify({'error': 'Atleta no encontrado'}), 404
+
+        # Si es entrenador, solo puede ver sus atletas
+        if current_user["rol"] == "entrenador":
+            ent_id = resultado.get("entrenador_id") if isinstance(resultado, dict) else None
+            if ent_id != current_user["id"]:
+                return jsonify({'error': 'No tienes permiso para ver este atleta'}), 403
+
+        return jsonify(dict(resultado)), 200
     except Exception as e:
         print("Error al obtener perfil del atleta:", e)
         return jsonify({'error': 'No se pudo obtener el perfil'}), 500
@@ -910,7 +916,6 @@ def actualizar_perfil_atleta(current_user, atleta_id):
     if not nombre or not apellidos or not email:
         return jsonify({"error": "Nombre, apellidos y email son obligatorios"}), 400
 
-    # Verificar que el atleta existe y es atleta
     atleta = query_db(
         "SELECT id, rol, entrenador_id FROM usuarios WHERE id = ?",
         (atleta_id,),
@@ -919,13 +924,11 @@ def actualizar_perfil_atleta(current_user, atleta_id):
     if not atleta or (atleta.get("rol") if isinstance(atleta, dict) else None) != "atleta":
         return jsonify({"error": "Atleta no encontrado"}), 404
 
-    # Si es entrenador, solo puede editar a sus atletas
     if current_user["rol"] == "entrenador":
         entrenador_id = atleta.get("entrenador_id") if isinstance(atleta, dict) else None
         if entrenador_id != current_user["id"]:
             return jsonify({"error": "No tienes permiso para editar este atleta"}), 403
 
-    # Email único
     existente = query_db(
         "SELECT id FROM usuarios WHERE email = ? AND id != ?",
         (email, atleta_id),

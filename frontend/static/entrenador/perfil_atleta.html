@@ -89,16 +89,47 @@
           </div>
         </div>
         
-        <ul class="list-group">
-          <li class="list-group-item"><strong>Nombre:</strong> <span id="dato-nombre"></span></li>
-          <li class="list-group-item"><strong>Apellidos:</strong> <span id="dato-apellidos"></span></li>
-          <li class="list-group-item"><strong>Email:</strong> <span id="dato-email"></span></li>
-          <li class="list-group-item"><strong>Teléfono:</strong> <span id="dato-telefono"></span></li>
-          <li class="list-group-item"><strong>Fecha de nacimiento:</strong> <span id="dato-fecha_nacimiento"></span></li>
-          <li class="list-group-item"><strong>Categoría:</strong> <span id="dato-categoria"></span></li>
-          <li class="list-group-item"><strong>Grupo:</strong> <span id="dato-grupo"></span></li>
-          <li class="list-group-item"><strong>Subgrupo:</strong> <span id="dato-subgrupo"></span></li>
-        </ul>
+        <form id="form-datos-atleta" class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Nombre</label>
+            <input type="text" class="form-control" id="input-nombre" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Apellidos</label>
+            <input type="text" class="form-control" id="input-apellidos" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Email</label>
+            <input type="email" class="form-control" id="input-email" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Teléfono</label>
+            <input type="tel" class="form-control" id="input-telefono">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Fecha de nacimiento</label>
+            <input type="date" class="form-control" id="input-fecha">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Categoría</label>
+            <input type="text" class="form-control" id="input-categoria">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Grupo</label>
+            <input type="text" class="form-control" id="input-grupo">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Subgrupo</label>
+            <input type="text" class="form-control" id="input-subgrupo">
+          </div>
+          <div class="col-12 d-flex gap-2">
+            <button type="submit" class="btn btn-brand">Guardar cambios</button>
+            <a href="atletas.html" class="btn btn-outline-secondary">Volver</a>
+          </div>
+          <div class="col-12">
+            <div id="alert-datos" class="alert d-none" role="alert"></div>
+          </div>
+        </form>
       </div>
 
       <!-- Calculadora de zonas VAM -->
