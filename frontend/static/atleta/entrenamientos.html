@@ -59,6 +59,62 @@
       </div>
 
       <div class="modal-body">
+        <div class="row g-3 mb-3">
+          <div class="col-12">
+            <label for="rpe" class="form-label fw-semibold d-flex justify-content-between">
+              <span>Esfuerzo percibido (1-10)</span>
+              <span id="rpe-valor" class="text-primary fw-bold">—</span>
+            </label>
+            <input type="range" class="form-range" id="rpe" min="1" max="10" step="1" />
+            <small class="text-muted" id="rpe-ayuda">Desliza para indicar cómo te sentiste.</small>
+          </div>
+          <div class="col-12 col-md-6">
+            <label for="sensacion" class="form-label fw-semibold">Sensaciones</label>
+            <select id="sensacion" class="form-select">
+              <option value="">Selecciona</option>
+              <option value="muy bien">😄 Muy bien</option>
+              <option value="bien">🙂 Bien</option>
+              <option value="normal">😐 Normal</option>
+              <option value="mal">😖 Mal</option>
+            </select>
+          </div>
+          <div class="col-12 col-md-6">
+            <label for="fatiga" class="form-label fw-semibold">Fatiga acumulada</label>
+            <select id="fatiga" class="form-select">
+              <option value="">Selecciona</option>
+              <option value="baja">Baja</option>
+              <option value="media">Media</option>
+              <option value="alta">Alta</option>
+            </select>
+          </div>
+          <div class="col-12 col-md-6">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" value="" id="dolor-check" />
+              <label class="form-check-label" for="dolor-check">
+                Tengo molestias o dolor
+              </label>
+            </div>
+            <div class="mt-2 d-none" id="zona-dolor-wrapper">
+              <label for="zona-dolor" class="form-label fw-semibold">Zona con molestias</label>
+              <select id="zona-dolor" class="form-select">
+                <option value="">Selecciona</option>
+                <option value="gemelos">Gemelos</option>
+                <option value="isquios">Isquios</option>
+                <option value="cuadriceps">Cuádriceps</option>
+                <option value="rodilla">Rodilla</option>
+                <option value="tobillo">Tobillo</option>
+                <option value="otro">Otro</option>
+              </select>
+            </div>
+          </div>
+          <div class="col-12 col-md-6">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="completado" checked />
+              <label class="form-check-label" for="completado">Entreno completado</label>
+            </div>
+            <small class="text-muted">Desmarca si no pudiste terminar la sesión.</small>
+          </div>
+        </div>
         <div class="mb-3">
           <label for="comentario-feedback" class="form-label fw-semibold">Comentario para tu entrenador</label>
           <textarea

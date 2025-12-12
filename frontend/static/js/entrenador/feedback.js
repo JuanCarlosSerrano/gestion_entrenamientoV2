@@ -21,6 +21,48 @@ const formatFechaCorta = (valor) => {
   return `${dd}-${mm}-${yyyy}`;
 };
 
+const textoRpe = (valor) => {
+  const num = Number(valor);
+  if (Number.isNaN(num)) return "";
+  if (num <= 3) return "Muy suave";
+  if (num <= 6) return "Controlado";
+  if (num <= 8) return "Exigente";
+  return "Máximo";
+};
+
+const iconoSensacion = (valor) => {
+  const mapa = { "muy bien": "😄", bien: "🙂", normal: "😐", mal: "😖" };
+  const val = (valor || "").toLowerCase();
+  return mapa[val] ? `${mapa[val]} ${valor}` : valor;
+};
+
+const renderChipsFeedback = (fb = {}) => {
+  const chips = [];
+  const rpeVal = Number(fb.rpe);
+  if (Number.isFinite(rpeVal)) {
+    const clase = rpeVal >= 9 ? "chip-danger" : rpeVal >= 7 ? "chip-warning" : "chip-success";
+    chips.push(`<span class="chip ${clase}">RPE ${rpeVal} · ${textoRpe(rpeVal)}</span>`);
+  }
+  if (fb.sensacion) {
+    chips.push(`<span class="chip chip-soft">${iconoSensacion(fb.sensacion)}</span>`);
+  }
+  if (fb.fatiga) {
+    const nivel = (fb.fatiga || "").toLowerCase();
+    const clase = nivel === "alta" ? "chip-danger" : nivel === "media" ? "chip-warning" : "chip-success";
+    chips.push(`<span class="chip ${clase}">Fatiga ${fb.fatiga}</span>`);
+  }
+  if (fb.dolor) {
+    chips.push(
+      `<span class="chip chip-danger">⚠️ Dolor${fb.zona_dolor ? `: ${fb.zona_dolor}` : ""}</span>`
+    );
+  }
+  const incompleto = fb.completado === 0 || fb.completado === false;
+  if (incompleto) {
+    chips.push('<span class="chip chip-muted">No completado</span>');
+  }
+  return chips.join(" ");
+};
+
 const renderTablaBloques = (bloques = []) => {
   if (!Array.isArray(bloques) || !bloques.length) {
     return '<p class="text-muted small mb-0">Este entrenamiento no tiene bloques configurados.</p>';
@@ -79,16 +121,19 @@ document.addEventListener("DOMContentLoaded", async () => {
         item.className = 'list-group-item';
 
         const contenido = document.createElement('div');
+        const resumen = renderChipsFeedback(fb);
         contenido.innerHTML = `
           <div class="d-flex justify-content-between align-items-start">
             <div>
               <strong>${fb.atleta} ${fb.respuesta ? '<span class="badge bg-success">Respondido</span>' : ''}</strong><br>
               ${fb.entrenamiento_nombre ? `<small class="text-muted">${fb.entrenamiento_nombre}</small><br>` : ''}
-              ${fb.comentario}<br>
+              ${resumen ? `<div class="d-flex flex-wrap gap-1 my-2">${resumen}</div>` : ""}
+              ${fb.comentario ? `<div class="mb-1">${fb.comentario}</div>` : "<div class='text-muted mb-1'>Sin comentario</div>"}
               ${fb.resultado ? `<small><strong>Resultado:</strong> ${fb.resultado}</small><br>` : ""}
               ${fb.tiempo_realizado ? `<small><strong>Tiempo:</strong> ${fb.tiempo_realizado}</small><br>` : ""}
               ${fb.percepcion ? `<small><strong>Percepción:</strong> ${fb.percepcion}</small><br>` : ""}
               ${fb.enlace ? `<a href="${fb.enlace}" target="_blank" rel="noopener" class="link-primary">Ver registro</a><br>` : ""}
+              ${fb.url_datos ? `<a href="${fb.url_datos}" target="_blank" rel="noopener" class="link-primary">Actividad</a><br>` : ""}
               <small class="text-muted">${formatFechaCorta(fb.fecha)}</small>
               ${fb.respuesta ? `
                 <div class="mt-3 p-3 rounded border border-success bg-light">
@@ -137,7 +182,19 @@ window.abrirModalFeedback = async function (feedbackId) {
     const fb = await res.json();
 
     if (res.ok) {
+      const resumen = renderChipsFeedback(fb);
       const tablaBloques = renderTablaBloques(fb.bloques);
+      const backParam = encodeURIComponent(
+        `${window.location.pathname.split("/").pop()}${window.location.search}`
+      );
+      const btnDetalle =
+        fb.entrenamiento_asignado_id
+          ? `<div class="mb-3">
+              <a class="btn btn-outline-primary btn-sm" href="estadisticas.html?id=${fb.entrenamiento_asignado_id}&back=${backParam}">
+                Ver registro del entrenamiento
+              </a>
+            </div>`
+          : "";
       const respuestaHtml = fb.respuesta
         ? `<div class="mt-3 p-3 bg-success-subtle border-start border-success border-3"><strong>Respuesta enviada:</strong><br>${fb.respuesta}</div>`
         : `
@@ -151,14 +208,18 @@ window.abrirModalFeedback = async function (feedbackId) {
         <p><strong>Atleta:</strong> ${fb.atleta}</p>
         <p><strong>Entrenamiento:</strong> ${fb.entrenamiento_nombre || '-'}</p>
         <p><strong>Fecha del entrenamiento:</strong> ${formatFechaCorta(fb.fecha_entreno)}</p>
+        ${resumen ? `<div class="d-flex flex-wrap gap-1 mb-2">${resumen}</div>` : ""}
+        ${btnDetalle}
         <p><strong>Comentario:</strong> ${fb.comentario}</p>
         ${fb.url_datos ? `<p><strong>Actividad:</strong> <a href="${fb.url_datos}" target="_blank" rel="noopener">${fb.url_datos}</a></p>` : ''}
         ${fb.resultado ? `<p><strong>Resultado:</strong> ${fb.resultado}</p>` : ''}
         ${fb.tiempo_realizado ? `<p><strong>Tiempo:</strong> ${fb.tiempo_realizado}</p>` : ''}
         ${fb.percepcion ? `<p><strong>Percepción del esfuerzo:</strong> ${fb.percepcion}</p>` : ''}
         ${fb.enlace ? `<p><strong>Enlace:</strong> <a href="${fb.enlace}" target="_blank" rel="noopener">${fb.enlace}</a></p>` : ''}
+        <p><strong>Estado:</strong> ${fb.completado === 0 || fb.completado === false ? 'No completado' : 'Completado'}</p>
+        ${fb.dolor ? `<p><strong>Dolor:</strong> ${fb.zona_dolor || "Sí"}</p>` : ""}
         <p><strong>Fecha del feedback:</strong> ${formatFechaCorta(fb.fecha)}</p>
-        <p><strong>Estado:</strong> ${fb.leido ? 'Leído' : 'No leído'}</p>
+        <p><strong>Lectura:</strong> ${fb.leido ? 'Leído' : 'No leído'}</p>
         ${tablaBloques}
         ${respuestaHtml}
       `;

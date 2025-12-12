@@ -72,8 +72,38 @@
               <h3 class="mb-1">Resultados de entrenamientos</h3>
               <p class="text-muted mb-0">Entrenamientos completados con todas las series reportadas.</p>
             </div>
-            <button class="btn btn-outline-brand btn-sm" id="btn-refrescar-resultados">Actualizar</button>
+            <div class="d-flex flex-wrap gap-2">
+              <div class="btn-group btn-group-sm" role="group" aria-label="Filtros resultados">
+                <button class="btn btn-outline-primary active" id="filtro-todos">Todos</button>
+                <button class="btn btn-outline-primary" id="filtro-alertas">Ver solo alertas</button>
+                <button class="btn btn-outline-primary" id="filtro-incompletos">Ver incompletos</button>
+                <button class="btn btn-outline-primary" id="filtro-sin-feedback">Ver sin feedback</button>
+              </div>
+              <button class="btn btn-outline-brand btn-sm" id="btn-refrescar-resultados">Actualizar</button>
+            </div>
           </div>
+
+          <div class="alert alert-info" id="alertas-resumen">
+            <div class="fw-semibold mb-2">Alertas recientes</div>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0" id="alertas-tabla">
+                <thead class="table-light">
+                  <tr>
+                    <th>Atleta</th>
+                    <th>Entrenamiento</th>
+                    <th>Fecha</th>
+                    <th>RPE</th>
+                    <th>Sensación</th>
+                    <th>Fatiga</th>
+                    <th>Dolor</th>
+                    <th>Δ km</th>
+                  </tr>
+                </thead>
+                <tbody id="alertas-listado"></tbody>
+              </table>
+            </div>
+          </div>
+
           <div class="table-responsive">
             <table class="table table-sm align-middle">
               <thead class="table-light">
@@ -81,9 +111,14 @@
                   <th>Atleta</th>
                   <th>Entrenamiento</th>
                   <th>Fecha</th>
-                  <th>Tiempo objetivo</th>
-                  <th>Tiempo real</th>
+                  <th>Estado</th>
+                  <th>Dist. objetivo</th>
+                  <th>Dist. real</th>
                   <th>Δ</th>
+                  <th>RPE</th>
+                  <th>Sensación</th>
+                  <th>Fatiga</th>
+                  <th>Dolor</th>
                 </tr>
               </thead>
               <tbody id="tabla-resultados-body"></tbody>

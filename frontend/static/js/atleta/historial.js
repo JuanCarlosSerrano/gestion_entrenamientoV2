@@ -14,6 +14,15 @@ const modalEl = document.getElementById("modalRegistrarTiempos");
 const listaIntervalos = document.getElementById("lista-intervalos-tiempos");
 const comentarioInput = document.getElementById("comentario-feedback");
 const urlDatosInput = document.getElementById("url-datos");
+const rpeInput = document.getElementById("rpe");
+const rpeValor = document.getElementById("rpe-valor");
+const rpeAyuda = document.getElementById("rpe-ayuda");
+const sensacionSelect = document.getElementById("sensacion");
+const fatigaSelect = document.getElementById("fatiga");
+const dolorCheck = document.getElementById("dolor-check");
+const zonaDolorSelect = document.getElementById("zona-dolor");
+const zonaDolorWrapper = document.getElementById("zona-dolor-wrapper");
+const completadoCheck = document.getElementById("completado");
 const btnGuardarTiempos = document.getElementById("btn-guardar-tiempos");
 const modalTitulo = modalEl?.querySelector(".modal-title");
 const modalRegistrar = modalEl ? new window.bootstrap.Modal(modalEl) : null;
@@ -85,6 +94,37 @@ const parseFecha = (valor) => {
 
 const itemFecha = (item) => (item.fechaObj ? item.fechaObj.getTime() : 0);
 
+const textoRpe = (valor) => {
+  const num = Number(valor);
+  if (Number.isNaN(num)) return "—";
+  if (num <= 3) return "Muy suave";
+  if (num <= 6) return "Controlado";
+  if (num <= 8) return "Exigente";
+  return "Máximo";
+};
+
+const actualizarRpeUI = () => {
+  if (!rpeInput || !rpeValor) return;
+  const val = Number(rpeInput.value);
+  rpeValor.textContent = Number.isNaN(val) ? "—" : `${val} · ${textoRpe(val)}`;
+  if (rpeAyuda) {
+    rpeAyuda.textContent =
+      val >= 9
+        ? "Sesión muy dura, vigila la recuperación."
+        : val >= 7
+          ? "Trabajo exigente, controla la carga semanal."
+          : "Sesión controlada.";
+  }
+};
+
+const toggleZonaDolor = () => {
+  if (!zonaDolorWrapper || !dolorCheck) return;
+  zonaDolorWrapper.classList.toggle("d-none", !dolorCheck.checked);
+};
+
+rpeInput?.addEventListener("input", actualizarRpeUI);
+dolorCheck?.addEventListener("change", toggleZonaDolor);
+
 let zonasAtleta = null;
 
 const cargarZonasAtleta = async (atletaId) => {
@@ -119,6 +159,12 @@ const abrirModalEdicion = async (entrenamientoId) => {
   const series = construirSeriesDesdePasos(entrenamiento.pasos || []);
   renderLineasRegistro(series, resultadosPrevios, kmPrevistos, kmRealizadosPrev);
   if (comentarioInput) comentarioInput.value = "";
+  if (rpeInput) {
+    rpeInput.value = rpeInput.value || 5;
+    actualizarRpeUI();
+  }
+  toggleZonaDolor();
+  if (completadoCheck) completadoCheck.checked = true;
   modalRegistrar.show();
 };
 
@@ -129,10 +175,51 @@ modalEl?.addEventListener("hidden.bs.modal", () => {
   if (kmInput) kmInput.value = "";
   if (kmHelper) kmHelper.textContent = "Introduce el volumen real completado.";
   if (urlDatosInput) urlDatosInput.value = "";
+  if (rpeInput) {
+    rpeInput.value = "";
+    actualizarRpeUI();
+  }
+  if (sensacionSelect) sensacionSelect.value = "";
+  if (fatigaSelect) fatigaSelect.value = "";
+  if (dolorCheck) {
+    dolorCheck.checked = false;
+    toggleZonaDolor();
+  }
+  if (zonaDolorSelect) zonaDolorSelect.value = "";
+  if (completadoCheck) completadoCheck.checked = true;
 });
 
-const enviarFeedback = async (entrenamientoId, comentario, url_datos) => {
-  if (!comentario) return;
+const construirPayloadFeedback = () => {
+  const rawRpe = rpeInput?.value;
+  const rpeVal = rawRpe === "" ? null : Number(rawRpe);
+  return {
+    comentario: comentarioInput?.value.trim() || "",
+    url_datos: urlDatosInput?.value?.trim() || null,
+    rpe: Number.isFinite(rpeVal) ? rpeVal : null,
+    sensacion: sensacionSelect?.value || null,
+    fatiga: fatigaSelect?.value || null,
+    dolor: !!dolorCheck?.checked,
+    zona_dolor: dolorCheck?.checked ? zonaDolorSelect?.value || null : null,
+    completado: completadoCheck ? !!completadoCheck.checked : true
+  };
+};
+
+const tieneDatosFeedback = (fb) => {
+  if (!fb) return false;
+  return Boolean(
+    fb.comentario ||
+      fb.url_datos ||
+      Number.isFinite(fb.rpe) ||
+      fb.sensacion ||
+      fb.fatiga ||
+      fb.dolor ||
+      fb.zona_dolor ||
+      fb.completado === false
+  );
+};
+
+const enviarFeedback = async (entrenamientoId, payload) => {
+  if (!payload || !tieneDatosFeedback(payload)) return;
   const csrf = await getCsrfToken();
   const response = await fetch(`${API}/feedback`, {
     method: "POST",
@@ -144,8 +231,7 @@ const enviarFeedback = async (entrenamientoId, comentario, url_datos) => {
     },
     body: JSON.stringify({
       entrenamiento_id: entrenamientoId,
-      comentario,
-      url_datos
+      ...payload
     })
   });
   const data = await response.json().catch(() => ({}));
@@ -416,7 +502,7 @@ document.addEventListener("DOMContentLoaded", () => {
 btnGuardarTiempos?.addEventListener("click", async () => {
   if (!entrenamientoActivo || !listaIntervalos) return;
   const inputs = Array.from(listaIntervalos.querySelectorAll("input[data-paso-id]"));
-  const comentario = comentarioInput?.value.trim();
+  const feedbackPayload = construirPayloadFeedback();
   let kmRealizadosValor = kmInput ? parseFloat(kmInput.value) : null;
   if (!Number.isFinite(kmRealizadosValor) || kmRealizadosValor < 0) {
     kmRealizadosValor = null;
@@ -439,8 +525,11 @@ btnGuardarTiempos?.addEventListener("click", async () => {
     }
   });
 
-  if (!seriesPayload.length && !kmRealizadosValor && !comentario) {
-    alert("Introduce al menos un tiempo válido o los kilómetros realizados.");
+  const hayResultados = seriesPayload.length > 0 || Number.isFinite(kmRealizadosValor);
+  const hayFeedback = tieneDatosFeedback(feedbackPayload);
+
+  if (!hayResultados && !hayFeedback) {
+    alert("Añade tiempos/km o completa algún campo de feedback para enviar.");
     return;
   }
 
@@ -448,32 +537,45 @@ btnGuardarTiempos?.addEventListener("click", async () => {
   btnGuardarTiempos.textContent = "Guardando...";
 
   try {
-    const csrf = await getCsrfToken();
-    const response = await fetch(
-      `${API}/entrenamientos_asignados/${entrenamientoActivo.id}/resultados`,
-      {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: authHeader(),
-          ...(csrf ? { "X-CSRF-Token": csrf } : {})
-        },
-        body: JSON.stringify({ series: seriesPayload, km_realizados: kmRealizadosValor })
+    if (hayResultados) {
+      const csrf = await getCsrfToken();
+      const response = await fetch(
+        `${API}/entrenamientos_asignados/${entrenamientoActivo.id}/resultados`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: authHeader(),
+            ...(csrf ? { "X-CSRF-Token": csrf } : {})
+          },
+          body: JSON.stringify({
+            series: seriesPayload,
+            km_realizados: Number.isFinite(kmRealizadosValor) ? kmRealizadosValor : null
+          })
+        }
+      );
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.error || "No se pudieron guardar los tiempos");
       }
-    );
-
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(data?.error || "No se pudieron guardar los tiempos");
-    }
-    resultadosCache.set(entrenamientoActivo.id, seriesPayload);
-
-    if (comentario) {
-      await enviarFeedback(entrenamientoActivo.id, comentario, urlDatosInput?.value?.trim() || null);
+      resultadosCache.set(entrenamientoActivo.id, seriesPayload);
     }
 
-    alert("Tiempos actualizados correctamente");
+    if (hayFeedback) {
+      await enviarFeedback(entrenamientoActivo.id, feedbackPayload);
+      feedbacksEnviados.add(Number(entrenamientoActivo.id));
+    }
+
+    const mensaje =
+      hayResultados && hayFeedback
+        ? "Tiempos y feedback enviados correctamente"
+        : hayResultados
+          ? "Tiempos guardados correctamente"
+          : "Feedback enviado correctamente";
+
+    alert(mensaje);
     modalRegistrar?.hide();
     const soloPendientes = btnPendientes?.dataset.mode === "pendientes";
     cargarHistorial(soloPendientes);

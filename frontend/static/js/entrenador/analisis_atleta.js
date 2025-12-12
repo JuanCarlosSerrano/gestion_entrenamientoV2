@@ -48,7 +48,10 @@ const formatearFecha = (valor) => {
   if (!valor) return "--/--/----";
   const date = new Date(valor);
   if (Number.isNaN(date.getTime())) return valor;
-  return date.toLocaleDateString("es-ES");
+  return date.toLocaleDateString("es-ES", {
+    day: "2-digit",
+    month: "2-digit"
+  });
 };
 
 const formatearTiempo = (segundos) => {
@@ -57,6 +60,21 @@ const formatearTiempo = (segundos) => {
   const minutos = Math.floor(total / 60);
   const seg = total % 60;
   return `${minutos}:${String(seg).padStart(2, "0")}`;
+};
+
+const formatearSemanaLabel = (semanaStr) => {
+  if (!semanaStr) return "";
+  try {
+    const base = new Date(semanaStr);
+    if (Number.isNaN(base.getTime())) return semanaStr;
+    const inicio = base.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" });
+    const finDate = new Date(base);
+    finDate.setDate(base.getDate() + 6);
+    const fin = finDate.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" });
+    return `${inicio}–${fin}`;
+  } catch (err) {
+    return semanaStr;
+  }
 };
 
 const parseSegundos = (valor) => {
@@ -96,6 +114,7 @@ const resumenSemana = (entrenos, pendientes, hoy) => {
     return f >= inicioSemana && f <= finSemana;
   });
 
+  const totalSemana = entrenosSemana.length;
   let completadas = 0;
   let pend = 0;
   entrenosSemana.forEach((ent) => {
@@ -105,10 +124,12 @@ const resumenSemana = (entrenos, pendientes, hoy) => {
     if (f < hoy) {
       if (idsPend.has(ent.id)) pend += 1;
       else completadas += 1;
+    } else {
+      pend += 1; // futuros de la semana cuentan como pendientes
     }
   });
 
-  if (elements.resumenSesiones) elements.resumenSesiones.textContent = `${entrenosSemana.length}`;
+  if (elements.resumenSesiones) elements.resumenSesiones.textContent = `${totalSemana}`;
   if (elements.resumenCompletadas) elements.resumenCompletadas.textContent = `${completadas}`;
   if (elements.resumenPendientes) elements.resumenPendientes.textContent = `${pend}`;
   if (elements.resumenKmPlan) elements.resumenKmPlan.textContent = `—`;
@@ -462,7 +483,10 @@ const renderGraficoKmsPlan = (datos, mensajeVacio = null) => {
     return;
   }
 
-  const labels = data.map((d) => d.label || d.semana || "");
+  const labels = data.map((d) => {
+    const semana = d.semana || d.label;
+    return formatearSemanaLabel(semana) || "";
+  });
   const plan = data.map((d) => Number(d.planificados) || 0);
 
   elements.graficoKmsPlanEstado.hidden = true;
@@ -527,7 +551,10 @@ const renderGraficoKmsReal = (datos, mensajeVacio = null) => {
     return;
   }
 
-  const labels = data.map((d) => d.label || d.semana || "");
+  const labels = data.map((d) => {
+    const semana = d.semana || d.label;
+    return formatearSemanaLabel(semana) || "";
+  });
   const real = data.map((d) => Number(d.realizados) || 0);
 
   elements.graficoKmsRealEstado.hidden = true;
@@ -772,18 +799,39 @@ const agruparKmsSemanalesLocal = () => {
 
 const actualizarResumenKm = (kmsDatos) => {
   if (!elements.resumenKmPlan || !elements.resumenKmReal) return;
+
+  const lista = Array.isArray(kmsDatos) ? kmsDatos : [];
+  if (!lista.length) return;
+
+  // 1️⃣ Cogemos la semana MÁS RECIENTE que no sea futura
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
-  const semanaClave = obtenerClaveSemana(hoy);
-  const registro = (kmsDatos || []).find((k) => k.semana === semanaClave);
-  if (registro) {
-    elements.resumenKmPlan.textContent = `${(Number(registro.planificados) || 0).toFixed(1)} km`;
-    elements.resumenKmReal.textContent = `${(Number(registro.realizados) || 0).toFixed(1)} km`;
-  } else {
-    elements.resumenKmPlan.textContent = "0 km";
-    elements.resumenKmReal.textContent = "0 km";
+
+  const semanasValidas = lista
+    .filter(k => k.semana)
+    .map(k => ({
+      ...k,
+      fechaLunes: new Date(k.semana)
+    }))
+    .filter(k => k.fechaLunes <= hoy)
+    .sort((a, b) => b.fechaLunes - a.fechaLunes);
+
+  if (!semanasValidas.length) {
+    elements.resumenKmPlan.textContent = "—";
+    elements.resumenKmReal.textContent = "—";
+    return;
   }
+
+  // 👉 ESTA es la semana “actual” real
+  const registro = semanasValidas[0];
+
+  const plan = Number(registro.planificados) || 0;
+  const real = Number(registro.realizados) || 0;
+
+  elements.resumenKmPlan.textContent = `${plan.toFixed(1)} km`;
+  elements.resumenKmReal.textContent = `${real.toFixed(1)} km`;
 };
+
 
 async function cargarKmsSemanales() {
   if (!atletaId) {
@@ -792,32 +840,38 @@ async function cargarKmsSemanales() {
     return;
   }
 
-  const fetchKmsServidor = async () => {
-    const url = `${API_BASE}/analisis_atleta/${atletaId}`;
-    const res = await fetch(url, {
-      credentials: "include",
-      headers: { Authorization: authHeader() }
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const kms = Array.isArray(data?.kms_semana) ? data.kms_semana : [];
-    return kms;
-  };
+const fetchKmsServidor = async () => {
+  const res = await fetch(`${API_BASE}/analisis_atleta/${atletaId}`, {
+    credentials: "include",
+    headers: { Authorization: authHeader() }
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json();
+};
+
+
 
   try {
-    const kms = await fetchKmsServidor();
-    if (kms && kms.length) {
-      renderGraficoKmsPlan(kms, "No hay kms previstos para este atleta.");
-      renderGraficoKmsReal(kms, "No hay kms reales para este atleta.");
-      actualizarResumenKm(kms);
-      return;
-    }
-    throw new Error("Sin datos de kms en servidor");
+    const data = await fetchKmsServidor();
+
+if (Array.isArray(data.kms_semana) && data.kms_semana.length) {
+  renderGraficoKmsPlan(data.kms_semana);
+  renderGraficoKmsReal(data.kms_semana);
+  actualizarResumenKm(data.kms_semana);
+  return; // ⛔ NO cálculo local
+}
+
+    // Si no hay datos útiles del servidor, usamos cálculo local
+    const kmsLocal = agruparKmsSemanalesLocal();
+    renderGraficoKmsPlan(kmsLocal, "No hay kms previstos para este atleta.");
+    renderGraficoKmsReal(kmsLocal, "No hay kms reales para este atleta.");
+    actualizarResumenKm(kmsLocal);
   } catch (err) {
     console.warn("No se pudieron cargar kms del servidor, usando cálculo local.", err);
-    renderGraficoKmsPlan([], "No se pudieron cargar los kms previstos.");
-    renderGraficoKmsReal([], "No se pudieron cargar los kms reales.");
-    actualizarResumenKm([]);
+    const kmsLocal = agruparKmsSemanalesLocal();
+    renderGraficoKmsPlan(kmsLocal, "No se pudieron cargar los kms previstos.");
+    renderGraficoKmsReal(kmsLocal, "No se pudieron cargar los kms reales.");
+    actualizarResumenKm(kmsLocal);
   }
 }
 

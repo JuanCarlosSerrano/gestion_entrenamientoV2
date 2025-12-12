@@ -57,6 +57,14 @@ def ensure_meta_columns():
     Asegura columnas de propietario (creador_id) y extras (force_password_change, url_datos).
     """
     tablas_owner = ("entrenamientos", "microciclos", "mesociclos", "macrociclos")
+    feedback_columns = (
+        ("rpe", "INT", "INTEGER"),
+        ("sensacion", "VARCHAR(20)", "TEXT"),
+        ("fatiga", "VARCHAR(20)", "TEXT"),
+        ("dolor", "TINYINT", "INTEGER"),
+        ("zona_dolor", "VARCHAR(50)", "TEXT"),
+        ("completado", "TINYINT", "INTEGER"),
+    )
     if DB_ENGINE == "mariadb":
         conn = get_db()
         cur = conn.cursor()
@@ -75,6 +83,12 @@ def ensure_meta_columns():
                 cur.execute("ALTER TABLE feedbacks ADD COLUMN IF NOT EXISTS url_datos TEXT")
             except Exception:
                 pass
+            for nombre, tipo_mariadb, _ in feedback_columns:
+                try:
+                    default_clause = "DEFAULT 0" if nombre == "dolor" else ("DEFAULT 1" if nombre == "completado" else "")
+                    cur.execute(f"ALTER TABLE feedbacks ADD COLUMN IF NOT EXISTS {nombre} {tipo_mariadb} {default_clause}")
+                except Exception:
+                    pass
             conn.commit()
         finally:
             cur.close()
@@ -112,6 +126,13 @@ def ensure_meta_columns():
                     cur.execute("ALTER TABLE feedbacks ADD COLUMN url_datos TEXT")
                 except Exception:
                     pass
+            for nombre, _, tipo_sqlite in feedback_columns:
+                if not column_exists("feedbacks", nombre):
+                    try:
+                        default_clause = "DEFAULT 0" if nombre == "dolor" else ("DEFAULT 1" if nombre == "completado" else "")
+                        cur.execute(f"ALTER TABLE feedbacks ADD COLUMN {nombre} {tipo_sqlite} {default_clause}".strip())
+                    except Exception:
+                        pass
 
             conn.commit()
         finally:
@@ -2540,25 +2561,173 @@ def asignar_entrenamiento_lote(current_user):
         return jsonify({"error": "Error interno al asignar entrenamiento"}), 500
 
 
+def _coerce_bool(value):
+    """
+    Convierte diferentes representaciones a booleano. Devuelve None si no es interpretable.
+    """
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        val = value.strip().lower()
+        if val in ("1", "true", "t", "si", "sí", "yes", "y", "on"):
+            return True
+        if val in ("0", "false", "f", "no", "off", "n"):
+            return False
+    return None
+
+
+def validar_feedback(data):
+    """
+    Valida y normaliza los campos estructurados del feedback.
+    """
+    if not isinstance(data, dict):
+        raise ValueError("Formato de datos inválido")
+
+    rpe_raw = data.get("rpe")
+    rpe = None
+    if rpe_raw not in (None, "", "null"):
+        try:
+            rpe = int(rpe_raw)
+        except Exception:
+            raise ValueError("RPE fuera de rango (1-10)")
+        if not (1 <= rpe <= 10):
+            raise ValueError("RPE fuera de rango (1-10)")
+
+    dolor_val = _coerce_bool(data.get("dolor"))
+    dolor = bool(dolor_val) if dolor_val is not None else False
+    zona_dolor = (data.get("zona_dolor") or "").strip()
+    if dolor and not zona_dolor:
+        raise ValueError("Zona de dolor requerida")
+
+    completado_val = _coerce_bool(data.get("completado"))
+    completado = 1 if completado_val is None else int(bool(completado_val))
+
+    sensacion = (data.get("sensacion") or "").strip() or None
+    fatiga = (data.get("fatiga") or "").strip() or None
+
+    return {
+        "rpe": rpe,
+        "sensacion": sensacion,
+        "fatiga": fatiga,
+        "dolor": 1 if dolor else 0,
+        "zona_dolor": zona_dolor or None,
+        "completado": completado,
+    }
+
+
 @app.route('/feedback', methods=['POST'])
 @requires_roles('atleta')
 def enviar_feedback(current_user):
-    data = request.get_json()
-    entrenamiento_id = data.get("entrenamiento_id")
-    comentario = data.get("comentario")
-    url_datos = data.get("url_datos")
+    data = request.get_json(silent=True) or {}
+    entrenamiento_id = data.get("entrenamiento_id") or data.get("entrenamiento")
+    comentario = (data.get("comentario") or "").strip()
+    url_datos = (data.get("url_datos") or "").strip() or None
     atleta_id = current_user['id']
 
-    if not entrenamiento_id or not comentario:
-        return jsonify({"error": "Entrenamiento y comentario requeridos"}), 400
+    if not entrenamiento_id:
+        return jsonify({"error": "Entrenamiento requerido"}), 400
 
     try:
-        execute_db(
-            '''INSERT INTO feedbacks (entrenamiento_asignado_id, atleta_id, comentario, url_datos) 
-               VALUES (?, ?, ?, ?)''',
-            (entrenamiento_id, atleta_id, comentario, url_datos)
+        extras = validar_feedback(data)
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id FROM entrenamientos_asignados WHERE id = ? AND atleta_id = ?",
+            (entrenamiento_id, atleta_id),
         )
-        return jsonify({"message": "Feedback enviado correctamente"}), 200
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({"error": "Entrenamiento no encontrado o no asignado"}), 404
+
+        # Buscar feedback previo para este entrenamiento/atleta
+        cur.execute(
+            """
+            SELECT id
+            FROM feedbacks
+            WHERE entrenamiento_asignado_id = ? AND atleta_id = ?
+            ORDER BY fecha DESC
+            LIMIT 1
+            """,
+            (entrenamiento_id, atleta_id),
+        )
+        row_prev = cur.fetchone()
+        now_str = datetime.utcnow().isoformat(" ", "seconds")
+        mensaje = "Feedback enviado correctamente"
+        feedback_id = None
+
+        if row_prev:
+            feedback_id = row_prev["id"] if isinstance(row_prev, dict) else row_prev[0]
+            cur.execute(
+                """
+                UPDATE feedbacks
+                   SET comentario = ?, url_datos = ?, rpe = ?, sensacion = ?, fatiga = ?,
+                       dolor = ?, zona_dolor = ?, completado = ?, fecha = ?
+                 WHERE id = ?
+                """,
+                (
+                    comentario or "",
+                    url_datos,
+                    extras["rpe"],
+                    extras["sensacion"],
+                    extras["fatiga"],
+                    extras["dolor"],
+                    extras["zona_dolor"],
+                    extras["completado"],
+                    now_str,
+                    feedback_id,
+                ),
+            )
+            mensaje = "Feedback actualizado"
+        else:
+            cur.execute(
+                """
+                INSERT INTO feedbacks (
+                    entrenamiento_asignado_id, atleta_id, comentario, url_datos,
+                    rpe, sensacion, fatiga, dolor, zona_dolor, completado, fecha
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    entrenamiento_id,
+                    atleta_id,
+                    comentario or "",
+                    url_datos,
+                    extras["rpe"],
+                    extras["sensacion"],
+                    extras["fatiga"],
+                    extras["dolor"],
+                    extras["zona_dolor"],
+                    extras["completado"],
+                    now_str,
+                ),
+            )
+            feedback_id = cur.lastrowid
+
+        # Eliminar duplicados antiguos para este entrenamiento/atleta
+        if feedback_id:
+            cur.execute(
+                """
+                DELETE FROM feedbacks
+                 WHERE entrenamiento_asignado_id = ?
+                   AND atleta_id = ?
+                   AND id <> ?
+                """,
+                (entrenamiento_id, atleta_id, feedback_id),
+            )
+
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({"message": mensaje}), 200
     except Exception as e:
         print("Error al enviar feedback:", e)
         return jsonify({"error": "No se pudo enviar el feedback"}), 500
@@ -2571,8 +2740,15 @@ def feedbacks_no_leidos(current_user):
             SELECT
                 f.id,
                 f.comentario,
+                f.rpe,
+                f.sensacion,
+                f.fatiga,
+                f.dolor,
+                f.zona_dolor,
+                f.completado,
                 f.fecha,
                 CONCAT_WS(' ', u.nombre, u.apellidos) AS atleta,
+                COALESCE(ea.nombre, 'Entrenamiento') AS entrenamiento_nombre,
                 ea.fecha AS fecha_entreno,
                 f.url_datos
             FROM feedbacks f
@@ -2585,7 +2761,13 @@ def feedbacks_no_leidos(current_user):
             ORDER BY f.fecha DESC
         '''
         resultados = query_db(query, (current_user["id"],))
-        return jsonify([dict(r) for r in resultados]), 200
+        payload = []
+        for r in resultados:
+            item = dict(r)
+            item["fecha"] = _fecha_iso(item.get("fecha"))
+            item["fecha_entreno"] = _fecha_iso(item.get("fecha_entreno"))
+            payload.append(item)
+        return jsonify(payload), 200
     except Exception as e:
         print("Error al obtener feedbacks no leídos:", e)
         return jsonify({'error': 'No se pudieron obtener los feedbacks'}), 500
@@ -2613,7 +2795,10 @@ def ver_feedback(current_user, feedback_id):
     try:
         query = '''
             SELECT f.id, f.comentario, f.fecha, f.leido, f.respuesta,
+                   f.entrenamiento_asignado_id,
+                   f.rpe, f.sensacion, f.fatiga, f.dolor, f.zona_dolor, f.completado,
                    CONCAT_WS(' ', u.nombre, u.apellidos) AS atleta,
+                   COALESCE(ea.nombre, 'Entrenamiento') AS entrenamiento_nombre,
                    ea.fecha AS fecha_entreno,
                    f.url_datos
             FROM feedbacks f
@@ -2623,7 +2808,10 @@ def ver_feedback(current_user, feedback_id):
         '''
         resultado = query_db(query, (feedback_id, current_user['id']), one=True)
         if resultado:
-            return jsonify(dict(resultado)), 200
+            data = dict(resultado)
+            data["fecha"] = _fecha_iso(data.get("fecha"))
+            data["fecha_entreno"] = _fecha_iso(data.get("fecha_entreno"))
+            return jsonify(data), 200
         return jsonify({'error': 'Feedback no encontrado'}), 404
     except Exception as e:
         print("Error al obtener el detalle del feedback:", e)
@@ -2663,14 +2851,29 @@ def listar_resultados_entrenador(current_user):
                 AVG(re.tiempo_real_seg) AS tiempo_real_seg,
                 COUNT(re.id) AS num_series,
                 kre.km_planificados,
-                kre.km_realizados
+                kre.km_realizados,
+                f.rpe AS feedback_rpe,
+                f.sensacion AS feedback_sensacion,
+                f.fatiga AS feedback_fatiga,
+                f.dolor AS feedback_dolor,
+                f.zona_dolor AS feedback_zona_dolor,
+                f.completado AS feedback_completado
             FROM resultados_entrenamientos re
             JOIN entrenamientos_asignados ea ON ea.id = re.entrenamiento_asignado_id
             JOIN usuarios u ON u.id = ea.atleta_id
             LEFT JOIN entrenamientos e ON e.id = ea.entrenamiento_id
             LEFT JOIN km_realizados_entrenamientos kre ON kre.entrenamiento_asignado_id = ea.id
+            LEFT JOIN feedbacks f
+              ON f.id = (
+                SELECT id FROM feedbacks fb
+                 WHERE fb.entrenamiento_asignado_id = ea.id
+                 ORDER BY fb.fecha DESC
+                 LIMIT 1
+              )
             {where_clause}
-            GROUP BY ea.id, ea.fecha, entrenamiento_nombre, u.id, atleta_nombre, kre.km_planificados, kre.km_realizados
+            GROUP BY ea.id, ea.fecha, entrenamiento_nombre, u.id, atleta_nombre,
+                     kre.km_planificados, kre.km_realizados,
+                     f.rpe, f.sensacion, f.fatiga, f.dolor, f.zona_dolor, f.completado
             ORDER BY DATE(ea.fecha) DESC, ea.id DESC
             LIMIT 300
         """
@@ -2693,6 +2896,14 @@ def listar_resultados_entrenador(current_user):
                 "num_series": f["num_series"],
                 "km_planificados": f.get("km_planificados"),
                 "km_realizados": f.get("km_realizados"),
+                "feedback": {
+                    "rpe": f.get("feedback_rpe"),
+                    "sensacion": f.get("feedback_sensacion"),
+                    "fatiga": f.get("feedback_fatiga"),
+                    "dolor": f.get("feedback_dolor"),
+                    "zona_dolor": f.get("feedback_zona_dolor"),
+                    "completado": f.get("feedback_completado"),
+                },
             })
         return jsonify(resultados), 200
     except Exception as e:
@@ -2768,7 +2979,7 @@ def detalle_resultado_entrenador(current_user, asignado_id):
 
         cur.execute(
             """
-            SELECT comentario, url_datos, fecha
+            SELECT comentario, url_datos, fecha, rpe, sensacion, fatiga, dolor, zona_dolor, completado
             FROM feedbacks
             WHERE entrenamiento_asignado_id = ?
             ORDER BY fecha DESC
@@ -2813,9 +3024,11 @@ def obtener_todos_los_feedbacks(current_user):
     try:
         query = '''
             SELECT f.id, f.comentario, f.fecha, f.leido, f.respuesta,
+                   f.rpe, f.sensacion, f.fatiga, f.dolor, f.zona_dolor, f.completado,
                    CONCAT_WS(' ', u.nombre, u.apellidos) AS atleta,
-                   ea.fecha AS fecha_entreno,
-                   f.url_datos
+                   COALESCE(ea.nombre, 'Entrenamiento') AS entrenamiento_nombre,
+                    ea.fecha AS fecha_entreno,
+                    f.url_datos
             FROM feedbacks f
             JOIN usuarios u ON f.atleta_id = u.id
             LEFT JOIN entrenamientos_asignados ea ON f.entrenamiento_asignado_id = ea.id
@@ -2823,7 +3036,13 @@ def obtener_todos_los_feedbacks(current_user):
             ORDER BY f.fecha DESC
         '''
         resultados = query_db(query, (current_user['id'],))
-        return jsonify([dict(r) for r in resultados]), 200
+        payload = []
+        for r in resultados:
+            item = dict(r)
+            item["fecha"] = _fecha_iso(item.get("fecha"))
+            item["fecha_entreno"] = _fecha_iso(item.get("fecha_entreno"))
+            payload.append(item)
+        return jsonify(payload), 200
     except Exception as e:
         print("Error al obtener todos los feedbacks:", e)
         return jsonify({'error': 'No se pudieron obtener los feedbacks'}), 500
@@ -2984,6 +3203,20 @@ def _normalizar_fecha(value):
         return parsedate_to_datetime(str(value)).date().isoformat()
     except Exception:
         return None
+
+def _fecha_iso(value):
+    """
+    Devuelve la fecha en ISO string o None si no hay valor.
+    Evita que el frontend reciba null y muestre 1970.
+    """
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    try:
+        return datetime.fromisoformat(str(value)).isoformat()
+    except Exception:
+        return str(value)
 
 @app.route('/entrenamientos_asignados/visibilidad', methods=['POST'])
 def actualizar_visibilidad_entrenamientos_asignados():
@@ -4102,6 +4335,12 @@ def mis_feedbacks(current_user):
                 f.id,
                 f.entrenamiento_asignado_id AS entrenamiento_id,
                 f.comentario,
+                f.rpe,
+                f.sensacion,
+                f.fatiga,
+                f.dolor,
+                f.zona_dolor,
+                f.completado,
                 f.fecha,
                 f.leido,
                 f.respuesta,
@@ -4118,7 +4357,14 @@ def mis_feedbacks(current_user):
         )
         rows = cur.fetchall()
 
-        return jsonify([dict(r) for r in rows]), 200
+        payload = []
+        for r in rows:
+            item = dict(r)
+            item["fecha"] = _fecha_iso(item.get("fecha"))
+            item["fecha_entreno"] = _fecha_iso(item.get("fecha_entreno"))
+            payload.append(item)
+
+        return jsonify(payload), 200
 
     except Exception as e:
         print("Error en /mis_feedbacks:", e)
@@ -4536,74 +4782,38 @@ def estadisticas_analisis_atleta(current_user, atleta_id):
                     WHERE re.entrenamiento_asignado_id = ea.id
                   )
             """, (atleta_id,), one=True)["total"]
+        # --- MariaDB: kms por semana (CORREGIDO) ---
 
-            lunes_plan = "DATE_SUB(DATE(ea.fecha), INTERVAL WEEKDAY(ea.fecha) DAY)"
-            base_real = "COALESCE(kre.fecha, ea.fecha)"
-            lunes_real = f"DATE_SUB(DATE({base_real}), INTERVAL WEEKDAY({base_real}) DAY)"
+            base_fecha = "ea.fecha"
+            lunes_semana = f"DATE_SUB(DATE({base_fecha}), INTERVAL WEEKDAY({base_fecha}) DAY)"
 
+            # Km PLANIFICADOS (siempre desde entrenamientos_asignados)
             plan_rows = query_db(f"""
                 SELECT
-                  {lunes_plan} AS lunes_semana,
-                  SUM(
-                    COALESCE(kre.km_planificados, ea.km_previstos, 0)
-                  ) AS km_planificados
+                {lunes_semana} AS lunes_semana,
+                SUM(COALESCE(ea.km_previstos, 0)) AS km_planificados
                 FROM entrenamientos_asignados ea
-                LEFT JOIN km_realizados_entrenamientos kre
-                  ON kre.entrenamiento_asignado_id = ea.id
                 WHERE ea.atleta_id = ?
                 GROUP BY lunes_semana
                 ORDER BY lunes_semana
             """, (atleta_id,))
+
+        
+            # Km REALIZADOS (desde km_realizados_entrenamientos)
 
             real_rows = query_db(f"""
                 SELECT
-                  {lunes_real} AS lunes_semana,
-                  SUM(COALESCE(kre.km_realizados, 0)) AS km_realizados
-                FROM km_realizados_entrenamientos kre
-                JOIN entrenamientos_asignados ea
-                  ON ea.id = kre.entrenamiento_asignado_id
-                WHERE ea.atleta_id = ?
-                GROUP BY lunes_semana
-                ORDER BY lunes_semana
-            """, (atleta_id,))
-        else:
-            total_sin_registro = query_db("""
-                SELECT COUNT(*) AS total
+                    {lunes_semana} AS lunes_semana,
+                    SUM(km_por_entreno.km_realizados) AS km_realizados
                 FROM entrenamientos_asignados ea
-                WHERE ea.atleta_id = ?
-                  AND DATE(ea.fecha) <= DATE('now')
-                  AND NOT EXISTS (
-                    SELECT 1
-                    FROM resultados_entrenamientos re
-                    WHERE re.entrenamiento_asignado_id = ea.id
-                  )
-            """, (atleta_id,), one=True)["total"]
-
-            # 3) Kms por semana (lunes–domingo) usando km_realizados_entrenamientos
-            # Kms planificados: usamos km_previstos de entrenamientos_asignados,
-            # y si existe fila en km_realizados_entrenamientos usamos también su km_planificados
-            plan_rows = query_db("""
-                SELECT
-                  date(ea.fecha, 'weekday 1', '-7 days') AS lunes_semana,
-                  SUM(
-                    COALESCE(kre.km_planificados, ea.km_previstos, 0)
-                  ) AS km_planificados
-                FROM entrenamientos_asignados ea
-                LEFT JOIN km_realizados_entrenamientos kre
-                  ON kre.entrenamiento_asignado_id = ea.id
-                WHERE ea.atleta_id = ?
-                GROUP BY lunes_semana
-                ORDER BY lunes_semana
-            """, (atleta_id,))
-
-            # Kms realizados: solo de km_realizados_entrenamientos
-            real_rows = query_db("""
-                SELECT
-                  date(COALESCE(kre.fecha, ea.fecha), 'weekday 1', '-7 days') AS lunes_semana,
-                  SUM(COALESCE(kre.km_realizados, 0)) AS km_realizados
-                FROM km_realizados_entrenamientos kre
-                JOIN entrenamientos_asignados ea
-                  ON ea.id = kre.entrenamiento_asignado_id
+                LEFT JOIN (
+                    SELECT
+                        entrenamiento_asignado_id,
+                        SUM(km_realizados) AS km_realizados
+                    FROM km_realizados_entrenamientos
+                    GROUP BY entrenamiento_asignado_id
+                ) km_por_entreno
+                ON km_por_entreno.entrenamiento_asignado_id = ea.id
                 WHERE ea.atleta_id = ?
                 GROUP BY lunes_semana
                 ORDER BY lunes_semana
@@ -4614,6 +4824,33 @@ def estadisticas_analisis_atleta(current_user, atleta_id):
             for row in plan_rows
             if row["lunes_semana"]
         }
+        # Rellenamos semanas sin km_planificados usando km_previstos de entrenamientos_asignados
+        if DB_ENGINE == "mariadb":
+            plan_prev_rows = query_db(f"""
+                SELECT
+                  {lunes_semana} AS lunes_semana,
+                  SUM(COALESCE(ea.km_previstos, 0)) AS km_planificados
+                FROM entrenamientos_asignados ea
+                WHERE ea.atleta_id = ?
+                GROUP BY lunes_semana
+                ORDER BY lunes_semana
+            """, (atleta_id,))
+        else:
+            plan_prev_rows = query_db("""
+                SELECT
+                  date(ea.fecha, 'weekday 1', '-7 days') AS lunes_semana,
+                  SUM(COALESCE(ea.km_previstos, 0)) AS km_planificados
+                FROM entrenamientos_asignados ea
+                WHERE ea.atleta_id = ?
+                GROUP BY lunes_semana
+                ORDER BY lunes_semana
+            """, (atleta_id,))
+        for row in plan_prev_rows:
+            semana = row.get("lunes_semana")
+            if not semana:
+                continue
+            if semana not in plan_dict or plan_dict.get(semana, 0) == 0:
+                plan_dict[semana] = round(row["km_planificados"] or 0, 2)
         real_dict = {
             row["lunes_semana"]: round(row["km_realizados"] or 0, 2)
             for row in real_rows

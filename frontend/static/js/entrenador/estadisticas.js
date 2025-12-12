@@ -16,9 +16,48 @@ const elements = {
   resultadosVacio: document.getElementById("resultados-vacio"),
   btnRefrescarResultados: document.getElementById("btn-refrescar-resultados")
 };
+const alertasListado = document.getElementById("alertas-listado");
+const alertasResumen = document.getElementById("alertas-resumen");
 
 let atletas = [];
 let resultados = [];
+const params = new URLSearchParams(window.location.search);
+const preselectId = params.get("id") || params.get("entrenamiento_id");
+const backParam = params.get("back");
+let preselectHandled = false;
+let filtroResultados = "todos"; // todos | alertas | incompletos | sin_feedback
+
+const renderBackLink = () => {
+  if (!backParam) return;
+  const bar = document.querySelector(".page-context-bar");
+  if (!bar) return;
+  bar.classList.add("d-flex", "align-items-center", "gap-2");
+  const link = document.createElement("a");
+  link.className = "btn btn-outline-primary btn-sm ms-auto";
+  link.textContent = "Volver a feedback";
+
+  let resolvedBack = null;
+  try {
+    resolvedBack = decodeURIComponent(backParam);
+  } catch (err) {
+    resolvedBack = null;
+  }
+  if (resolvedBack) {
+    link.href = resolvedBack;
+  }
+
+  link.addEventListener("click", (e) => {
+    if (window.history.length > 1) {
+      e.preventDefault();
+      window.history.back();
+    } else if (resolvedBack) {
+      e.preventDefault();
+      window.location.href = resolvedBack;
+    }
+  });
+
+  bar.appendChild(link);
+};
 
 const STEP_META = {
   warmup: { label: "Calentamiento", badge: "badge-warmup", card: "paso-warmup" },
@@ -27,6 +66,46 @@ const STEP_META = {
   repeat: { label: "Bloque repetido", badge: "badge-repeat", card: "paso-repeat" },
   cooldown: { label: "Enfriamiento", badge: "badge-cooldown", card: "paso-cooldown" },
   custom: { label: "Bloque", badge: "badge-custom", card: "paso-custom" }
+};
+
+const textoRpe = (valor) => {
+  const num = Number(valor);
+  if (Number.isNaN(num)) return "";
+  if (num <= 3) return "Muy suave";
+  if (num <= 6) return "Controlado";
+  if (num <= 8) return "Exigente";
+  return "Máximo";
+};
+
+const iconoSensacion = (valor) => {
+  const mapa = { "muy bien": "😄", bien: "🙂", normal: "😐", mal: "😖" };
+  const val = (valor || "").toLowerCase();
+  return mapa[val] ? `${mapa[val]} ${valor}` : valor;
+};
+
+const renderChipsFeedback = (fb = {}) => {
+  const chips = [];
+  const rpeVal = Number(fb.rpe);
+  if (Number.isFinite(rpeVal)) {
+    const clase = rpeVal >= 9 ? "chip-danger" : rpeVal >= 7 ? "chip-warning" : "chip-success";
+    chips.push(`<span class="chip ${clase}">RPE ${rpeVal} · ${textoRpe(rpeVal)}</span>`);
+  }
+  if (fb.sensacion) chips.push(`<span class="chip chip-soft">${iconoSensacion(fb.sensacion)}</span>`);
+  if (fb.fatiga) {
+    const nivel = (fb.fatiga || "").toLowerCase();
+    const clase = nivel === "alta" ? "chip-danger" : nivel === "media" ? "chip-warning" : "chip-success";
+    chips.push(`<span class="chip ${clase}">Fatiga ${fb.fatiga}</span>`);
+  }
+  if (fb.dolor) {
+    chips.push(
+      `<span class="chip chip-danger">⚠️ Dolor${fb.zona_dolor ? `: ${fb.zona_dolor}` : ""}</span>`
+    );
+  }
+  const incompleto = fb.completado === 0 || fb.completado === false;
+  if (incompleto) {
+    chips.push('<span class="chip chip-muted">No completado</span>');
+  }
+  return chips.join(" ");
 };
 
 const renderPasoLabel = (paso) => {
@@ -113,6 +192,196 @@ const formatFechaCorta = (valor) => {
   return `${dd}-${mm}-${yyyy}`;
 };
 
+const formatKm = (valor) => {
+  const num = Number(valor);
+  if (Number.isNaN(num)) return "—";
+  const rounded = Math.round(num * 10) / 10;
+  return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1)} km`;
+};
+
+const calcularDeltaKm = (plan, real) => {
+  const planNum = Number(plan);
+  const realNum = Number(real);
+  if (!Number.isFinite(planNum) || !Number.isFinite(realNum)) return null;
+  return Math.round((realNum - planNum) * 10) / 10;
+};
+
+const generarAlertasItem = (item) => {
+  const alertas = [];
+  const fb = item.feedback || {};
+  const asignadoId = item.entrenamiento_asignado_id;
+  const deltaKm = calcularDeltaKm(item.km_planificados, item.km_realizados);
+  const fechaTS = new Date(item.fecha || "").getTime() || Date.now();
+
+  if (fb.dolor) {
+    alertas.push({
+      tipo: "danger",
+      texto: `${item.atleta}: dolor${fb.zona_dolor ? ` en ${fb.zona_dolor}` : ""} tras ${item.entrenamiento}`,
+      id: asignadoId,
+      ts: fechaTS,
+    });
+  }
+  if (Number(fb.rpe) >= 8) {
+    const rpeVal = Number(fb.rpe);
+    const tipo = rpeVal >= 9 ? "danger" : "warning";
+    alertas.push({
+      tipo,
+      texto: `${item.atleta}: RPE ${rpeVal >= 9 ? "muy alto" : "alto"} (${rpeVal}) en ${item.entrenamiento}`,
+      id: asignadoId,
+      ts: fechaTS,
+    });
+  }
+  const sens = (fb.sensacion || "").toLowerCase();
+  if (sens === "mal") {
+    alertas.push({
+      tipo: "warning",
+      texto: `${item.atleta}: malas sensaciones en ${item.entrenamiento}`,
+      id: asignadoId,
+      ts: fechaTS,
+    });
+  }
+  const fatiga = (fb.fatiga || "").toLowerCase();
+  if (fatiga === "alta") {
+    alertas.push({
+      tipo: "warning",
+      texto: `${item.atleta}: fatiga alta reportada`,
+      id: asignadoId,
+      ts: fechaTS,
+    });
+  }
+  if (deltaKm !== null && Math.abs(deltaKm) >= 3) {
+    alertas.push({
+      tipo: "info",
+      texto: `${item.atleta}: diferencia de ${deltaKm >= 0 ? "+" : ""}${deltaKm} km vs plan en ${item.entrenamiento}`,
+      id: asignadoId,
+      ts: fechaTS,
+    });
+  }
+  return alertas;
+};
+
+const agruparAlertas = (lista = []) => {
+  const mapa = new Map();
+  lista.forEach((item) => {
+    const key = item.entrenamiento_asignado_id;
+    if (!key) return;
+    const existentes = mapa.get(key) || {
+      id: key,
+      atleta: item.atleta,
+      entrenamiento: item.entrenamiento,
+      fecha: item.fecha,
+      rpe: null,
+      sensacion: null,
+      fatiga: null,
+      dolor: null,
+      delta: calcularDeltaKm(item.km_planificados, item.km_realizados),
+    };
+    const fb = item.feedback || {};
+    existentes.rpe = fb.rpe ?? existentes.rpe;
+    existentes.sensacion = fb.sensacion ?? existentes.sensacion;
+    existentes.fatiga = fb.fatiga ?? existentes.fatiga;
+    existentes.dolor = fb.dolor ?? existentes.dolor;
+    existentes.zona_dolor = fb.zona_dolor ?? existentes.zona_dolor;
+    mapa.set(key, existentes);
+  });
+  return Array.from(mapa.values());
+};
+
+const construirAlertas = (lista = []) => {
+  const alertas = [];
+  lista.forEach((item) => {
+    alertas.push(...generarAlertasItem(item));
+  });
+  const prioridad = { danger: 3, warning: 2, info: 1 };
+  alertas.sort((a, b) => {
+    const prio = (prioridad[b.tipo] || 0) - (prioridad[a.tipo] || 0);
+    if (prio !== 0) return prio;
+    return (b.ts || 0) - (a.ts || 0);
+  });
+  return alertas;
+};
+
+const renderAlertas = (lista = []) => {
+  if (!alertasResumen || !alertasListado) return;
+  alertasListado.innerHTML = "";
+  const agrupadas = agruparAlertas(lista);
+  const alertas = construirAlertas(lista);
+  if (!alertas.length || !agrupadas.length) {
+    alertasResumen.classList.add("d-none");
+    return;
+  }
+  alertasResumen.classList.remove("d-none");
+
+  const alertaPorId = alertas.reduce((acc, a) => {
+    if (!acc[a.id]) acc[a.id] = [];
+    acc[a.id].push(a);
+    return acc;
+  }, {});
+
+  const prioridad = { danger: 3, warning: 2, info: 1 };
+  agrupadas.sort((a, b) => {
+    const aMax = Math.max(...(alertaPorId[a.id] || []).map((al) => prioridad[al.tipo] || 0), 0);
+    const bMax = Math.max(...(alertaPorId[b.id] || []).map((al) => prioridad[al.tipo] || 0), 0);
+    if (aMax !== bMax) return bMax - aMax;
+    return new Date(b.fecha || 0) - new Date(a.fecha || 0);
+  });
+
+  agrupadas.slice(0, 20).forEach((item) => {
+    const alertasItem = (alertaPorId[item.id] || []).map((a) => a.tipo);
+    const rpeChip = Number.isFinite(Number(item.rpe))
+      ? `<span class="chip ${item.rpe >= 9 ? "chip-danger" : item.rpe >= 7 ? "chip-warning" : "chip-success"}">RPE ${item.rpe}</span>`
+      : "";
+    const sensChip = item.sensacion
+      ? `<span class="chip ${item.sensacion === "mal" ? "chip-danger" : item.sensacion === "normal" ? "chip-warning" : "chip-success"}">${iconoSensacion(item.sensacion)}</span>`
+      : "";
+    const fatigaChip = item.fatiga
+      ? `<span class="chip ${item.fatiga === "alta" ? "chip-danger" : item.fatiga === "media" ? "chip-warning" : "chip-success"}">${item.fatiga}</span>`
+      : "";
+    const dolorChip = item.dolor
+      ? `<span class="chip chip-danger">⚠️ ${item.zona_dolor || "Dolor"}</span>`
+      : "";
+    const delta = item.delta == null ? "—" : `${item.delta >= 0 ? "+" : ""}${item.delta} km`;
+
+    const tr = document.createElement("tr");
+    tr.dataset.detalleId = item.id;
+    tr.innerHTML = `
+      <td>${item.atleta || "Atleta"}</td>
+      <td>${item.entrenamiento || "Entrenamiento"}</td>
+      <td>${formatFechaCorta(item.fecha)}</td>
+      <td>${rpeChip || "—"}</td>
+      <td>${sensChip || "—"}</td>
+      <td>${fatigaChip || "—"}</td>
+      <td>${dolorChip || "—"}</td>
+      <td>${delta}</td>
+    `;
+    tr.style.cursor = "pointer";
+    tr.addEventListener("click", () => {
+      resaltarFila(item.id);
+      cargarDetalleResultado(item.id);
+    });
+    alertasListado.appendChild(tr);
+  });
+};
+
+const setFiltroResultados = (modo) => {
+  filtroResultados = modo;
+  document.querySelectorAll("#filtro-todos, #filtro-alertas, #filtro-incompletos, #filtro-sin-feedback").forEach((btn) => {
+    btn.classList.toggle("active", btn.id === `filtro-${modo}`);
+  });
+  renderResultados();
+};
+
+const resaltarFila = (asignadoId) => {
+  const row = elements.resultadosBody?.querySelector(
+    `tr[data-detalle-id="${asignadoId}"]`
+  );
+  if (row) {
+    row.classList.add("table-info");
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+    setTimeout(() => row.classList.remove("table-info"), 2000);
+  }
+};
+
 const renderTabla = () => {
   if (!elements.tablaBody) return;
   if (!atletas.length) {
@@ -164,9 +433,14 @@ const cargarAtletas = async () => {
 };
 
 document.addEventListener("DOMContentLoaded", () => {
+  renderBackLink();
   cargarAtletas();
   elements.btnRefrescar?.addEventListener("click", cargarAtletas);
   elements.btnRefrescarResultados?.addEventListener("click", cargarResultados);
+  document.getElementById("filtro-todos")?.addEventListener("click", () => setFiltroResultados("todos"));
+  document.getElementById("filtro-alertas")?.addEventListener("click", () => setFiltroResultados("alertas"));
+  document.getElementById("filtro-incompletos")?.addEventListener("click", () => setFiltroResultados("incompletos"));
+  document.getElementById("filtro-sin-feedback")?.addEventListener("click", () => setFiltroResultados("sin_feedback"));
   cargarResultados();
 });
 
@@ -175,29 +449,88 @@ const renderResultados = () => {
 
   elements.resultadosBody.innerHTML = "";
 
-  if (!resultados.length) {
+  let lista = resultados;
+  if (filtroResultados === "alertas") {
+    lista = lista.filter((r) => generarAlertasItem(r).length > 0);
+  } else if (filtroResultados === "incompletos") {
+    lista = lista.filter((r) => {
+      const fb = r.feedback || {};
+      return fb && fb.completado === 0;
+    });
+  } else if (filtroResultados === "sin_feedback") {
+    lista = lista.filter((r) => {
+      const fb = r.feedback || {};
+      const tiene =
+        fb.rpe != null ||
+        fb.sensacion ||
+        fb.fatiga ||
+        fb.dolor != null ||
+        fb.zona_dolor ||
+        fb.completado != null;
+      return !tiene;
+    });
+  }
+
+  if (!lista.length) {
     elements.resultadosVacio?.classList.remove("d-none");
+    renderAlertas([]);
     return;
   }
   elements.resultadosVacio?.classList.add("d-none");
 
-  const resultsHtml = resultados
+  const preIdNum = Number(preselectId);
+  const resultsHtml = lista
     .map((r) => {
-      const tiempoReal = r.tiempo_real_seg ? `${(r.tiempo_real_seg / 60).toFixed(1)} min` : "—";
-      const kmInfo =
-        r.km_realizados != null
-          ? `${r.km_realizados} km`
-          : r.km_planificados != null
-          ? `${r.km_planificados} km plan`
-          : "—";
+      const kmPlan = formatKm(r.km_planificados);
+      const kmReal = formatKm(r.km_realizados);
+      const deltaKm = calcularDeltaKm(r.km_planificados, r.km_realizados);
+      const kmDelta = deltaKm === null ? "—" : `${deltaKm >= 0 ? "+" : ""}${deltaKm} km`;
+      const fb = r.feedback || {};
+      const rpeVal = Number(fb.rpe);
+      const rpeText = Number.isFinite(rpeVal)
+        ? `<span class="chip ${rpeVal >= 9 ? "chip-danger" : rpeVal >= 7 ? "chip-warning" : "chip-success"}">RPE ${rpeVal}</span>`
+        : "—";
+      const sensacionVal = (fb.sensacion || "").toLowerCase();
+      const sensacionText = sensacionVal
+        ? `<span class="chip ${sensacionVal === "mal" ? "chip-danger" : sensacionVal === "normal" ? "chip-warning" : "chip-success"}">${iconoSensacion(fb.sensacion)}</span>`
+        : "—";
+      const fatigaVal = (fb.fatiga || "").toLowerCase();
+      const fatigaText = fatigaVal
+        ? `<span class="chip ${fatigaVal === "alta" ? "chip-danger" : fatigaVal === "media" ? "chip-warning" : "chip-success"}">${fb.fatiga}</span>`
+        : "—";
+      const dolorText = fb.dolor
+        ? `<span class="chip chip-danger">⚠️ ${fb.zona_dolor || "Molestias"}</span>`
+        : "—";
+      const tieneFeedback =
+        fb &&
+        (fb.rpe !== null && fb.rpe !== undefined ||
+          fb.sensacion ||
+          fb.fatiga ||
+          fb.dolor !== null && fb.dolor !== undefined ||
+          fb.zona_dolor ||
+          fb.completado !== null && fb.completado !== undefined);
+      const completadoFlag = fb && fb.completado === 0 ? false : true;
+      const estadoChip = completadoFlag
+        ? tieneFeedback
+          ? '<span class="chip chip-success">🟢 Completado con feedback</span>'
+          : '<span class="chip chip-warning">🟡 Completado sin feedback</span>'
+        : '<span class="chip chip-danger">🔴 No completado</span>';
+      const destacado =
+        Number.isFinite(preIdNum) && Number(r.entrenamiento_asignado_id) === preIdNum;
+      const tieneAlertas = generarAlertasItem(r).length > 0;
       return `
-        <tr data-detalle-id="${r.entrenamiento_asignado_id}">
+        <tr data-detalle-id="${r.entrenamiento_asignado_id}" class="${destacado ? "table-info" : ""} ${tieneAlertas ? "table-warning" : ""}">
           <td>${r.atleta || "Atleta"}</td>
           <td>${r.entrenamiento || "Entrenamiento"}</td>
           <td>${formatFechaCorta(r.fecha)}</td>
-          <td>—</td>
-          <td>${tiempoReal}</td>
-          <td>${kmInfo}</td>
+          <td>${estadoChip}</td>
+          <td>${kmPlan}</td>
+          <td>${kmReal}</td>
+          <td>${kmDelta}</td>
+          <td>${rpeText}</td>
+          <td>${sensacionText}</td>
+          <td>${fatigaText}</td>
+          <td>${dolorText}</td>
         </tr>
       `;
     })
@@ -212,6 +545,8 @@ const renderResultados = () => {
       }
     });
   });
+
+  renderAlertas(resultados);
 };
 
 const cargarResultados = async () => {
@@ -225,6 +560,10 @@ const cargarResultados = async () => {
     }
     resultados = await res.json();
     renderResultados();
+    if (preselectId && !preselectHandled) {
+      preselectHandled = true;
+      cargarDetalleResultado(preselectId);
+    }
   } catch (err) {
     console.error("Error al cargar resultados:", err);
     if (elements.resultadosVacio) {
@@ -270,11 +609,17 @@ const renderDetalleModal = (data) => {
 
   const feedbackHtml = (data.feedbacks || [])
     .map(
-      (f) => `
+      (f) => {
+        const chips = renderChipsFeedback(f);
+        const comentario = f.comentario || "Sin comentario";
+        return `
       <li class="list-group-item">
-        ${f.comentario || "Sin comentario"}
-        ${f.url_datos ? `<br><a href="${f.url_datos}" target="_blank" rel="noopener">Datos</a>` : ""}
-      </li>`
+        ${chips ? `<div class="d-flex flex-wrap gap-1 mb-1">${chips}</div>` : ""}
+        <div>${comentario}</div>
+        ${f.url_datos ? `<div class="mt-1"><a href="${f.url_datos}" target="_blank" rel="noopener">Datos</a></div>` : ""}
+        <small class="text-muted">${formatFechaCorta(f.fecha)}</small>
+      </li>`;
+      }
     )
     .join("");
 
