@@ -815,10 +815,16 @@ def obtener_perfil_atleta(current_user, atleta_id):
             WHERE u.id = ?
         '''
         resultado = query_db(query, (atleta_id,), one=True)
-        if resultado:
-            return jsonify(dict(resultado)), 200
-        else:
+        if not resultado:
             return jsonify({'error': 'Atleta no encontrado'}), 404
+
+        # Si es entrenador, solo puede ver sus atletas
+        if current_user["rol"] == "entrenador":
+            ent_id = resultado.get("entrenador_id") if isinstance(resultado, dict) else None
+            if ent_id != current_user["id"]:
+                return jsonify({'error': 'No tienes permiso para ver este atleta'}), 403
+
+        return jsonify(dict(resultado)), 200
     except Exception as e:
         print("Error al obtener perfil del atleta:", e)
         return jsonify({'error': 'No se pudo obtener el perfil'}), 500
