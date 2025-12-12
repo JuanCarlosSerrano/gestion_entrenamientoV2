@@ -1,3 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+
+# Flask
+flask_session/
+
+# Entornos virtuales
+.venv/
+venv/
+
+# Backups y logs
+backups/
+logs/
+
+# Scripts locales
+scripts/
+
+# Cron / temporales
+crontab
+*.swp
+*.tmp
+*~
+~$*
+
+# macOS
+.DS_Store
+
+# Documentos locales
+*.docx
 # Entornos virtuales
 venv/
 env/
