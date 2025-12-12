@@ -16,6 +16,49 @@ const formatFechaCorta = (valor) => {
   return `${dd}-${mm}-${yyyy}`;
 };
 
+const textoRpe = (valor) => {
+  const num = Number(valor);
+  if (Number.isNaN(num)) return "";
+  if (num <= 3) return "Muy suave";
+  if (num <= 6) return "Controlado";
+  if (num <= 8) return "Exigente";
+  return "Máximo";
+};
+
+const chipResumen = (valor, clase, prefijo = "") =>
+  valor ? `<span class="chip ${clase}">${prefijo}${valor}</span>` : "";
+
+const iconoSensacion = (valor) => {
+  const mapa = { "muy bien": "😄", bien: "🙂", normal: "😐", mal: "😖" };
+  const val = (valor || "").toLowerCase();
+  return mapa[val] ? `${mapa[val]} ${valor}` : valor;
+};
+
+const renderChipsFeedback = (fb) => {
+  const chips = [];
+  const rpeVal = Number(fb.rpe);
+  if (Number.isFinite(rpeVal)) {
+    const clase = rpeVal >= 9 ? "chip-danger" : rpeVal >= 7 ? "chip-warning" : "chip-success";
+    chips.push(`<span class="chip ${clase}">RPE ${rpeVal} · ${textoRpe(rpeVal)}</span>`);
+  }
+  if (fb.sensacion) chips.push(`<span class="chip chip-soft">${iconoSensacion(fb.sensacion)}</span>`);
+  if (fb.fatiga) {
+    const nivel = (fb.fatiga || "").toLowerCase();
+    const clase = nivel === "alta" ? "chip-danger" : nivel === "media" ? "chip-warning" : "chip-success";
+    chips.push(chipResumen(fb.fatiga, clase, "Fatiga "));
+  }
+  if (fb.dolor) {
+    chips.push(
+      `<span class="chip chip-danger">⚠️ Dolor${fb.zona_dolor ? `: ${fb.zona_dolor}` : ""}</span>`
+    );
+  }
+  const incompleto = fb.completado === 0 || fb.completado === false;
+  if (incompleto) {
+    chips.push('<span class="chip chip-muted">No completado</span>');
+  }
+  return chips.join(" ");
+};
+
 // Helper para CSRF: usa window.CSRF si existe, o localStorage
 const getCsrfToken = () =>
   (window.CSRF && typeof window.CSRF.getToken === "function"
@@ -130,11 +173,25 @@ async function mostrarFeedbacksPendientes() {
     feedbacks.forEach((fb) => {
       const li = document.createElement("li");
       li.className = "list-group-item";
+      const comentario = fb.comentario ? fb.comentario.slice(0, 80) : "Sin comentario";
+      const resumen = renderChipsFeedback(fb);
       li.innerHTML = `
-        <a href="feedback.html?id=${fb.id}" class="text-decoration-none">
-          <strong>${fb.atleta}:</strong> ${fb.comentario.slice(0, 40)}...
-          ${fb.url_datos ? `<br><small><a href="${fb.url_datos}" target="_blank" rel="noopener">Actividad</a></small>` : ""}
-          <br><small>${formatFechaCorta(fb.fecha)}</small>
+        <a href="feedback.html?id=${fb.id}" class="text-decoration-none d-block">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <strong>${fb.atleta}</strong>
+              ${fb.entrenamiento_nombre ? `<div class="small text-muted">${fb.entrenamiento_nombre}</div>` : ""}
+              ${resumen ? `<div class="d-flex flex-wrap gap-1 mt-2">${resumen}</div>` : ""}
+              <div class="mt-2 text-body">${comentario}</div>
+              ${
+                fb.url_datos
+                  ? `<small><a href="${fb.url_datos}" target="_blank" rel="noopener">Actividad</a></small><br>`
+                  : ""
+              }
+              <small class="text-muted">${formatFechaCorta(fb.fecha)}</small>
+            </div>
+            <span class="chip chip-warning ms-2">Nuevo</span>
+          </div>
         </a>
       `;
       lista.appendChild(li);

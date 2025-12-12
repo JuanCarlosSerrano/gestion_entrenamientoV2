@@ -3,6 +3,60 @@ import { API, fetchJSON } from "./api.js";
 const lista = document.getElementById("lista-feedbacks");
 const template = document.getElementById("feedback-card-template");
 
+const textoRpe = (valor) => {
+  const num = Number(valor);
+  if (Number.isNaN(num)) return "";
+  if (num <= 3) return "Muy suave";
+  if (num <= 6) return "Controlado";
+  if (num <= 8) return "Exigente";
+  return "Máximo";
+};
+
+const chipRpe = (rpe) => {
+  if (!Number.isFinite(Number(rpe))) return "";
+  const valor = Number(rpe);
+  const clase = valor >= 9 ? "chip-danger" : valor >= 7 ? "chip-warning" : "chip-success";
+  return `<span class="chip ${clase}">RPE ${valor} · ${textoRpe(valor)}</span>`;
+};
+
+const iconoSensacion = (valor) => {
+  const mapa = {
+    "muy bien": "😄",
+    bien: "🙂",
+    normal: "😐",
+    mal: "😖"
+  };
+  const val = (valor || "").toLowerCase();
+  return mapa[val] ? `${mapa[val]} ${valor}` : valor;
+};
+
+const chipFatiga = (valor) => {
+  if (!valor) return "";
+  const val = (valor || "").toLowerCase();
+  const clase = val === "alta" ? "chip-danger" : val === "media" ? "chip-warning" : "chip-success";
+  return `<span class="chip ${clase}">Fatiga ${valor}</span>`;
+};
+
+const renderResumen = (fb) => {
+  const bloques = [];
+  const rpe = chipRpe(fb.rpe);
+  if (rpe) bloques.push(rpe);
+  const sensacion = fb.sensacion ? `<span class="chip chip-soft">${iconoSensacion(fb.sensacion)}</span>` : "";
+  if (sensacion) bloques.push(sensacion);
+  const fatiga = chipFatiga(fb.fatiga);
+  if (fatiga) bloques.push(fatiga);
+  if (fb.dolor) {
+    bloques.push(
+      `<span class="chip chip-danger">⚠️ Dolor${fb.zona_dolor ? `: ${fb.zona_dolor}` : ""}</span>`
+    );
+  }
+  const incompleto = fb.completado === 0 || fb.completado === false;
+  if (incompleto) {
+    bloques.push('<span class="chip chip-muted">Entreno no completado</span>');
+  }
+  return bloques.join(" ");
+};
+
 const renderFeedback = (fb) => {
   const clone = template.content.cloneNode(true);
   clone.querySelector(".feedback-entrenamiento").textContent =
@@ -14,7 +68,11 @@ const renderFeedback = (fb) => {
   estado.textContent = fb.leido ? "Revisado" : "Pendiente";
   estado.className = `chip ${fb.leido ? "chip-success" : "chip-warning"}`;
 
+  const resumen = renderResumen(fb);
   const contenido = [];
+  if (resumen) {
+    contenido.push(`<div class="d-flex flex-wrap gap-1 mb-1">${resumen}</div>`);
+  }
   if (fb.comentario) {
     contenido.push(`<p class="mb-1"><strong>Comentario:</strong> ${fb.comentario}</p>`);
   }
