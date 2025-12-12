@@ -12,6 +12,7 @@ env/
 __pycache__/
 *.py[cod]
 *.pyo
+*.pyc
 
 # Archivos de logs y dumps
 *.log
@@ -21,6 +22,7 @@ __pycache__/
 # Archivos creados por Flask o herramientas locales
 instance/
 *.pid
+flask_session/
 
 # Archivos de PyInstaller o build
 dist/
@@ -39,3 +41,7 @@ Thumbs.db
 # Archivos de Docker (si los generas)
 *.pid
 *.sock
+
+# Backups y scripts locales
+backups/
+scripts/
