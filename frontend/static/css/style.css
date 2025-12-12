@@ -1274,6 +1274,21 @@ form .form-label {
   color: var(--pp-orange);
 }
 
+.chip-danger {
+  background: rgba(220, 53, 69, 0.15);
+  color: #842029;
+}
+
+.chip-muted {
+  background: rgba(0, 0, 0, 0.05);
+  color: #495057;
+}
+
+.chip-soft {
+  background: rgba(15, 169, 196, 0.1);
+  color: var(--pp-navy);
+}
+
 .entrenamiento-fecha {
   display: inline-flex;
   flex-direction: column;
