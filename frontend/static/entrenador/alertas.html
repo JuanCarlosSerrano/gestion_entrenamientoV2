@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alertas</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+  <link rel="stylesheet" href="../css/style.css">
+  <script src="../js/utils/csrf.js"></script>
+  <script src="../js/script.js"></script>
+  <script src="../js/utils/partials.js"></script>
+  <script src="../js/entrenador/alertas.js" type="module"></script>
+  <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
+</head>
+<body class="app-bg">
+  <div class="container app-container">
+    <div data-include="../partials/header.html" data-nav-active="alertas"></div>
+
+    <div class="page-context-bar">
+      <div>
+        <p class="eyebrow eyebrow--subtle">Panel de entrenador</p>
+        <h1 class="page-context-title">Alertas</h1>
+      </div>
+      <div class="page-context-actions">
+        <select class="form-select form-select-sm me-2" id="filtro-tipo" style="min-width: 140px;">
+          <option value="">Todos los tipos</option>
+          <option value="danger">Críticas</option>
+          <option value="warning">Advertencias</option>
+          <option value="info">Info</option>
+        </select>
+        <select class="form-select form-select-sm me-2" id="filtro-estado" style="min-width: 150px;">
+          <option value="1">Solo activas</option>
+          <option value="0">Resueltas</option>
+          <option value="">Todas</option>
+        </select>
+        <button class="btn btn-outline-brand" id="btn-refrescar">Refrescar</button>
+      </div>
+    </div>
+
+    <div class="app-card">
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead>
+            <tr>
+              <th>Fecha alerta</th>
+              <th>Atleta</th>
+              <th>Entrenamiento</th>
+              <th>Tipo</th>
+              <th>Mensaje</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tabla-alertas"></tbody>
+        </table>
+      </div>
+      <div id="alertas-vacio" class="text-muted d-none">
+        No hay alertas registradas.
+      </div>
+    </div>
+
+    <div data-include="../partials/footer.html"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
+</body>
+</html>

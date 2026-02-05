@@ -77,4 +77,4 @@ Thumbs.db
 
 # Backups y scripts locales
 backups/
-scripts/
+scripts/backend/uploads/
