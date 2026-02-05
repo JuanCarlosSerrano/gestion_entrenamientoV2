@@ -9,6 +9,10 @@ const kmInput = document.getElementById("km-realizados");
 const kmHelper = document.getElementById("km-realizados-helper");
 const comentarioInput = document.getElementById("comentario-feedback");
 const urlDatosInput = document.getElementById("url-datos");
+const fitFileInput = document.getElementById("fit-file");
+const fitOrigenSelect = document.getElementById("fit-origen");
+const fitStatus = document.getElementById("fit-status");
+const btnRegistrarFit = document.getElementById("btn-registrar-fit");
 const rpeInput = document.getElementById("rpe");
 const rpeValor = document.getElementById("rpe-valor");
 const rpeAyuda = document.getElementById("rpe-ayuda");
@@ -86,6 +90,45 @@ const toggleZonaDolor = () => {
 
 rpeInput?.addEventListener("input", actualizarRpeUI);
 dolorCheck?.addEventListener("change", toggleZonaDolor);
+
+
+const setFitStatus = (msg, tipo = 'info') => {
+  if (!fitStatus) return;
+  fitStatus.textContent = msg;
+  fitStatus.classList.remove('text-muted', 'text-success', 'text-danger', 'text-warning');
+  const mapa = { success: 'text-success', danger: 'text-danger', warning: 'text-warning', info: 'text-muted' };
+  fitStatus.classList.add(mapa[tipo] || 'text-muted');
+};
+
+const registrarPlaceholderFit = async () => {
+  if (!entrenamientoActivo) {
+    setFitStatus('Selecciona un entrenamiento primero.', 'warning');
+    return;
+  }
+  if (!fitFileInput || !fitFileInput.files || !fitFileInput.files[0]) {
+    setFitStatus('Selecciona un archivo .fit', 'warning');
+    return;
+  }
+  const file = fitFileInput.files[0];
+  const formData = new FormData();
+  formData.append('archivo', file);
+  formData.append('origen', (fitOrigenSelect && fitOrigenSelect.value) || 'manual');
+  try {
+    setFitStatus('Registrando archivo...', 'info');
+    const csrfToken = await getCsrfToken();
+    await fetchJSON(`${API}/sesiones/${entrenamientoActivo.id}/archivo`, {
+      method: 'POST',
+      headers: {
+        ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {})
+      },
+      body: formData
+    });
+    setFitStatus('Archivo registrado.', 'success');
+  } catch (err) {
+    console.error('Error registrando FIT:', err);
+    setFitStatus('No se pudo registrar el archivo.', 'danger');
+  }
+};
 
 const obtenerFeedbacksSet = async () => {
   try {
@@ -289,6 +332,10 @@ const abrirModalRegistro = async (entrenamientoId) => {
   modalRegistrar.show();
 };
 
+btnRegistrarFit?.addEventListener('click', () => {
+  registrarPlaceholderFit();
+});
+
 modalEl?.addEventListener("hidden.bs.modal", () => {
   entrenamientoActivo = null;
   if (listaIntervalos) listaIntervalos.innerHTML = "";
@@ -297,7 +344,10 @@ modalEl?.addEventListener("hidden.bs.modal", () => {
   if (kmHelper) {
     kmHelper.textContent = "Introduce el volumen real completado.";
   }
-  if (urlDatosInput) urlDatosInput.value = "";
+  
+  if (fitFileInput) fitFileInput.value = '';
+  if (fitStatus) fitStatus.textContent = 'Solo se guarda el placeholder, no el archivo.';
+if (urlDatosInput) urlDatosInput.value = "";
   if (rpeInput) {
     rpeInput.value = "";
     actualizarRpeUI();

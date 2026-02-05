@@ -207,6 +207,9 @@ const calcularDeltaKm = (plan, real) => {
 };
 
 const generarAlertasItem = (item) => {
+  if (Array.isArray(item.alertas)) {
+    return item.alertas;
+  }
   const alertas = [];
   const fb = item.feedback || {};
   const asignadoId = item.entrenamiento_asignado_id;
@@ -581,6 +584,88 @@ const formatoTiempoSegundos = (seg) => {
   const segundos = Math.round(total % 60);
   return `${minutos}:${String(segundos).padStart(2, "0")} min`;
 };
+const formatoRitmoSegKm = (seg) => {
+  if (seg == null) return "—";
+  const total = Number(seg);
+  if (Number.isNaN(total) || total <= 0) return "—";
+  const minutos = Math.floor(total / 60);
+  const segundos = Math.round(total % 60);
+  return `${minutos}:${String(segundos).padStart(2, "0")} /km`;
+};
+
+const formatoTiempoZona = (seg) => {
+  if (seg == null) return "—";
+  const total = Number(seg);
+  if (Number.isNaN(total)) return "—";
+  if (total <= 0) return "0:00";
+  const minutos = Math.floor(total / 60);
+  const segundos = Math.round(total % 60);
+  return `${minutos}:${String(segundos).padStart(2, "0")}`;
+};
+
+const formatoPorcentaje = (valor) => {
+  if (valor == null) return "—";
+  const num = Number(valor);
+  if (Number.isNaN(num)) return "—";
+  return `${Math.round(num)}%`;
+};
+
+const renderTablaZonas = (resumen, label) => {
+  if (!resumen || !Array.isArray(resumen.zonas)) {
+    return `<div class="text-muted small">Sin datos de zonas (${label}).</div>`;
+  }
+  const tieneDatos = resumen.zonas.some((z) => (z.plan_seg || 0) > 0 || (z.real_seg || 0) > 0);
+  if (!tieneDatos) {
+    return `<div class="text-muted small">Sin datos de zonas (${label}).</div>`;
+  }
+  const filas = resumen.zonas
+    .map(
+      (z) => `
+        <tr>
+          <td>${z.zona}</td>
+          <td>${formatoTiempoZona(z.plan_seg)}</td>
+          <td>${formatoPorcentaje(z.plan_pct)}</td>
+          <td>${formatoTiempoZona(z.real_seg)}</td>
+          <td>${formatoPorcentaje(z.real_pct)}</td>
+        </tr>`
+    )
+    .join("");
+  return `
+    <div class="fw-semibold mb-1">${label}</div>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Zona</th>
+            <th>Plan</th>
+            <th>%</th>
+            <th>Real</th>
+            <th>%</th>
+          </tr>
+        </thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>`;
+};
+
+const cargarResumenZonas = async (entrenamientoId, fuente, containerId, label) => {
+  const contenedor = document.getElementById(containerId);
+  if (!contenedor) return;
+  contenedor.innerHTML = '<div class="text-muted small">Cargando...</div>';
+  try {
+    const res = await fetch(`${API_BASE}/entrenamientos_asignados/${entrenamientoId}/resumen_zonas?fuente=${fuente}`, {
+      credentials: "include"
+    });
+    if (!res.ok) throw new Error('No se pudo cargar');
+    const resumen = await res.json();
+    contenedor.innerHTML = renderTablaZonas(resumen, label);
+  } catch (err) {
+    contenedor.innerHTML = `<div class="text-muted small">Sin datos de zonas (${label}).</div>`;
+  }
+};
+
+
+
 
 const cargarDetalleResultado = async (asignadoId) => {
   try {
@@ -606,6 +691,21 @@ const renderDetalleModal = (data) => {
   (data.pasos || []).forEach((p) => {
     pasosMap[p.id] = p;
   });
+
+  const comparativa = data.comparativa || {};
+  const plan = comparativa.plan || {};
+  const real = comparativa.real || {};
+  const planKm = plan.km != null ? `${Number(plan.km).toFixed(2)} km` : '—';
+  const realKm = real.km != null ? `${Number(real.km).toFixed(2)} km` : '—';
+  const planDur = formatoTiempoSegundos(plan.duracion_seg);
+  const realDur = formatoTiempoSegundos(real.duracion_seg);
+  const planRitmo = formatoRitmoSegKm(plan.ritmo_seg_km);
+  const realRitmo = formatoRitmoSegKm(real.ritmo_seg_km);
+  const realFc = real.fc_media || real.fc_max ? `${real.fc_media ?? '—'} / ${real.fc_max ?? '—'} bpm` : '—';
+  const realCad = real.cadencia_media != null ? `${Number(real.cadencia_media).toFixed(0)} spm` : '—';
+  const planZonas = plan.zonas && plan.zonas.length
+    ? `<div class="mt-1">${plan.zonas.map((z) => `<span class=\"chip chip-info me-1\">Z${z.zona}: ${z.repeticiones}</span>`).join('')}</div>`
+    : '<div class="text-muted small mt-1">Sin zonas planificadas.</div>';
 
   const feedbackHtml = (data.feedbacks || [])
     .map(
@@ -674,6 +774,38 @@ const renderDetalleModal = (data) => {
       }
     </div>
 
+
+    <div class="mb-3">
+      <h6>Comparativa planificado vs realizado</h6>
+      <div class="row g-3">
+        <div class="col-12 col-md-6">
+          <div class="border rounded p-2 h-100">
+            <div class="fw-semibold mb-1">Planificado</div>
+            <div class="small text-muted">Distancia: ${planKm}</div>
+            <div class="small text-muted">Duración: ${planDur}</div>
+            <div class="small text-muted">Ritmo: ${planRitmo}</div>
+            ${planZonas}
+          </div>
+        </div>
+        <div class="col-12 col-md-6">
+          <div class="border rounded p-2 h-100">
+            <div class="fw-semibold mb-1">Realizado</div>
+            <div class="small text-muted">Distancia: ${realKm}</div>
+            <div class="small text-muted">Duración: ${realDur}</div>
+            <div class="small text-muted">Ritmo: ${realRitmo}</div>
+            <div class="small text-muted">FC media/máx: ${realFc}</div>
+            <div class="small text-muted">Cadencia media: ${realCad}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mb-3">
+      <h6>Tiempo en zonas (plan vs real)</h6>
+      <div id="detalle-zonas-ritmo" class="mb-3"></div>
+      <div id="detalle-zonas-fc"></div>
+    </div>
+
     <div class="mb-3">
       <h6>Pasos del entrenamiento</h6>
       ${
@@ -699,6 +831,13 @@ const renderDetalleModal = (data) => {
       }
     </div>
   `;
+
+
+  const resumenId = data.entrenamiento?.id || data.entrenamiento_id || data.id;
+  if (resumenId) {
+    cargarResumenZonas(resumenId, "ritmo", "detalle-zonas-ritmo", "Ritmo");
+    cargarResumenZonas(resumenId, "fc", "detalle-zonas-fc", "FC");
+  }
 
   const modalElement = document.getElementById("modalDetalleResultado");
   if (modalElement && window.bootstrap && window.bootstrap.Modal) {

@@ -4,6 +4,11 @@ DROP TABLE IF EXISTS entrenamientos_detalle;
 DROP TABLE IF EXISTS entrenamientos_asignados;
 DROP TABLE IF EXISTS entrenamientos;
 DROP TABLE IF EXISTS usuarios;
+DROP TABLE IF EXISTS sesion_archivos;
+DROP TABLE IF EXISTS sesion_metricas;
+DROP TABLE IF EXISTS sesiones_realizadas;
+DROP TABLE IF EXISTS alertas_reglas;
+DROP TABLE IF EXISTS alertas_entrenamientos;
 
 
 CREATE TABLE usuarios (
@@ -21,7 +26,23 @@ CREATE TABLE usuarios (
     subgrupo TEXT,
     aprobado INTEGER,                -- Solo atletas
     foto_url TEXT,
-    force_password_change INTEGER DEFAULT 0
+    force_password_change INTEGER DEFAULT 0,
+    vdot_val REAL,
+    vdot_fecha TEXT,
+    vdot_distancia_m REAL,
+    vdot_tiempo_seg INTEGER
+);
+
+
+CREATE TABLE vdot_historial (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    atleta_id INTEGER NOT NULL,
+    vdot_val REAL NOT NULL,
+    vdot_fecha TEXT,
+    vdot_distancia_m REAL,
+    vdot_tiempo_seg INTEGER,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (atleta_id) REFERENCES usuarios(id) ON DELETE CASCADE
 );
 
 -- Tabla de entrenamientos tipo (plantillas)
@@ -113,6 +134,93 @@ CREATE TABLE IF NOT EXISTS feedbacks (
     FOREIGN KEY (entrenamiento_asignado_id) REFERENCES entrenamientos_asignados(id),
     FOREIGN KEY (atleta_id) REFERENCES usuarios(id)
 );
+
+
+CREATE TABLE IF NOT EXISTS sesiones_realizadas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entrenamiento_asignado_id INTEGER NOT NULL UNIQUE,
+    atleta_id INTEGER NOT NULL,
+    fecha_real TEXT,
+    km_real REAL DEFAULT 0,
+    duracion_real_seg INTEGER,
+    rpe INTEGER,
+    sensacion TEXT,
+    fatiga TEXT,
+    dolor INTEGER DEFAULT 0,
+    zona_dolor TEXT,
+    completado INTEGER DEFAULT 1,
+    comentario TEXT,
+    origen_datos TEXT DEFAULT 'manual',
+    archivo_principal_id INTEGER,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (entrenamiento_asignado_id) REFERENCES entrenamientos_asignados(id) ON DELETE CASCADE,
+    FOREIGN KEY (atleta_id) REFERENCES usuarios(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS sesion_metricas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sesion_id INTEGER NOT NULL,
+    metrica TEXT NOT NULL,
+    valor REAL NOT NULL,
+    unidad TEXT,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (sesion_id) REFERENCES sesiones_realizadas(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS sesion_archivos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sesion_id INTEGER,
+    atleta_id INTEGER NOT NULL,
+    origen TEXT DEFAULT 'manual',
+    filename TEXT,
+    mime TEXT,
+    tamano INTEGER,
+    ruta_storage TEXT,
+    hash_sha256 TEXT,
+    fecha_subida TEXT DEFAULT CURRENT_TIMESTAMP,
+    procesado INTEGER DEFAULT 0,
+    error_procesado TEXT,
+    FOREIGN KEY (sesion_id) REFERENCES sesiones_realizadas(id) ON DELETE SET NULL,
+    FOREIGN KEY (atleta_id) REFERENCES usuarios(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS alertas_reglas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entrenador_id INTEGER NOT NULL,
+    codigo TEXT NOT NULL,
+    parametros_json TEXT,
+    activo INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (entrenador_id) REFERENCES usuarios(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS alertas_entrenamientos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entrenamiento_asignado_id INTEGER NOT NULL,
+    atleta_id INTEGER NOT NULL,
+    tipo TEXT NOT NULL,
+    codigo TEXT NOT NULL,
+    mensaje TEXT NOT NULL,
+    fecha_detectada TEXT NOT NULL,
+    activo INTEGER DEFAULT 1,
+    UNIQUE(entrenamiento_asignado_id, codigo),
+    FOREIGN KEY (entrenamiento_asignado_id) REFERENCES entrenamientos_asignados(id) ON DELETE CASCADE,
+    FOREIGN KEY (atleta_id) REFERENCES usuarios(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS zonas_resumen_entrenamiento (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entrenamiento_asignado_id INTEGER NOT NULL,
+    atleta_id INTEGER NOT NULL,
+    tipo TEXT NOT NULL,
+    fuente TEXT NOT NULL DEFAULT 'ritmo',
+    zona TEXT NOT NULL,
+    distancia_km REAL,
+    tiempo_seg INTEGER,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(entrenamiento_asignado_id, tipo, fuente, zona)
+);
+
 CREATE TABLE zonas_entrenamiento (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     atleta_id INTEGER NOT NULL,
@@ -123,6 +231,13 @@ CREATE TABLE zonas_entrenamiento (
     z4 REAL,
     z5 REAL,
     z6 REAL,
+    fc_z1 REAL,
+    fc_z2 REAL,
+    fc_z3 REAL,
+    fc_z4 REAL,
+    fc_z5 REAL,
+    fc_z6 REAL,
+    metodo TEXT,
     fecha_inicio DATE NOT NULL DEFAULT (DATE('now')),
     fecha_fin DATE NULL,
     fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

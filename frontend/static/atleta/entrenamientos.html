@@ -136,6 +136,31 @@
           <small class="text-muted">Añade la URL de tu dispositivo (Garmin, Strava, etc.)</small>
         </div>
         <div class="mb-3">
+          <label class="form-label fw-semibold">Archivo FIT (placeholder)</label>
+          <div class="row g-2 align-items-end">
+            <div class="col-12 col-md-6">
+              <input class="form-control" type="file" id="fit-file" accept=".fit" />
+            </div>
+            <div class="col-12 col-md-4">
+              <label for="fit-origen" class="form-label small mb-1">Origen</label>
+              <select id="fit-origen" class="form-select">
+                <option value="garmin">Garmin</option>
+                <option value="polar">Polar</option>
+                <option value="coros">Coros</option>
+                <option value="manual">Manual</option>
+              </select>
+            </div>
+            <div class="col-12 col-md-2 d-grid">
+              <button class="btn btn-outline-primary" type="button" id="btn-registrar-fit">
+                Registrar
+              </button>
+            </div>
+          </div>
+          <small id="fit-status" class="text-muted d-block mt-2">
+            Solo se guarda el placeholder, no el archivo.
+          </small>
+        </div>
+        <div class="mb-3">
           <label for="km-realizados" class="form-label">Kilómetros realizados</label>
           <div class="input-group">
             <input

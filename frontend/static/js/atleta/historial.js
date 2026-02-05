@@ -14,6 +14,10 @@ const modalEl = document.getElementById("modalRegistrarTiempos");
 const listaIntervalos = document.getElementById("lista-intervalos-tiempos");
 const comentarioInput = document.getElementById("comentario-feedback");
 const urlDatosInput = document.getElementById("url-datos");
+const fitFileInput = document.getElementById("fit-file");
+const fitOrigenSelect = document.getElementById("fit-origen");
+const fitStatus = document.getElementById("fit-status");
+const btnRegistrarFit = document.getElementById("btn-registrar-fit");
 const rpeInput = document.getElementById("rpe");
 const rpeValor = document.getElementById("rpe-valor");
 const rpeAyuda = document.getElementById("rpe-ayuda");
@@ -26,6 +30,9 @@ const completadoCheck = document.getElementById("completado");
 const btnGuardarTiempos = document.getElementById("btn-guardar-tiempos");
 const modalTitulo = modalEl?.querySelector(".modal-title");
 const modalRegistrar = modalEl ? new window.bootstrap.Modal(modalEl) : null;
+const modalAnalisisEl = document.getElementById("modalAnalisisEntreno");
+const modalAnalisis = modalAnalisisEl ? new window.bootstrap.Modal(modalAnalisisEl) : null;
+const analisisBody = document.getElementById("analisis-entreno-body");
 let entrenamientoActivo = null;
 
 const hasAnchor = () => window.location.hash.startsWith("#entreno-");
@@ -125,6 +132,44 @@ const toggleZonaDolor = () => {
 rpeInput?.addEventListener("input", actualizarRpeUI);
 dolorCheck?.addEventListener("change", toggleZonaDolor);
 
+const setFitStatus = (msg, tipo = 'info') => {
+  if (!fitStatus) return;
+  fitStatus.textContent = msg;
+  fitStatus.classList.remove('text-muted', 'text-success', 'text-danger', 'text-warning');
+  const mapa = { success: 'text-success', danger: 'text-danger', warning: 'text-warning', info: 'text-muted' };
+  fitStatus.classList.add(mapa[tipo] || 'text-muted');
+};
+
+const registrarPlaceholderFit = async () => {
+  if (!entrenamientoActivo) {
+    setFitStatus('Selecciona un entrenamiento primero.', 'warning');
+    return;
+  }
+  if (!fitFileInput || !fitFileInput.files || !fitFileInput.files[0]) {
+    setFitStatus('Selecciona un archivo .fit', 'warning');
+    return;
+  }
+  const file = fitFileInput.files[0];
+  const formData = new FormData();
+  formData.append('archivo', file);
+  formData.append('origen', (fitOrigenSelect && fitOrigenSelect.value) || 'manual');
+  try {
+    setFitStatus('Registrando archivo...', 'info');
+    const csrfToken = await getCsrfToken();
+    await fetchJSON(`${API}/sesiones/${entrenamientoActivo.id}/archivo`, {
+      method: 'POST',
+      headers: {
+        ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {})
+      },
+      body: formData
+    });
+    setFitStatus('Archivo registrado.', 'success');
+  } catch (err) {
+    console.error('Error registrando FIT:', err);
+    setFitStatus('No se pudo registrar el archivo.', 'danger');
+  }
+};
+
 let zonasAtleta = null;
 
 const cargarZonasAtleta = async (atletaId) => {
@@ -175,6 +220,9 @@ modalEl?.addEventListener("hidden.bs.modal", () => {
   if (kmInput) kmInput.value = "";
   if (kmHelper) kmHelper.textContent = "Introduce el volumen real completado.";
   if (urlDatosInput) urlDatosInput.value = "";
+  if (fitStatus) setFitStatus('Solo se guarda el placeholder, no el archivo.', 'info');
+  if (fitFileInput) fitFileInput.value = "";
+  if (fitOrigenSelect) fitOrigenSelect.value = 'garmin';
   if (rpeInput) {
     rpeInput.value = "";
     actualizarRpeUI();
@@ -240,6 +288,15 @@ const enviarFeedback = async (entrenamientoId, payload) => {
   }
 };
 
+const formatoRitmoSegKm = (seg) => {
+  if (seg == null) return "—";
+  const total = Number(seg);
+  if (Number.isNaN(total) || total <= 0) return "—";
+  const minutos = Math.floor(total / 60);
+  const segundos = Math.round(total % 60);
+  return `${minutos}:${String(segundos).padStart(2, "0")} /km`;
+};
+
 const formatearTiempoDesdeSeg = (seg) => {
   if (!Number.isFinite(seg)) return "";
   const total = Math.max(0, Math.round(seg));
@@ -256,6 +313,74 @@ const autoFormatearValor = (valor) => {
   const segundos = digits.slice(-2);
   return `${Number(minutos)}:${segundos.padStart(2, "0")}`;
 };
+
+const formatoTiempoZona = (seg) => {
+  if (seg == null) return "—";
+  const total = Number(seg);
+  if (Number.isNaN(total)) return "—";
+  if (total <= 0) return "0:00";
+  const min = Math.floor(total / 60);
+  const sec = Math.round(total % 60);
+  return `${min}:${String(sec).padStart(2, "0")}`;
+};
+
+const formatoPorcentaje = (valor) => {
+  if (valor == null) return "—";
+  const num = Number(valor);
+  if (Number.isNaN(num)) return "—";
+  return `${Math.round(num)}%`;
+};
+
+const renderTablaZonas = (resumen, label) => {
+  if (!resumen || !Array.isArray(resumen.zonas)) {
+    return `<div class="text-muted small">Sin datos de zonas (${label}).</div>`;
+  }
+  const tieneDatos = resumen.zonas.some((z) => (z.plan_seg || 0) > 0 || (z.real_seg || 0) > 0);
+  if (!tieneDatos) {
+    return `<div class="text-muted small">Sin datos de zonas (${label}).</div>`;
+  }
+  const filas = resumen.zonas
+    .map(
+      (z) => `
+        <tr>
+          <td>${z.zona}</td>
+          <td>${formatoTiempoZona(z.plan_seg)}</td>
+          <td>${formatoPorcentaje(z.plan_pct)}</td>
+          <td>${formatoTiempoZona(z.real_seg)}</td>
+          <td>${formatoPorcentaje(z.real_pct)}</td>
+        </tr>`
+    )
+    .join("");
+  return `
+    <div class="fw-semibold mb-1">${label}</div>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Zona</th>
+            <th>Plan</th>
+            <th>%</th>
+            <th>Real</th>
+            <th>%</th>
+          </tr>
+        </thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>`;
+};
+
+const cargarResumenZonas = async (entrenamientoId, fuente, containerId, label) => {
+  const contenedor = document.getElementById(containerId);
+  if (!contenedor) return;
+  contenedor.innerHTML = '<div class="text-muted small">Cargando...</div>';
+  try {
+    const resumen = await fetchJSON(`${API}/entrenamientos_asignados/${entrenamientoId}/resumen_zonas?fuente=${fuente}`);
+    contenedor.innerHTML = renderTablaZonas(resumen, label);
+  } catch (err) {
+    contenedor.innerHTML = `<div class="text-muted small">Sin datos de zonas (${label}).</div>`;
+  }
+};
+
 
 const tiempoAsegundos = (valor) => {
   if (!valor) return null;
@@ -363,6 +488,73 @@ const renderLineasRegistro = (series, resultadosPrevios = [], kmPrevistos = 0, k
       : "Introduce el volumen real completado.";
   }
 };
+
+const renderAnalisis = (entrenamiento, data) => {
+  if (!analisisBody) return;
+  const plan = data.plan || {};
+  const real = data.real || {};
+
+  const planKm = plan.km != null ? `${Number(plan.km).toFixed(2)} km` : '—';
+  const realKm = real.km != null ? `${Number(real.km).toFixed(2)} km` : '—';
+  const planDur = formatearTiempoDesdeSeg(plan.duracion_seg);
+  const realDur = formatearTiempoDesdeSeg(real.duracion_seg);
+  const planRitmo = formatoRitmoSegKm(plan.ritmo_seg_km);
+  const realRitmo = formatoRitmoSegKm(real.ritmo_seg_km);
+  const realFc = real.fc_media || real.fc_max ? `${real.fc_media ?? '—'} / ${real.fc_max ?? '—'} bpm` : '—';
+  const realCad = real.cadencia_media != null ? `${Number(real.cadencia_media).toFixed(0)} spm` : '—';
+  const planZonas = plan.zonas && plan.zonas.length
+    ? `<div class="mt-1">${plan.zonas.map((z) => `<span class=\"chip chip-info me-1\">Z${z.zona}: ${z.repeticiones}</span>`).join('')}</div>`
+    : '<div class="text-muted small mt-1">Sin zonas planificadas.</div>';
+
+  analisisBody.innerHTML = `
+    <div class="mb-3">
+      <h5 class="mb-1">${entrenamiento?.nombre || 'Entrenamiento'}</h5>
+      <div class="text-muted">${entrenamiento?.fecha ? new Date(entrenamiento.fecha).toLocaleDateString('es-ES') : ''}</div>
+    </div>
+    <div class="row g-3">
+      <div class="col-12 col-md-6">
+        <div class="border rounded p-2 h-100">
+          <div class="fw-semibold mb-1">Planificado</div>
+          <div class="small text-muted">Distancia: ${planKm}</div>
+          <div class="small text-muted">Duración: ${planDur}</div>
+          <div class="small text-muted">Ritmo: ${planRitmo}</div>
+          ${planZonas}
+        </div>
+      </div>
+      <div class="col-12 col-md-6">
+        <div class="border rounded p-2 h-100">
+          <div class="fw-semibold mb-1">Realizado</div>
+          <div class="small text-muted">Distancia: ${realKm}</div>
+          <div class="small text-muted">Duración: ${realDur}</div>
+          <div class="small text-muted">Ritmo: ${realRitmo}</div>
+          <div class="small text-muted">FC media/máx: ${realFc}</div>
+          <div class="small text-muted">Cadencia media: ${realCad}</div>
+        </div>
+      </div>
+    </div>
+    <div class="mt-3">
+      <h6>Tiempo en zonas (plan vs real)</h6>
+      <div id="analisis-zonas-ritmo" class="mb-3"></div>
+      <div id="analisis-zonas-fc"></div>
+    </div>
+  `;
+};
+
+const cargarAnalisis = async (entrenamientoId) => {
+  const entrenamiento = entrenamientosPorId.get(entrenamientoId);
+  if (!entrenamiento) return;
+  try {
+    const data = await fetchJSON(`${API}/entrenamientos_asignados/${entrenamientoId}/comparativa`);
+    renderAnalisis(entrenamiento, data);
+    cargarResumenZonas(entrenamientoId, "ritmo", "analisis-zonas-ritmo", "Ritmo");
+    cargarResumenZonas(entrenamientoId, "fc", "analisis-zonas-fc", "FC");
+    modalAnalisis?.show();
+  } catch (err) {
+    console.error('Error al cargar análisis:', err);
+    alert('No se pudo cargar el análisis del entrenamiento.');
+  }
+};
+
 const renderCard = (ent) => {
   const clone = template.content.cloneNode(true);
   const article = clone.querySelector("article");
@@ -403,6 +595,10 @@ const renderCard = (ent) => {
   clone.querySelector(".btn-ver-feedback").addEventListener("click", () => {
     window.location.href = "feedbacks.html";
   });
+  const btnAnalisis = clone.querySelector(".btn-ver-analisis");
+  if (btnAnalisis) {
+    btnAnalisis.addEventListener("click", () => cargarAnalisis(ent.id));
+  }
   return clone;
 };
 
@@ -586,4 +782,9 @@ btnGuardarTiempos?.addEventListener("click", async () => {
     btnGuardarTiempos.disabled = false;
     btnGuardarTiempos.textContent = "Guardar tiempos";
   }
+});
+
+
+btnRegistrarFit?.addEventListener('click', () => {
+  registrarPlaceholderFit();
 });

@@ -1,3 +1,12 @@
+
+const formatMetodoZonas = (metodo) => {
+  if (!metodo) return "—";
+  const m = String(metodo).toLowerCase();
+  if (m === "vdot") return "VDOT";
+  if (m === "vam") return "VAM";
+  return m.toUpperCase();
+};
+
 document.addEventListener("DOMContentLoaded", async () => {
     const urlParams = new URLSearchParams(window.location.search);
     const atletaId = urlParams.get("atletaId");
@@ -20,6 +29,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       z6: document.getElementById("input-z6"),
     };
     const tablaZonas = document.getElementById("tabla-zonas");
+const tablaZonasFc = document.getElementById("tabla-zonas-fc");
+const fcMaxInput = document.getElementById("fc-max");
   const cardPerfil = document.getElementById("card-perfil-existente");
   const cardAlta = document.getElementById("card-alta-atleta");
   const formAlta = document.getElementById("form-alta-atleta");
@@ -108,7 +119,22 @@ document.addEventListener("DOMContentLoaded", async () => {
       return Number(total.toFixed(2));
     };
 
-    const pintarZonas = (zonas) => {
+    const pintarZonasFc = (zonas) => {
+      if (!tablaZonasFc) return;
+      tablaZonasFc.innerHTML = "";
+      if (!zonas) return;
+      for (let i = 1; i <= 6; i += 1) {
+        const key = `fc_z${i}`;
+        if (zonas[key] == null) continue;
+        const fila = document.createElement("tr");
+        fila.innerHTML = `<td>Z${i}</td><td>${Math.round(Number(zonas[key]))} bpm</td>`;
+        tablaZonasFc.appendChild(fila);
+      }
+    };
+
+const pintarZonas = (zonas) => {
+      const metodoEl = document.getElementById("zonas-metodo-actual");
+      if (metodoEl) metodoEl.textContent = formatMetodoZonas(zonas?.metodo);
       const zonasDef = [
         "Zona 1 - Recuperación",
         "Zona 2 - Fondo suave",
@@ -139,6 +165,46 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
     };
 
+
+    const cargarHistorialZonas = async () => {
+      const tbody = document.getElementById("tabla-zonas-historial");
+      if (!tbody || !atletaId) return;
+      try {
+        const res = await fetch(`${window.API_BASE}/zonas_atleta/${atletaId}/historial`, {
+          credentials: "include",
+          headers: { ...(authHeader() ? { Authorization: authHeader() } : {}) }
+        });
+        if (!res.ok) throw new Error("No se pudo cargar historial");
+        const data = await res.json();
+        if (!Array.isArray(data) || !data.length) {
+          tbody.innerHTML = '<tr><td colspan="9" class="text-muted text-center">Sin historial.</td></tr>';
+          return;
+        }
+        const filas = data.map((item) => {
+          const desde = item.fecha_inicio || "—";
+          const hasta = item.fecha_fin || "Actual";
+          const metodo = formatMetodoZonas(item.metodo);
+          const z = [item.z1, item.z2, item.z3, item.z4, item.z5, item.z6].map((v) => (v ? formatMMSS(v) : "—"));
+          return `
+            <tr>
+              <td>${desde}</td>
+              <td>${hasta}</td>
+              <td>${metodo}</td>
+              <td>${z[0]}</td>
+              <td>${z[1]}</td>
+              <td>${z[2]}</td>
+              <td>${z[3]}</td>
+              <td>${z[4]}</td>
+              <td>${z[5]}</td>
+            </tr>`;
+        }).join("");
+        tbody.innerHTML = filas;
+      } catch (err) {
+        console.error("Error cargando historial zonas:", err);
+        tbody.innerHTML = '<tr><td colspan="9" class="text-muted text-center">No se pudo cargar el historial.</td></tr>';
+      }
+    };
+
     // Cargar zonas guardadas
     let zonasGuardadas = null;
     try {
@@ -156,18 +222,22 @@ document.addEventListener("DOMContentLoaded", async () => {
           tablaZonas.innerHTML = "";
 
           pintarZonas(zonas);
+          pintarZonasFc(zonas);
           rellenarManual(zonas);
         }
       }
     } catch (err) {
       console.error("Error al obtener zonas:", err);
     }
+    await cargarHistorialZonas();
+
     // Calcular zonas desde formulario
     document.getElementById("form-zonas").addEventListener("submit", (e) => {
       e.preventDefault();
   
       const minutos = parseInt(document.getElementById("minutos").value);
       const segundos = parseInt(document.getElementById("segundos").value);
+      const fcMax = fcMaxInput ? parseInt(fcMaxInput.value, 10) : null;
       const totalMinutos = minutos + segundos / 60;
   
       if (isNaN(totalMinutos) || totalMinutos <= 0) {
@@ -200,6 +270,18 @@ document.addEventListener("DOMContentLoaded", async () => {
       zonasContainer.classList.remove("d-none");
       btnGuardarZonas.disabled = false;
       btnGuardarZonas.dataset.vam = vam.toFixed(2);
+      if (tablaZonasFc) {
+        tablaZonasFc.innerHTML = "";
+        if (Number.isFinite(fcMax) && fcMax > 0) {
+          const fcFactors = [0.6, 0.7, 0.8, 0.9, 0.95, 1.0];
+          fcFactors.forEach((factor, idx) => {
+            const fcVal = Math.round(fcMax * factor);
+            const fila = document.createElement("tr");
+            fila.innerHTML = `<td>Z${idx + 1}</td><td>${fcVal} bpm</td>`;
+            tablaZonasFc.appendChild(fila);
+          });
+        }
+      }
       rellenarManual(null);
     });
 
@@ -271,6 +353,17 @@ document.addEventListener("DOMContentLoaded", async () => {
         vam: parseFloat(vam),
         z1: null, z2: null, z3: null, z4: null, z5: null, z6: null
       };
+      if (fcMaxInput && fcMaxInput.value) {
+        const fcMax = parseFloat(fcMaxInput.value);
+        if (!Number.isNaN(fcMax)) {
+          zonasPayload.fc_z1 = Math.round(fcMax * 0.60);
+          zonasPayload.fc_z2 = Math.round(fcMax * 0.70);
+          zonasPayload.fc_z3 = Math.round(fcMax * 0.80);
+          zonasPayload.fc_z4 = Math.round(fcMax * 0.90);
+          zonasPayload.fc_z5 = Math.round(fcMax * 0.95);
+          zonasPayload.fc_z6 = Math.round(fcMax * 1.00);
+        }
+      }
 
       filas.forEach((fila, i) => {
         const ritmo = fila.children[1].textContent; // ej: "4:10"
@@ -329,6 +422,17 @@ document.addEventListener("DOMContentLoaded", async () => {
         z5: parseMMSS(zonaInputs.z5?.value),
         z6: parseMMSS(zonaInputs.z6?.value),
       };
+      if (fcMaxInput && fcMaxInput.value) {
+        const fcMax = parseFloat(fcMaxInput.value);
+        if (!Number.isNaN(fcMax)) {
+          payload.fc_z1 = Math.round(fcMax * 0.60);
+          payload.fc_z2 = Math.round(fcMax * 0.70);
+          payload.fc_z3 = Math.round(fcMax * 0.80);
+          payload.fc_z4 = Math.round(fcMax * 0.90);
+          payload.fc_z5 = Math.round(fcMax * 0.95);
+          payload.fc_z6 = Math.round(fcMax * 1.00);
+        }
+      }
 
       if (!payload.vam || !payload.z1 || !payload.z2 || !payload.z3 || !payload.z4 || !payload.z5 || !payload.z6) {
         alert("Completa VAM y todas las zonas.");

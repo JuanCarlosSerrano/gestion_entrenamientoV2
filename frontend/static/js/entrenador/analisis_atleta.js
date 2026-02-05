@@ -29,7 +29,13 @@ const elements = {
   graficoKmsPlanCanvas: document.getElementById("grafico-kms-plan-canvas"),
   graficoKmsPlanEstado: document.getElementById("grafico-kms-plan-estado"),
   graficoKmsRealCanvas: document.getElementById("grafico-kms-real-canvas"),
-  graficoKmsRealEstado: document.getElementById("grafico-kms-real-estado")
+  graficoKmsRealEstado: document.getElementById("grafico-kms-real-estado"),
+  resumenZonasFuente: document.getElementById("resumen-zonas-fuente"),
+  resumenZonasMetrica: document.getElementById("resumen-zonas-metrica"),
+  resumenZonasTabla: document.getElementById("resumen-zonas-tabla"),
+  resumenZonasCanvas: document.getElementById("resumen-zonas-canvas"),
+  resumenZonasComparativaCanvas: document.getElementById("resumen-zonas-comparativa-canvas"),
+  resumenZonasEstado: document.getElementById("resumen-zonas-estado")
 };
 
 let entrenamientosCargados = [];
@@ -39,6 +45,9 @@ const resultadosCache = new Map();
 let graficoLineas = null;
 let graficoKmsPlan = null;
 let graficoKmsReal = null;
+let graficoZonas = null;
+let graficoZonasComparativa = null;
+let ultimoZonasSemana = null;
 let entrenamientosFiltrados = [];
 let sesionesSeleccionadas = new Set();
 let entrenamientoSeleccionado = null;
@@ -77,16 +86,221 @@ const formatearSemanaLabel = (semanaStr) => {
   }
 };
 
-const parseSegundos = (valor) => {
-  if (typeof valor === "number" && Number.isFinite(valor)) return valor;
-  if (valor == null) return null;
-  const texto = String(valor).trim();
-  if (!texto) return null;
-  const mmss = texto.match(/^(\d+):(\d{1,2})$/);
-  if (mmss) return Number(mmss[1]) * 60 + Number(mmss[2]);
-  const numero = Number(texto.replace(",", "."));
-  return Number.isFinite(numero) ? numero : null;
+const formatTiempoChart = (segundos) => {
+  if (segundos == null || Number.isNaN(Number(segundos))) return "0:00";
+  const total = Math.max(0, Math.round(Number(segundos)));
+  const minutos = Math.floor(total / 60);
+  const seg = total % 60;
+  return `${minutos}:${String(seg).padStart(2, "0")}`;
 };
+
+
+const formatoPorcentaje = (valor) => {
+  if (valor == null) return "—";
+  const num = Number(valor);
+  if (Number.isNaN(num)) return "—";
+  return `${Math.round(num)}%`;
+};
+
+const renderTablaZonasSemana = (contenedor, resumen) => {
+  if (!contenedor) return;
+  if (!resumen || !Array.isArray(resumen.zonas)) {
+    contenedor.innerHTML = '<div class="text-muted small">Sin datos de zonas.</div>';
+    return;
+  }
+  const tieneDatos = resumen.zonas.some((z) => (z.plan_seg || 0) > 0 || (z.real_seg || 0) > 0);
+  if (!tieneDatos) {
+    contenedor.innerHTML = '<div class="text-muted small">Sin datos de zonas.</div>';
+    return;
+  }
+  const filas = resumen.zonas
+    .map(
+      (z) => `
+        <tr>
+          <td>${z.zona}</td>
+          <td>${formatearTiempo(z.plan_seg)}</td>
+          <td>${formatoPorcentaje(z.plan_pct)}</td>
+          <td>${formatearTiempo(z.real_seg)}</td>
+          <td>${formatoPorcentaje(z.real_pct)}</td>
+        </tr>`
+    )
+    .join("");
+  contenedor.innerHTML = `
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>Zona</th>
+            <th>Plan</th>
+            <th>%</th>
+            <th>Real</th>
+            <th>%</th>
+          </tr>
+        </thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </div>`;
+};
+
+const renderPieZonas = (canvas, chartRef, resumen, estadoEl, metrica) => {
+  if (!canvas) return chartRef;
+  const zonas = (resumen && Array.isArray(resumen.zonas)) ? resumen.zonas : [];
+  const labels = zonas.map((z) => z.zona);
+  const valores = zonas.map((z) => Number(metrica === "plan" ? z.plan_seg : z.real_seg) || 0);
+  const total = valores.reduce((a, b) => a + b, 0);
+
+  if (!total) {
+    if (estadoEl) estadoEl.textContent = "Sin datos para el gráfico.";
+    if (chartRef) {
+      chartRef.destroy();
+      chartRef = null;
+    }
+    return chartRef;
+  }
+
+  if (estadoEl) estadoEl.textContent = metrica === "plan" ? "Tiempo planificado por zona" : "Tiempo real por zona";
+  const data = {
+    labels,
+    datasets: [
+      {
+        data: valores,
+        backgroundColor: [
+          "#4e79a7",
+          "#59a14f",
+          "#f28e2b",
+          "#e15759",
+          "#76b7b2",
+          "#edc948"
+        ]
+      }
+    ]
+  };
+
+  if (chartRef) {
+    chartRef.data = data;
+    chartRef.update();
+    return chartRef;
+  }
+
+  return new Chart(canvas, {
+    type: "pie",
+    data,
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "bottom" },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const label = ctx.label || "Zona";
+              const val = ctx.parsed || 0;
+              return `${label}: ${formatTiempoChart(val)}`;
+            }
+          }
+
+      }
+    }
+  });
+};
+
+const renderBarComparativaZonas = (canvas, chartRef, resumen) => {
+  if (!canvas) return chartRef;
+  const zonas = (resumen && Array.isArray(resumen.zonas)) ? resumen.zonas : [];
+  const labels = zonas.map((z) => z.zona);
+  const plan = zonas.map((z) => Number(z.plan_seg) || 0);
+  const real = zonas.map((z) => Number(z.real_seg) || 0);
+  const total = plan.reduce((a, b) => a + b, 0) + real.reduce((a, b) => a + b, 0);
+
+  if (!total) {
+    if (chartRef) {
+      chartRef.destroy();
+      chartRef = null;
+    }
+    return chartRef;
+  }
+
+  const data = {
+    labels,
+    datasets: [
+      { label: "Plan", data: plan, backgroundColor: "#4e79a7" },
+      { label: "Real", data: real, backgroundColor: "#f28e2b" }
+    ]
+  };
+
+  if (chartRef) {
+    chartRef.data = data;
+    chartRef.update();
+    return chartRef;
+  }
+
+  return new Chart(canvas, {
+    type: "bar",
+    data,
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: "bottom" },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const label = ctx.dataset.label || "";
+              const val = ctx.parsed.y || 0;
+              return `${label}: ${formatTiempoChart(val)}`;
+            }
+          }
+        }
+      },
+      scales: {
+        y: {
+          ticks: {
+            callback: (value) => formatTiempoChart(value)
+          }
+        }
+      }
+    }
+  });
+};
+
+
+
+
+const renderResumenZonasSemana = (zonasSemana) => {
+  const ritmo = zonasSemana?.ritmo || null;
+  const fc = zonasSemana?.fc || null;
+  const fuente = elements.resumenZonasFuente?.value || "fc";
+  const metrica = elements.resumenZonasMetrica?.value || "real";
+  const resumen = fuente === "ritmo" ? ritmo : fc;
+
+  renderTablaZonasSemana(elements.resumenZonasTabla, resumen);
+  graficoZonas = renderPieZonas(
+    elements.resumenZonasCanvas,
+    graficoZonas,
+    resumen,
+    elements.resumenZonasEstado,
+    metrica
+  );
+  graficoZonasComparativa = renderBarComparativaZonas(
+    elements.resumenZonasComparativaCanvas,
+    graficoZonasComparativa,
+    resumen
+  );
+};
+
+const cargarZonas = async () => {
+  try {
+    const res = await fetch(`${API_BASE}/zonas_atleta/${atletaId}`, {
+      credentials: "include",
+      headers: { Authorization: authHeader() }
+    });
+    if (res.ok) zonasAtleta = await res.json();
+  } catch (err) {
+    console.warn("No se pudieron cargar zonas del atleta:", err);
+    zonasAtleta = null;
+  }
+};
+
 
 const resumenSemana = (entrenos, pendientes, hoy) => {
   const inicioSemana = new Date(hoy);
@@ -96,11 +310,6 @@ const resumenSemana = (entrenos, pendientes, hoy) => {
   finSemana.setDate(inicioSemana.getDate() + 6);
   finSemana.setHours(23, 59, 59, 999);
 
-  const rango =
-    elements.resumenRango ||
-    elements.resumenSesiones ||
-    elements.resumenCompletadas ||
-    elements.resumenPendientes;
   if (elements.resumenRango) {
     const ini = inicioSemana.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" });
     const fin = finSemana.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" });
@@ -108,7 +317,7 @@ const resumenSemana = (entrenos, pendientes, hoy) => {
   }
 
   const idsPend = new Set((pendientes || []).map((e) => e.id));
-  const entrenosSemana = entrenos.filter((ent) => {
+  const entrenosSemana = (entrenos || []).filter((ent) => {
     if (!ent.fecha) return false;
     const f = new Date(ent.fecha);
     return f >= inicioSemana && f <= finSemana;
@@ -132,21 +341,8 @@ const resumenSemana = (entrenos, pendientes, hoy) => {
   if (elements.resumenSesiones) elements.resumenSesiones.textContent = `${totalSemana}`;
   if (elements.resumenCompletadas) elements.resumenCompletadas.textContent = `${completadas}`;
   if (elements.resumenPendientes) elements.resumenPendientes.textContent = `${pend}`;
-  if (elements.resumenKmPlan) elements.resumenKmPlan.textContent = `—`;
-  if (elements.resumenKmReal) elements.resumenKmReal.textContent = `—`;
-};
-
-const cargarZonas = async () => {
-  try {
-    const res = await fetch(`${API_BASE}/zonas_atleta/${atletaId}`, {
-      credentials: "include",
-      headers: { Authorization: authHeader() }
-    });
-    if (res.ok) zonasAtleta = await res.json();
-  } catch (err) {
-    console.warn("No se pudieron cargar zonas del atleta:", err);
-    zonasAtleta = null;
-  }
+  if (elements.resumenKmPlan) elements.resumenKmPlan.textContent = "—";
+  if (elements.resumenKmReal) elements.resumenKmReal.textContent = "—";
 };
 
 const obtenerZonasPorFecha = async (fecha) => {
@@ -858,6 +1054,8 @@ if (Array.isArray(data.kms_semana) && data.kms_semana.length) {
   renderGraficoKmsPlan(data.kms_semana);
   renderGraficoKmsReal(data.kms_semana);
   actualizarResumenKm(data.kms_semana);
+  ultimoZonasSemana = data.zonas_semana || null;
+  renderResumenZonasSemana(ultimoZonasSemana);
   return; // ⛔ NO cálculo local
 }
 
@@ -866,16 +1064,30 @@ if (Array.isArray(data.kms_semana) && data.kms_semana.length) {
     renderGraficoKmsPlan(kmsLocal, "No hay kms previstos para este atleta.");
     renderGraficoKmsReal(kmsLocal, "No hay kms reales para este atleta.");
     actualizarResumenKm(kmsLocal);
+    ultimoZonasSemana = null;
+    renderResumenZonasSemana(null);
   } catch (err) {
     console.warn("No se pudieron cargar kms del servidor, usando cálculo local.", err);
     const kmsLocal = agruparKmsSemanalesLocal();
     renderGraficoKmsPlan(kmsLocal, "No se pudieron cargar los kms previstos.");
     renderGraficoKmsReal(kmsLocal, "No se pudieron cargar los kms reales.");
     actualizarResumenKm(kmsLocal);
+    ultimoZonasSemana = null;
+    renderResumenZonasSemana(null);
   }
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  if (elements.resumenZonasFuente) {
+    elements.resumenZonasFuente.addEventListener("change", () => {
+      renderResumenZonasSemana(ultimoZonasSemana || null);
+    });
+  }
+  if (elements.resumenZonasMetrica) {
+    elements.resumenZonasMetrica.addEventListener("change", () => {
+      renderResumenZonasSemana(ultimoZonasSemana || null);
+    });
+  }
   await cargarAtleta();
   await cargarZonas();
   await cargarEntrenamientos();

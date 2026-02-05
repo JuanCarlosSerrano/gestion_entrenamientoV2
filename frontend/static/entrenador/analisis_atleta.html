@@ -60,6 +60,48 @@
             </div>
           </section>
         </div>
+        <div class="col-12">
+          <div class="row g-3">
+            <div class="col-12">
+              <div class="border rounded p-3 bg-white h-100">
+                <div class="d-flex justify-content-between align-items-center gap-2 mb-2 flex-wrap">
+                  <div>
+                    <h3 class="h6 mb-0">Tiempo en zonas</h3>
+                    <span class="text-muted small">Semana actual</span>
+                  </div>
+                  <div class="d-flex align-items-center gap-2">
+                    <label for="resumen-zonas-fuente" class="form-label mb-0 small text-muted">Fuente</label>
+                    <select id="resumen-zonas-fuente" class="form-select form-select-sm">
+                      <option value="fc" selected>FC</option>
+                      <option value="ritmo">Ritmo</option>
+                    </select>
+                  </div>
+                  <div class="d-flex align-items-center gap-2">
+                    <label for="resumen-zonas-metrica" class="form-label mb-0 small text-muted">Mostrar</label>
+                    <select id="resumen-zonas-metrica" class="form-select form-select-sm">
+                      <option value="real" selected>Real</option>
+                      <option value="plan">Planificado</option>
+                    </select>
+                  </div>
+                </div>
+                <div id="resumen-zonas-tabla" class="mb-2"></div>
+                <div class="row g-3">
+                  <div class="col-12 col-lg-6">
+                    <div class="chart-container" style="height: 220px;">
+                      <canvas id="resumen-zonas-canvas"></canvas>
+                    </div>
+                  </div>
+                  <div class="col-12 col-lg-6">
+                    <div class="chart-container" style="height: 220px;">
+                      <canvas id="resumen-zonas-comparativa-canvas"></canvas>
+                    </div>
+                  </div>
+                </div>
+                <p class="text-muted small mb-0 mt-2" id="resumen-zonas-estado">Cargando zonas...</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
