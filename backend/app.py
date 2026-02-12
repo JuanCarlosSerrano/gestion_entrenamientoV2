@@ -3843,7 +3843,12 @@ def obtener_zonas_atleta(current_user, atleta_id):
             '''
         resultado = query_db(query, tuple(params), one=True)
         if resultado:
-            return jsonify(dict(resultado)), 200
+            data = dict(resultado)
+            vdot_row = query_db("SELECT vdot_val, vdot_fecha FROM usuarios WHERE id = ?", (atleta_id,), one=True)
+            if vdot_row:
+                data["vdot_val"] = vdot_row.get("vdot_val")
+                data["vdot_fecha"] = vdot_row.get("vdot_fecha")
+            return jsonify(data), 200
         else:
             return jsonify({'message': 'No hay zonas guardadas para este atleta'}), 404
     except Exception as e:
@@ -4944,13 +4949,22 @@ def resumen_zonas_entrenamiento(current_user, entrenamiento_id):
         atleta_id = ent['atleta_id'] if isinstance(ent, dict) else ent[0]
         entrenador_id = ent['entrenador_id'] if isinstance(ent, dict) else ent[1]
 
+        vdot_val = None
+        try:
+            cur.execute("SELECT vdot_val FROM usuarios WHERE id = ?", (atleta_id,))
+            vdot_row = cur.fetchone()
+            if vdot_row:
+                vdot_val = vdot_row['vdot_val'] if isinstance(vdot_row, dict) else vdot_row[0]
+        except Exception:
+            vdot_val = None
+
         if current_user['rol'] == 'atleta' and current_user['id'] != atleta_id:
             return jsonify({'error': 'No tienes permiso para ver este entrenamiento'}), 403
         if current_user['rol'] == 'entrenador' and current_user['id'] != entrenador_id:
             return jsonify({'error': 'No tienes permiso para ver este entrenamiento'}), 403
 
         cur.execute(
-            "SELECT zona, tipo, tiempo_seg FROM zonas_resumen_entrenamiento WHERE entrenamiento_asignado_id = ? AND fuente = ?",
+            "SELECT zona, tipo, tiempo_seg, distancia_km FROM zonas_resumen_entrenamiento WHERE entrenamiento_asignado_id = ? AND fuente = ?",
             (entrenamiento_id, fuente),
         )
         rows = cur.fetchall()
@@ -4960,10 +4974,16 @@ def resumen_zonas_entrenamiento(current_user, entrenamiento_id):
             zona = r['zona'] if isinstance(r, dict) else r[0]
             tipo = r['tipo'] if isinstance(r, dict) else r[1]
             tiempo = r['tiempo_seg'] if isinstance(r, dict) else r[2]
+            distancia_km = r['distancia_km'] if isinstance(r, dict) else r[3]
             if not zona:
                 continue
             if tipo == 'plan':
-                plan_map[zona] = float(tiempo or 0)
+                tiempo_val = float(tiempo or 0)
+                if (not tiempo_val) and distancia_km and vdot_val:
+                    ritmo_vdot = _vdot_ritmo_seg_desde_zona(vdot_val, zona)
+                    if ritmo_vdot:
+                        tiempo_val = float(distancia_km) * ritmo_vdot
+                plan_map[zona] = float(tiempo_val or 0)
             elif tipo == 'real':
                 real_map[zona] = float(tiempo or 0)
 
@@ -5952,6 +5972,67 @@ def _zonas_ritmo_en_segundos(zonas):
                 zonas_seg[key.upper()] = ritmo
     return zonas_seg
 
+VDOT_PACE_RANGES = {
+    "E": {"min": 0.65, "max": 0.78},
+    "M": {"min": 0.80, "max": 0.84},
+    "T": {"min": 0.88, "max": 0.92},
+    "I": {"min": 0.95, "max": 1.00},
+    "R": {"min": 1.05, "max": 1.15},
+    "FR": {"min": 1.18, "max": 1.30},
+}
+
+
+def _vdot_speed_from_vo2(vo2):
+    a = 0.000104
+    b = 0.182258
+    c = -4.60 - vo2
+    disc = b * b - 4 * a * c
+    if disc <= 0:
+        return None
+    v = (-b + (disc ** 0.5)) / (2 * a)
+    return v if v > 0 else None
+
+
+def _vdot_pace_from_fraction(vdot_val, fraction):
+    if not vdot_val or not fraction:
+        return None
+    vo2 = vdot_val * fraction
+    speed = _vdot_speed_from_vo2(vo2)
+    if not speed:
+        return None
+    min_per_km = 1000 / speed
+    return min_per_km * 60
+
+
+def _vdot_categoria_desde_zona(zona):
+    if not zona:
+        return "I"
+    try:
+        num = int(str(zona).replace("Z", "").replace("z", ""))
+    except Exception:
+        return "I"
+    if num <= 2:
+        return "E"
+    if num == 3:
+        return "M"
+    if num == 4:
+        return "T"
+    if num == 5:
+        return "I"
+    return "R"
+
+
+def _vdot_ritmo_seg_desde_zona(vdot_val, zona):
+    if not vdot_val:
+        return None
+    categoria = _vdot_categoria_desde_zona(zona)
+    rango = VDOT_PACE_RANGES.get(categoria)
+    if not rango:
+        return None
+    fraccion = (rango["min"] + rango["max"]) / 2
+    return _vdot_pace_from_fraction(vdot_val, fraccion)
+
+
 
 def _zona_mas_cercana(pace_seg, zonas_seg):
     if pace_seg is None or not zonas_seg:
@@ -5968,6 +6049,12 @@ def _zona_mas_cercana(pace_seg, zonas_seg):
 
 def _resumen_zonas_plan(pasos, zonas_atleta):
     zonas_seg = _zonas_ritmo_en_segundos(zonas_atleta)
+    vdot_val = None
+    if zonas_atleta:
+        try:
+            vdot_val = float(zonas_atleta.get('vdot_val')) if zonas_atleta.get('vdot_val') is not None else None
+        except Exception:
+            vdot_val = None
     if not pasos:
         return {}
     children = {}
@@ -6029,14 +6116,17 @@ def _resumen_zonas_plan(pasos, zonas_atleta):
             if objetivo_tipo in ('tiempo', 'duracion', 'time') or unidad in ('s', 'seg', 'segundo', 'segundos', 'sec', 'secs', 'min', 'mins', 'minuto', 'minutos', 'h', 'hora', 'horas'):
                 tiempo_seg = _segundos_desde_unidad(val, unidad)
 
+            ritmo_vdot = _vdot_ritmo_seg_desde_zona(vdot_val, zona) if vdot_val else None
+            ritmo_ref = ritmo_vdot or zonas_seg.get(zona)
+
             # si hay distancia y ritmo, estimar tiempo
-            if distancia_km is not None and zona in zonas_seg:
-                tiempo_seg = tiempo_seg or (distancia_km * zonas_seg.get(zona))
+            if distancia_km is not None and ritmo_ref:
+                tiempo_seg = tiempo_seg or (distancia_km * ritmo_ref)
 
             # si hay tiempo y ritmo, estimar distancia
-            if tiempo_seg is not None and (distancia_km is None) and zona in zonas_seg:
+            if tiempo_seg is not None and (distancia_km is None) and ritmo_ref:
                 try:
-                    distancia_km = tiempo_seg / zonas_seg.get(zona)
+                    distancia_km = tiempo_seg / ritmo_ref
                 except Exception:
                     pass
 
@@ -6288,20 +6378,28 @@ def obtener_zonas_atleta_por_fecha(cur, atleta_id, fecha_ref=None):
     if fecha_ref:
         params.extend([fecha_ref, fecha_ref])
         query = '''
-            SELECT vam, z1, z2, z3, z4, z5, z6, fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6, metodo, fecha_inicio, fecha_fin
-            FROM zonas_entrenamiento
-            WHERE atleta_id = ?
-              AND fecha_inicio <= ?
-              AND (fecha_fin IS NULL OR fecha_fin >= ?)
-            ORDER BY fecha_inicio DESC
+            SELECT z.vam, z.z1, z.z2, z.z3, z.z4, z.z5, z.z6,
+                   z.fc_z1, z.fc_z2, z.fc_z3, z.fc_z4, z.fc_z5, z.fc_z6,
+                   z.metodo, z.fecha_inicio, z.fecha_fin,
+                   u.vdot_val, u.vdot_fecha
+            FROM zonas_entrenamiento z
+            JOIN usuarios u ON u.id = z.atleta_id
+            WHERE z.atleta_id = ?
+              AND z.fecha_inicio <= ?
+              AND (z.fecha_fin IS NULL OR z.fecha_fin >= ?)
+            ORDER BY z.fecha_inicio DESC
             LIMIT 1
         '''
     else:
         query = '''
-            SELECT vam, z1, z2, z3, z4, z5, z6, fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6, metodo, fecha_inicio, fecha_fin
-            FROM zonas_entrenamiento
-            WHERE atleta_id = ?
-            ORDER BY fecha_inicio DESC
+            SELECT z.vam, z.z1, z.z2, z.z3, z.z4, z.z5, z.z6,
+                   z.fc_z1, z.fc_z2, z.fc_z3, z.fc_z4, z.fc_z5, z.fc_z6,
+                   z.metodo, z.fecha_inicio, z.fecha_fin,
+                   u.vdot_val, u.vdot_fecha
+            FROM zonas_entrenamiento z
+            JOIN usuarios u ON u.id = z.atleta_id
+            WHERE z.atleta_id = ?
+            ORDER BY z.fecha_inicio DESC
             LIMIT 1
         '''
     cur.execute(query, tuple(params))
@@ -6887,6 +6985,20 @@ def estadisticas_analisis_atleta(current_user, atleta_id):
 
             conn_z = get_db()
             cur_z = conn_z.cursor()
+
+            force_recalc = (request.args.get('recalcular_zonas') == '1')
+            if force_recalc:
+                cur_z.execute(
+                    """
+                    DELETE FROM zonas_resumen_entrenamiento
+                    WHERE entrenamiento_asignado_id IN (
+                        SELECT id FROM entrenamientos_asignados
+                        WHERE atleta_id = ?
+                          AND DATE(fecha) BETWEEN ? AND ?
+                    )
+                    """,
+                    (atleta_id, inicio_str, fin_str),
+                )
 
             cur_z.execute(
                 """

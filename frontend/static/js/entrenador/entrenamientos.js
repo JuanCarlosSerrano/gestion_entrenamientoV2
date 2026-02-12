@@ -1,3 +1,5 @@
+import { buildTreeFromFlat, renderPasos } from "../atleta/pasos.js";
+
 const API_BASE =
   window.API_BASE ||
   (window.location && window.location.origin ? window.location.origin : 'http://127.0.0.1:5000');
@@ -12,6 +14,28 @@ const formElement = document.getElementById('entrenamiento-form-element');
 const addRootStepBtn = document.getElementById('add-root-step-btn');
 const cancelBtn = document.getElementById('cancel-entrenamiento-btn');
 const createBtn = document.getElementById('create-entrenamiento-btn');
+const modalNuevoEntrenamientoEl = document.getElementById('modalNuevoEntrenamiento');
+const modalGuiadoEl = document.getElementById('modalGuiadoEntrenamiento');
+const btnNuevoGuiado = document.getElementById('btn-nuevo-guiado');
+const btnNuevoAvanzado = document.getElementById('btn-nuevo-avanzado');
+const guiadoTitle = document.getElementById('guiado-title');
+const guiadoHelp = document.getElementById('guiado-help');
+const guiadoContent = document.getElementById('guiado-content');
+const guiadoPrev = document.getElementById('guiado-prev');
+const guiadoNext = document.getElementById('guiado-next');
+const guiadoSave = document.getElementById('guiado-save');
+const builderModeAvanzadoBtn = document.getElementById('builder-mode-avanzado');
+const builderModeGuiadoBtn = document.getElementById('builder-mode-guiado');
+const builderInfo = document.getElementById('builder-info');
+const builderBlocks = document.getElementById('builder-blocks');
+const builderPreview = document.getElementById('builder-preview');
+const builderWizard = document.getElementById('builder-wizard');
+const wizardTitle = document.getElementById('wizard-title');
+const wizardHelp = document.getElementById('wizard-help');
+const wizardProgress = document.getElementById('wizard-progress');
+const wizardContent = document.getElementById('wizard-step-content');
+const wizardPrev = document.getElementById('wizard-prev');
+const wizardNext = document.getElementById('wizard-next');
 
 const nombreInput = document.getElementById('nombre');
 const objetivoInput = document.getElementById('objetivo');
@@ -52,6 +76,11 @@ const ZONA_OPTIONS = [
 let entrenamientosData = [];
 let builderState = [];
 let currentEntrenamientoId = null;
+let guidedMode = false;
+let wizardStepIndex = 0;
+let guiadoStepIndex = 0;
+let guiadoSteps = [];
+let guiadoData = { info: {}, bloques: { warmup: false, main: true, cooldown: false }, steps: { warmup: null, main: null, cooldown: null } };
 
 // ===================== UTILS BÁSICOS =====================
 
@@ -93,6 +122,232 @@ function clockToSeconds(value) {
   }
   return mins * 60 + secs;
 }
+
+const fetchEntrenamientoDetalle = async (id) => {
+  if (entrenamientoDetalleCache.has(id)) return entrenamientoDetalleCache.get(id);
+  const res = await fetch(`${API_BASE}/entrenamientos/${id}`, {
+    headers: { Authorization: authHeader() },
+    credentials: 'include'
+  });
+  if (!res.ok) throw new Error(`No se pudo cargar entrenamiento ${id}`);
+  const data = await res.json();
+  entrenamientoDetalleCache.set(id, data);
+  return data;
+};
+
+const fetchZonasAtleta = async (atletaId) => {
+  const res = await fetch(`${API_BASE}/zonas_atleta/${atletaId}`, {
+    headers: { Authorization: authHeader() },
+    credentials: 'include'
+  });
+  if (!res.ok) return null;
+  return await res.json();
+};
+
+const renderPreviewMicro = async (micro, atletaId) => {
+  if (!asignacionPreviewContainer) return;
+  if (!micro || !atletaId) {
+    asignacionPreviewContainer.innerHTML = '<div class="text-muted small">Selecciona un atleta para ver la semana personalizada.</div>';
+    return;
+  }
+  asignacionPreviewContainer.innerHTML = '<div class="text-muted small">Generando previsualización...</div>';
+  const zonas = await fetchZonasAtleta(atletaId).catch(() => null);
+  const zonasNote = !zonas ? '<div class="text-muted small mb-2">Sin zonas/VDOT guardados para este atleta.</div>' : '';
+  const sesionesPorDia = {};
+  (micro.detalles || []).forEach((d) => {
+    const dia = d.dia_semana || d.dia_relativo || 1;
+    if (!sesionesPorDia[dia]) sesionesPorDia[dia] = [];
+    sesionesPorDia[dia].push(d);
+  });
+
+  const dayCards = await Promise.all(WEEK_DAYS.map(async ({ dia, label }) => {
+    const sesiones = sesionesPorDia[dia] || [];
+    if (!sesiones.length) {
+      return `<div class="mb-2"><strong>${label}:</strong> <span class="text-muted">Descanso</span></div>`;
+    }
+    const sesionesHtml = await Promise.all(sesiones.map(async (s) => {
+      const entId = s.entrenamiento_id;
+      let detalle = null;
+      try {
+        detalle = await fetchEntrenamientoDetalle(entId);
+      } catch (_) {}
+      const pasosRaw = Array.isArray(detalle?.pasos) ? detalle.pasos : [];
+      const pasos = pasosRaw.length && pasosRaw[0].parent_id ? buildTreeFromFlat(pasosRaw) : pasosRaw;
+      const bloques = renderPasos(pasos, zonas || {});
+      return `<div class="mb-2"><div class="fw-semibold">${s.entrenamiento_nombre || detalle?.nombre || 'Sesión'}</div><div class="small">${bloques}</div></div>`;
+    }));
+    return `<div class="mb-3"><strong>${label}</strong>${sesionesHtml.join('')}</div>`;
+  }));
+
+  asignacionPreviewContainer.innerHTML = zonasNote + dayCards.join('');
+};
+
+const renderPreviewEntrenamiento = async (entrenamiento, atletaId) => {
+  if (!asignacionPreviewContainer) return;
+  if (!entrenamiento || !atletaId) {
+    asignacionPreviewContainer.innerHTML = '<div class="text-muted small">Selecciona un atleta para ver la sesión personalizada.</div>';
+    return;
+  }
+  asignacionPreviewContainer.innerHTML = '<div class="text-muted small">Generando previsualización...</div>';
+  const zonas = await fetchZonasAtleta(atletaId).catch(() => null);
+  let detalle = null;
+  try {
+    detalle = await fetchEntrenamientoDetalle(entrenamiento.id);
+  } catch (_) {}
+  const pasosRaw = Array.isArray(detalle?.pasos) ? detalle.pasos : [];
+  const pasos = pasosRaw.length && pasosRaw[0].parent_id ? buildTreeFromFlat(pasosRaw) : pasosRaw;
+  const bloques = renderPasos(pasos, zonas || {});
+  const zonasNote = !zonas ? '<div class="text-muted small mb-2">Sin zonas/VDOT guardados para este atleta.</div>' : '';
+  asignacionPreviewContainer.innerHTML = `${zonasNote}<div class="fw-semibold mb-2">${detalle?.nombre || entrenamiento.nombre}</div>${bloques}`;
+};
+
+
+const renderFechasIndividuales = () => {
+  if (!asignacionFechasIndividuales || !asignacionAtletasSelect) return;
+  const selected = Array.from(asignacionAtletasSelect.selectedOptions || []);
+  if (!selected.length) {
+    asignacionFechasIndividuales.innerHTML = '<div class="text-muted small">Selecciona atletas para asignar fechas individuales.</div>';
+    return;
+  }
+  const fechaBase = asignacionFechaInput?.value || '';
+  asignacionFechasIndividuales.innerHTML = '';
+  selected.forEach((opt) => {
+    const row = document.createElement('div');
+    row.className = 'd-flex align-items-center gap-2 mb-2';
+    const label = document.createElement('div');
+    label.className = 'small';
+    label.style.minWidth = '160px';
+    label.textContent = opt.textContent || `Atleta ${opt.value}`;
+    const input = document.createElement('input');
+    input.type = 'date';
+    input.className = 'form-control form-control-sm';
+    input.dataset.atletaId = opt.value;
+    input.value = fechaBase;
+    row.append(label, input);
+    asignacionFechasIndividuales.appendChild(row);
+  });
+};
+
+const cargarAtletasAsignacion = async () => {
+  if (!asignacionAtletasSelect || !asignacionPreviewSelect) return;
+  const res = await fetch(`${API_BASE}/atletas`, {
+    headers: { Authorization: authHeader() },
+    credentials: 'include'
+  });
+  if (!res.ok) return;
+  atletasAsignacionCache = await res.json();
+  asignacionAtletasSelect.innerHTML = '';
+  asignacionPreviewSelect.innerHTML = '';
+  atletasAsignacionCache.forEach((a) => {
+    const opt = document.createElement('option');
+    opt.value = a.id;
+    opt.textContent = `${a.nombre} ${a.apellidos || ''}`.trim();
+    asignacionAtletasSelect.appendChild(opt);
+    const opt2 = opt.cloneNode(true);
+    asignacionPreviewSelect.appendChild(opt2);
+  });
+  if (asignacionPreviewSelect.options.length) {
+    asignacionPreviewSelect.selectedIndex = 0;
+  }
+  if (asignacionFechaIndividualToggle?.checked) {
+    renderFechasIndividuales();
+  }
+};
+
+const openAsignarMicro = async (micro) => {
+  microAsignacionActual = micro;
+  entrenamientoAsignacionActual = null;
+  if (cicloAtletaIdInput) cicloAtletaIdInput.value = micro?.id || '';
+  if (cicloAtletaTipoInput) cicloAtletaTipoInput.value = 'micro';
+  if (!modalAsignarAtletasInstance && modalAsignarAtletas && window.bootstrap?.Modal) {
+    modalAsignarAtletasInstance = new bootstrap.Modal(modalAsignarAtletas);
+  }
+  const titleEl = modalAsignarAtletas?.querySelector('.modal-title');
+  if (titleEl) {
+    titleEl.textContent = micro?.nombre ? `Asignar microciclo: ${micro.nombre}` : 'Asignar microciclo';
+  }
+  await cargarAtletasAsignacion();
+  if (asignacionAtletasSelect) {
+    Array.from(asignacionAtletasSelect.options).forEach((opt) => {
+      opt.selected = true;
+    });
+  }
+  if (asignacionFechaIndividualToggle) {
+    asignacionFechaIndividualToggle.checked = false;
+  }
+  if (asignacionFechasToolbar) {
+    asignacionFechasToolbar.classList.add('d-none');
+  }
+  if (asignacionFechasIndividuales) {
+    asignacionFechasIndividuales.classList.add('d-none');
+  }
+  if (asignacionFechaInput) {
+    const hoy = new Date();
+    const day = hoy.getDay();
+    const diff = day === 0 ? 1 : 8 - day; // próximo lunes (si hoy es lunes, usa hoy)
+    const lunes = new Date(hoy);
+    lunes.setDate(hoy.getDate() + (day === 1 ? 0 : diff));
+    asignacionFechaInput.value = lunes.toISOString().slice(0, 10);
+  }
+  if (asignacionPreviewSelect) {
+    asignacionPreviewSelect.onchange = () => {
+      const val = asignacionPreviewSelect.value;
+      renderPreviewMicro(microAsignacionActual, val);
+    };
+  }
+  const previewId = asignacionPreviewSelect?.value;
+  await renderPreviewMicro(microAsignacionActual, previewId);
+  modalAsignarAtletasInstance?.show();
+};
+
+const openAsignarEntrenamiento = async (entrenamiento) => {
+  entrenamientoAsignacionActual = entrenamiento;
+  microAsignacionActual = null;
+  if (cicloAtletaIdInput) cicloAtletaIdInput.value = '';
+  if (cicloAtletaTipoInput) cicloAtletaTipoInput.value = '';
+  if (!modalAsignarAtletasInstance && modalAsignarAtletas && window.bootstrap?.Modal) {
+    modalAsignarAtletasInstance = new bootstrap.Modal(modalAsignarAtletas);
+  }
+  const titleEl = modalAsignarAtletas?.querySelector('.modal-title');
+  if (titleEl) {
+    titleEl.textContent = entrenamiento?.nombre ? `Asignar entrenamiento: ${entrenamiento.nombre}` : 'Asignar entrenamiento';
+  }
+  await cargarAtletasAsignacion();
+  if (asignacionAtletasSelect) {
+    Array.from(asignacionAtletasSelect.options).forEach((opt) => {
+      opt.selected = true;
+    });
+  }
+  if (asignacionFechaIndividualToggle) {
+    asignacionFechaIndividualToggle.checked = false;
+  }
+  if (asignacionFechasToolbar) {
+    asignacionFechasToolbar.classList.add('d-none');
+  }
+  if (asignacionFechasIndividuales) {
+    asignacionFechasIndividuales.classList.add('d-none');
+  }
+  if (asignacionFechaInput) {
+    const hoy = new Date();
+    const day = hoy.getDay();
+    const diff = day === 0 ? 1 : 8 - day;
+    const lunes = new Date(hoy);
+    lunes.setDate(hoy.getDate() + (day === 1 ? 0 : diff));
+    asignacionFechaInput.value = lunes.toISOString().slice(0, 10);
+  }
+  if (asignacionPreviewSelect) {
+    asignacionPreviewSelect.onchange = () => {
+      const val = asignacionPreviewSelect.value;
+      renderPreviewEntrenamiento(entrenamientoAsignacionActual, val);
+    };
+  }
+  const previewId = asignacionPreviewSelect?.value;
+  await renderPreviewEntrenamiento(entrenamientoAsignacionActual, previewId);
+  modalAsignarAtletasInstance?.show();
+};
+
+
+
 
 function normalizeRecoveryValue(value, unidad) {
   if (value === null || value === undefined) return null;
@@ -378,6 +633,18 @@ function buildSelectField(label, options, value, onChange, defaultValue = null, 
   return wrapper;
 }
 
+
+const autoFormatMmss = (value) => {
+  const digits = (value || '').replace(/\D/g, '');
+  if (!digits) return '';
+  if (digits.length <= 2) {
+    return `0:${digits.padStart(2, '0')}`;
+  }
+  const mins = digits.slice(0, -2);
+  const secs = digits.slice(-2);
+  return `${Number(mins)}:${secs.padStart(2, '0')}`;
+};
+
 function buildNumberField(label, value, onChange, wrapperClass = '', options = {}) {
   const wrapper = document.createElement('div');
   wrapper.className = ['mb-3', wrapperClass].filter(Boolean).join(' ').trim();
@@ -420,6 +687,211 @@ function buildTextField(label, value, onChange, wrapperClass = '') {
   return wrapper;
 }
 
+
+const wizardSteps = [
+  {
+    key: 'info',
+    title: 'Datos generales',
+    help: 'Introduce nombre, objetivo, notas y km totales.'
+  },
+  {
+    key: 'warmup',
+    title: 'Calentamiento',
+    help: 'Define el bloque de calentamiento.'
+  },
+  {
+    key: 'repeat',
+    title: 'Bloque repetido',
+    help: 'Configura las series y repeticiones.'
+  },
+  {
+    key: 'cooldown',
+    title: 'Enfriamiento',
+    help: 'Finaliza con el bloque de enfriamiento.'
+  },
+  {
+    key: 'preview',
+    title: 'Resumen',
+    help: 'Revisa el entrenamiento antes de guardar.'
+  }
+];
+
+const ensureWizardSteps = () => {
+  const hasWarmup = builderState.some((s) => s.tipo_paso === 'warmup');
+  const hasRepeat = builderState.some((s) => s.tipo_paso === 'repeat');
+  const hasCooldown = builderState.some((s) => s.tipo_paso === 'cooldown');
+  if (!hasWarmup) builderState.unshift(createStep('warmup'));
+  if (!hasRepeat) builderState.splice(1, 0, createStep('repeat'));
+  if (!hasCooldown) builderState.push(createStep('cooldown'));
+};
+
+const renderWizardStep = () => {
+  if (!wizardContent || !builderWizard) return;
+  const step = wizardSteps[wizardStepIndex];
+  if (!step) return;
+  if (wizardTitle) wizardTitle.textContent = step.title;
+  if (wizardHelp) wizardHelp.textContent = step.help;
+  if (wizardProgress) wizardProgress.textContent = `${wizardStepIndex + 1}/${wizardSteps.length}`;
+
+  if (builderInfo) builderInfo.classList.toggle('d-none', step.key !== 'info');
+  if (builderPreview) builderPreview.classList.toggle('d-none', step.key !== 'preview');
+  if (builderBlocks) builderBlocks.classList.toggle('d-none', !['warmup', 'repeat', 'cooldown'].includes(step.key));
+
+  wizardContent.innerHTML = '';
+  if (step.key === 'info' || step.key === 'preview') return;
+
+  const filtered = builderState.filter((s) => {
+    if (step.key === 'warmup') return s.tipo_paso === 'warmup';
+    if (step.key === 'repeat') return s.tipo_paso === 'repeat';
+    if (step.key === 'cooldown') return s.tipo_paso === 'cooldown';
+    return false;
+  });
+  filtered.forEach((s, idx) => {
+    wizardContent.appendChild(buildStepCard(s, filtered, idx));
+  });
+};
+
+const setGuidedMode = (enabled) => {
+  guidedMode = enabled;
+  if (builderWizard) builderWizard.classList.toggle('d-none', !enabled);
+  if (builderBlocks) builderBlocks.classList.toggle('d-none', enabled);
+  if (builderPreview) builderPreview.classList.toggle('d-none', enabled);
+  if (builderInfo) builderInfo.classList.toggle('d-none', enabled ? wizardSteps[wizardStepIndex].key !== 'info' : false);
+  if (addRootStepBtn) addRootStepBtn.classList.toggle('d-none', enabled);
+  if (builderModeGuiadoBtn) builderModeGuiadoBtn.classList.toggle('btn-primary', enabled);
+  if (builderModeAvanzadoBtn) builderModeAvanzadoBtn.classList.toggle('btn-primary', !enabled);
+  if (enabled) {
+    ensureWizardSteps();
+    renderWizardStep();
+  }
+};
+
+
+const initGuiadoSteps = () => {
+  guiadoSteps = [
+    { key: 'info', title: 'Datos generales', help: 'Nombre, objetivo, notas y km totales.' },
+    { key: 'select', title: 'Bloques', help: 'Selecciona qué bloques quieres incluir.' }
+  ];
+  if (guiadoData.bloques.warmup) {
+    guiadoSteps.push({ key: 'warmup', title: 'Calentamiento', help: 'Configura el bloque de calentamiento.' });
+  }
+  if (guiadoData.bloques.main) {
+    guiadoSteps.push({ key: 'main', title: 'Bloque principal', help: 'Configura el bloque principal.' });
+  }
+  if (guiadoData.bloques.cooldown) {
+    guiadoSteps.push({ key: 'cooldown', title: 'Enfriamiento', help: 'Configura el bloque de enfriamiento.' });
+  }
+  guiadoSteps.push({ key: 'preview', title: 'Resumen', help: 'Revisa el entrenamiento antes de guardarlo.' });
+};
+
+const renderGuiadoStep = () => {
+  if (!guiadoContent) return;
+  const step = guiadoSteps[guiadoStepIndex];
+  if (!step) return;
+  if (guiadoTitle) guiadoTitle.textContent = step.title;
+  if (guiadoHelp) guiadoHelp.textContent = step.help;
+  guiadoContent.innerHTML = '';
+  if (guiadoPrev) guiadoPrev.disabled = guiadoStepIndex === 0;
+
+  if (step.key === 'info') {
+    guiadoContent.innerHTML = `
+      <div class="row g-3">
+        <div class="col-12">
+          <label class="form-label">Nombre</label>
+          <input type="text" class="form-control" id="guiado-nombre" value="${guiadoData.info.nombre || ''}" />
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Objetivo</label>
+          <input type="text" class="form-control" id="guiado-objetivo" value="${guiadoData.info.objetivo || ''}" />
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Notas</label>
+          <input type="text" class="form-control" id="guiado-notas" value="${guiadoData.info.notas || ''}" />
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Km totales</label>
+          <input type="number" class="form-control" id="guiado-km" value="${guiadoData.info.km || ''}" step="0.1" min="0" />
+        </div>
+      </div>
+    `;
+    return;
+  }
+
+  if (step.key === 'select') {
+    guiadoContent.innerHTML = `
+      <div class="d-flex flex-column gap-2">
+        <label class="form-check">
+          <input class="form-check-input" type="checkbox" id="guiado-warmup" ${guiadoData.bloques.warmup ? 'checked' : ''}> Calentamiento
+        </label>
+        <label class="form-check">
+          <input class="form-check-input" type="checkbox" id="guiado-main" ${guiadoData.bloques.main ? 'checked' : ''}> Bloque principal
+        </label>
+        <label class="form-check">
+          <input class="form-check-input" type="checkbox" id="guiado-cooldown" ${guiadoData.bloques.cooldown ? 'checked' : ''}> Enfriamiento
+        </label>
+        <small class="text-muted">Puedes dejar solo el bloque principal si es un rodaje.</small>
+      </div>
+    `;
+    return;
+  }
+
+  if (['warmup', 'main', 'cooldown'].includes(step.key)) {
+    const stepData = guiadoData.steps[step.key] || createStep(step.key === 'main' ? 'interval' : step.key);
+    guiadoData.steps[step.key] = stepData;
+    const wrapper = document.createElement('div');
+    wrapper.appendChild(buildStepCard(stepData, [stepData], 0));
+    guiadoContent.appendChild(wrapper);
+    return;
+  }
+
+  if (step.key === 'preview') {
+    const preview = document.createElement('div');
+    preview.className = 'builder-preview-list';
+    const steps = [];
+    if (guiadoData.bloques.warmup && guiadoData.steps.warmup) steps.push(guiadoData.steps.warmup);
+    if (guiadoData.bloques.main && guiadoData.steps.main) steps.push(guiadoData.steps.main);
+    if (guiadoData.bloques.cooldown && guiadoData.steps.cooldown) steps.push(guiadoData.steps.cooldown);
+    preview.innerHTML = renderPasos(steps, {});
+    guiadoContent.appendChild(preview);
+  }
+
+  if (guiadoNext && guiadoSave) {
+    const isLast = guiadoStepIndex === guiadoSteps.length - 1;
+    guiadoNext.classList.toggle('d-none', isLast);
+    guiadoSave.classList.toggle('d-none', !isLast);
+  }
+};
+
+const collectGuiadoInfo = () => {
+  const nombre = document.getElementById('guiado-nombre');
+  const objetivo = document.getElementById('guiado-objetivo');
+  const notas = document.getElementById('guiado-notas');
+  const km = document.getElementById('guiado-km');
+  if (nombre) guiadoData.info.nombre = nombre.value.trim();
+  if (objetivo) guiadoData.info.objetivo = objetivo.value.trim();
+  if (notas) guiadoData.info.notas = notas.value.trim();
+  if (km) guiadoData.info.km = km.value.trim();
+};
+
+const collectGuiadoBloques = () => {
+  const warmup = document.getElementById('guiado-warmup');
+  const main = document.getElementById('guiado-main');
+  const cooldown = document.getElementById('guiado-cooldown');
+  guiadoData.bloques.warmup = warmup?.checked || false;
+  guiadoData.bloques.main = main?.checked || false;
+  guiadoData.bloques.cooldown = cooldown?.checked || false;
+  if (!guiadoData.bloques.main) guiadoData.bloques.main = true;
+};
+
+const openGuiadoModal = () => {
+  guiadoData = { info: {}, bloques: { warmup: false, main: true, cooldown: false }, steps: { warmup: null, main: null, cooldown: null } };
+  guiadoStepIndex = 0;
+  initGuiadoSteps();
+  renderGuiadoStep();
+  const modal = modalGuiadoEl && window.bootstrap?.Modal ? bootstrap.Modal.getOrCreateInstance(modalGuiadoEl) : null;
+  modal?.show();
+};
+
 function renderBuilder() {
   if (!builderStepsContainer) return;
   builderStepsContainer.innerHTML = '';
@@ -427,6 +899,10 @@ function renderBuilder() {
     builderStepsContainer.appendChild(buildStepCard(step, builderState, index));
   });
   renderPreview();
+  if (guidedMode) {
+    ensureWizardSteps();
+    renderWizardStep();
+  }
   if (builderModeLabel) {
     builderModeLabel.textContent = currentEntrenamientoId ? `Editando #${currentEntrenamientoId}` : 'Nuevo';
     builderModeLabel.className = `badge ${currentEntrenamientoId ? 'text-bg-warning' : 'text-bg-secondary'}`;
@@ -523,10 +999,15 @@ function buildStepCard(step, siblings, index) {
           step.objetivo_tipo = value;
           if (!value || value === 'libre') {
             step.unidad = null;
-          } else if (value === 'distancia' && !step.unidad) {
+            step.objetivo_valor = null;
+          } else if (value === 'distancia') {
             step.unidad = 'm';
-          } else if (value === 'tiempo' && !step.unidad) {
+            if (typeof step.objetivo_valor !== 'number') {
+              step.objetivo_valor = null;
+            }
+          } else if (value === 'tiempo') {
             step.unidad = 'min';
+            step.objetivo_valor = null;
           }
           renderBuilder();
         },
@@ -538,29 +1019,73 @@ function buildStepCard(step, siblings, index) {
 
     const rowValues = document.createElement('div');
     rowValues.className = 'row g-2 builder-row';
-    rowValues.appendChild(
-      buildTextField(
-        'Valor',
+    if (step.objetivo_tipo === 'distancia') {
+      rowValues.appendChild(
+        buildNumberField(
+          'Valor',
+          step.objetivo_valor ?? '',
+          (value) => {
+            step.objetivo_valor = value === null ? null : value;
+          },
+          'col-md-3',
+          { step: 1, min: 0 }
+        )
+      );
+    } else if (step.objetivo_tipo === 'tiempo') {
+      const timeField = buildTextField(
+        'Valor (mm:ss)',
         step.objetivo_valor ?? '',
         (value) => {
-          const cleaned = (value || '').trim();
-          step.objetivo_valor = cleaned || null;
+          const formatted = autoFormatMmss(value);
+          step.objetivo_valor = formatted || null;
         },
         'col-md-3'
-      )
+      );
+      const input = timeField.querySelector('input');
+      if (input) {
+        input.placeholder = 'mm:ss';
+        input.inputMode = 'numeric';
+        input.addEventListener('input', (event) => {
+          const formatted = autoFormatMmss(event.target.value);
+          event.target.value = formatted;
+        });
+      }
+      rowValues.appendChild(timeField);
+    } else {
+      rowValues.appendChild(
+        buildTextField(
+          'Valor',
+          step.objetivo_valor ?? '',
+          (value) => {
+            const cleaned = (value || '').trim();
+            step.objetivo_valor = cleaned || null;
+          },
+          'col-md-3'
+        )
+      );
+    }
+    const unidadField = buildSelectField(
+      'Unidad',
+      UNIDADES.map((u) => ({ value: u, label: u || '-' })),
+      step.unidad || '',
+      (value) => {
+        step.unidad = value || null;
+      },
+      'm',
+      'col-md-3'
     );
-    rowValues.appendChild(
-      buildSelectField(
-        'Unidad',
-        UNIDADES.map((u) => ({ value: u, label: u || '-' })),
-        step.unidad || '',
-        (value) => {
-          step.unidad = value || null;
-        },
-        'm',
-        'col-md-3'
-      )
-    );
+    const unidadSelect = unidadField.querySelector('select');
+    if (unidadSelect) {
+      if (step.objetivo_tipo === 'tiempo') {
+        unidadSelect.value = 'min';
+        unidadSelect.disabled = true;
+      } else if (step.objetivo_tipo === 'libre') {
+        unidadSelect.disabled = true;
+      } else {
+        unidadSelect.disabled = false;
+      }
+    }
+    rowValues.appendChild(unidadField);
     rowValues.appendChild(
       buildSelectField(
         'Zona objetivo',
@@ -802,7 +1327,14 @@ function renderEntrenamientos() {
     deleteBtn.textContent = 'Eliminar';
     deleteBtn.addEventListener('click', () => eliminarEntrenamiento(entrenamiento.id));
 
-    actions.append(editBtn, duplicateBtn, deleteBtn);
+        const assignBtn = document.createElement('button');
+    assignBtn.type = 'button';
+    assignBtn.className = 'btn btn-outline-brand btn-sm';
+    assignBtn.textContent = 'Asignar semana';
+    assignBtn.addEventListener('click', () => openAsignarEntrenamiento(entrenamiento));
+
+    actions.append(editBtn, duplicateBtn, assignBtn, deleteBtn);
+
     card.appendChild(actions);
 
     entrenamientosGrid.appendChild(card);
@@ -986,10 +1518,30 @@ const microObjetivoInput =
   microForm?.elements['objetivo'] || document.querySelector('#form-micro textarea[name="objetivo"]');
 
 const microLibrary = document.getElementById('biblioteca-entrenamientos');
+const modalAsignarAtletas = document.getElementById('modalAsignarAtletas');
+const formAsignarAtletas = document.getElementById('form-asignar-atletas-ciclo');
+const asignacionFechaInput = document.getElementById('asignacion-fecha');
+const asignacionFechaIndividualToggle = document.getElementById('asignacion-fecha-individual');
+const asignacionFechasToolbar = document.getElementById('asignacion-fechas-toolbar');
+const asignacionFechasAplicar = document.getElementById('asignacion-fechas-aplicar');
+const asignacionFechasIndividuales = document.getElementById('asignacion-fechas-individuales');
+const asignacionNotasInput = document.getElementById('asignacion-notas');
+const asignacionAtletasSelect = document.getElementById('asignacion-atletas');
+const asignacionPreviewSelect = document.getElementById('asignacion-preview-atleta');
+const asignacionPreviewContainer = document.getElementById('asignacion-preview');
+const cicloAtletaIdInput = document.getElementById('ciclo-atleta-id');
+const cicloAtletaTipoInput = document.getElementById('ciclo-atleta-tipo');
+
 const inputBuscarEntrenamiento = document.getElementById('input-buscar-entrenamiento');
 const btnLimpiarEntrenamiento = document.getElementById('btn-limpiar-entrenamiento');
 
 let microPlantillas = [];
+let modalAsignarAtletasInstance = null;
+let atletasAsignacionCache = [];
+let entrenamientoDetalleCache = new Map();
+let microAsignacionActual = null;
+let entrenamientoAsignacionActual = null;
+
 let microSemana = {}; // {1: [{entrenamiento_id, nombre}], ...}
 let dragEntrenamientoId = null;
 let dragOriginDay = null;
@@ -1237,6 +1789,160 @@ async function openMicroBuilder(micro = null) {
 }
 
 
+
+
+if (asignacionFechaIndividualToggle) {
+  asignacionFechaIndividualToggle.addEventListener('change', () => {
+    if (asignacionFechaIndividualToggle.checked) {
+      if (asignacionFechasToolbar) {
+        asignacionFechasToolbar.classList.remove('d-none');
+      }
+      if (asignacionFechasIndividuales) {
+        asignacionFechasIndividuales.classList.remove('d-none');
+      }
+      renderFechasIndividuales();
+    } else {
+      if (asignacionFechasToolbar) {
+        asignacionFechasToolbar.classList.add('d-none');
+      }
+      if (asignacionFechasIndividuales) {
+        asignacionFechasIndividuales.classList.add('d-none');
+      }
+    }
+  });
+}
+
+if (asignacionFechasAplicar) {
+  asignacionFechasAplicar.addEventListener('click', () => {
+    const base = asignacionFechaInput?.value;
+    if (!base || !asignacionFechasIndividuales) return;
+    const inputs = Array.from(asignacionFechasIndividuales.querySelectorAll('input[type="date"]'));
+    inputs.forEach((input) => {
+      input.value = base;
+    });
+  });
+}
+
+if (asignacionAtletasSelect) {
+  asignacionAtletasSelect.addEventListener('change', () => {
+    if (asignacionFechaIndividualToggle?.checked) {
+      renderFechasIndividuales();
+    }
+  });
+}
+if (asignacionFechaInput) {
+  asignacionFechaInput.addEventListener('change', () => {
+    if (asignacionFechaIndividualToggle?.checked) {
+      renderFechasIndividuales();
+    }
+  });
+}
+
+if (formAsignarAtletas) {
+  formAsignarAtletas.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fecha = asignacionFechaInput?.value;
+    const notas = asignacionNotasInput?.value || '';
+    const atletas = Array.from(asignacionAtletasSelect?.selectedOptions || []).map((o) => o.value).filter(Boolean);
+    if (!fecha || !atletas.length) {
+      alert('Selecciona fecha y atletas');
+      return;
+    }
+
+    let fechasIndividuales = null;
+    if (asignacionFechaIndividualToggle?.checked && asignacionFechasIndividuales) {
+      fechasIndividuales = {};
+      const inputs = Array.from(asignacionFechasIndividuales.querySelectorAll('input[type="date"]'));
+      inputs.forEach((input) => {
+        if (input.dataset.atletaId && input.value) {
+          fechasIndividuales[input.dataset.atletaId] = input.value;
+        }
+      });
+    }
+
+    const token = await ensureCsrfToken();
+    const ejecutarAsignacion = async (atletaId, fechaInd) => {
+      if (microAsignacionActual) {
+        return await fetch(`${API_BASE}/ciclos/asignar`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: authHeader(),
+            ...(token ? { 'X-CSRF-Token': token } : {})
+          },
+          credentials: 'include',
+          body: JSON.stringify({ tipo: 'micro', ciclo_id: microAsignacionActual.id, atletas: [atletaId], fecha_inicio: fechaInd || fecha, notas })
+        });
+      }
+      if (entrenamientoAsignacionActual) {
+        return await fetch(`${API_BASE}/entrenamientos_asignados`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: authHeader(),
+            ...(token ? { 'X-CSRF-Token': token } : {})
+          },
+          credentials: 'include',
+          body: JSON.stringify({ entrenamiento_id: entrenamientoAsignacionActual.id, atletas: [atletaId], fecha: fechaInd || fecha, notas })
+        });
+      }
+      return null;
+    };
+
+    let responses = [];
+    if (fechasIndividuales) {
+      for (const atletaId of atletas) {
+        const res = await ejecutarAsignacion(atletaId, fechasIndividuales[atletaId]);
+        responses.push(res);
+      }
+    } else {
+      // asignación en lote
+      let res;
+      if (microAsignacionActual) {
+        res = await fetch(`${API_BASE}/ciclos/asignar`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: authHeader(),
+            ...(token ? { 'X-CSRF-Token': token } : {})
+          },
+          credentials: 'include',
+          body: JSON.stringify({ tipo: 'micro', ciclo_id: microAsignacionActual.id, atletas, fecha_inicio: fecha, notas })
+        });
+        responses.push(res);
+      } else if (entrenamientoAsignacionActual) {
+        res = await fetch(`${API_BASE}/entrenamientos_asignados`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: authHeader(),
+            ...(token ? { 'X-CSRF-Token': token } : {})
+          },
+          credentials: 'include',
+          body: JSON.stringify({ entrenamiento_id: entrenamientoAsignacionActual.id, atletas, fecha, notas })
+        });
+        responses.push(res);
+      } else {
+        alert('Selecciona un microciclo o entrenamiento');
+        return;
+      }
+    }
+
+    const hasError = responses.some((r) => r && !r.ok);
+    if (hasError) {
+      const first = responses.find((r) => r && !r.ok);
+      const data = first ? await first.json().catch(() => ({})) : {};
+      alert(data.error || 'No se pudo asignar');
+      return;
+    }
+
+    modalAsignarAtletasInstance?.hide();
+    alert(microAsignacionActual ? 'Semana asignada correctamente' : 'Entrenamiento asignado correctamente');
+  });
+}
+
+
+
 function closeMicroBuilder() {
   if (!microListView || !microBuilderView) return;
   microBuilderView.classList.add('d-none');
@@ -1364,7 +2070,14 @@ function renderMicroList() {
     delBtn.textContent = 'Eliminar';
     delBtn.addEventListener('click', () => deleteMicro(micro.id));
 
-    actions.append(editBtn, delBtn);
+        const assignBtn = document.createElement('button');
+    assignBtn.type = 'button';
+    assignBtn.className = 'btn btn-sm btn-outline-brand';
+    assignBtn.textContent = 'Asignar semana';
+    assignBtn.addEventListener('click', () => openAsignarMicro(micro));
+
+    actions.append(editBtn, assignBtn, delBtn);
+
     header.appendChild(actions);
     card.appendChild(header);
 
@@ -2648,7 +3361,84 @@ function init() {
   cancelBtn?.addEventListener('click', () => {
     startNewEntrenamiento(false);
   });
-  createBtn?.addEventListener('click', () => startNewEntrenamiento());
+  createBtn?.addEventListener('click', () => {
+    if (modalNuevoEntrenamientoEl && window.bootstrap?.Modal) {
+      bootstrap.Modal.getOrCreateInstance(modalNuevoEntrenamientoEl).show();
+    } else {
+      startNewEntrenamiento();
+    }
+  });
+  btnNuevoGuiado?.addEventListener('click', () => {
+    if (modalNuevoEntrenamientoEl && window.bootstrap?.Modal) {
+      bootstrap.Modal.getOrCreateInstance(modalNuevoEntrenamientoEl).hide();
+    }
+    openGuiadoModal();
+  });
+  btnNuevoAvanzado?.addEventListener('click', () => {
+    if (modalNuevoEntrenamientoEl && window.bootstrap?.Modal) {
+      bootstrap.Modal.getOrCreateInstance(modalNuevoEntrenamientoEl).hide();
+    }
+    startNewEntrenamiento();
+  });
+  builderModeGuiadoBtn?.addEventListener('click', () => {
+    wizardStepIndex = 0;
+    setGuidedMode(true);
+  });
+  builderModeAvanzadoBtn?.addEventListener('click', () => {
+    setGuidedMode(false);
+  });
+  wizardPrev?.addEventListener('click', () => {
+    if (wizardStepIndex > 0) {
+      wizardStepIndex -= 1;
+      renderWizardStep();
+    }
+  });
+  wizardNext?.addEventListener('click', () => {
+    if (wizardStepIndex < wizardSteps.length - 1) {
+      wizardStepIndex += 1;
+      renderWizardStep();
+    }
+  });
+
+  guiadoPrev?.addEventListener('click', () => {
+    if (guiadoStepIndex > 0) {
+      guiadoStepIndex -= 1;
+      renderGuiadoStep();
+    }
+  });
+  guiadoNext?.addEventListener('click', () => {
+    const step = guiadoSteps[guiadoStepIndex];
+    if (step?.key === 'info') collectGuiadoInfo();
+    if (step?.key === 'select') {
+      collectGuiadoBloques();
+      initGuiadoSteps();
+    }
+    if (guiadoStepIndex < guiadoSteps.length - 1) {
+      guiadoStepIndex += 1;
+      renderGuiadoStep();
+    }
+  });
+  guiadoSave?.addEventListener('click', () => {
+    collectGuiadoInfo();
+    const steps = [];
+    if (guiadoData.bloques.warmup && guiadoData.steps.warmup) steps.push(guiadoData.steps.warmup);
+    if (guiadoData.bloques.main && guiadoData.steps.main) steps.push(guiadoData.steps.main);
+    if (guiadoData.bloques.cooldown && guiadoData.steps.cooldown) steps.push(guiadoData.steps.cooldown);
+
+    currentEntrenamientoId = null;
+    if (nombreInput) nombreInput.value = guiadoData.info.nombre || '';
+    if (objetivoInput) objetivoInput.value = guiadoData.info.objetivo || '';
+    if (notasInput) notasInput.value = guiadoData.info.notas || '';
+    if (kmTotalesInput) kmTotalesInput.value = guiadoData.info.km || '';
+
+    setGuidedMode(false);
+    resetBuilderState(steps);
+    toggleBuilder(true);
+
+    if (modalGuiadoEl && window.bootstrap?.Modal) {
+      bootstrap.Modal.getOrCreateInstance(modalGuiadoEl).hide();
+    }
+  });
 
   startNewEntrenamiento(false);
   fetchEntrenamientos();
@@ -2658,4 +3448,4 @@ function init() {
   initMesoMacroUI();
 }
 
-export { init };
+window.Entrenamientos = { init };

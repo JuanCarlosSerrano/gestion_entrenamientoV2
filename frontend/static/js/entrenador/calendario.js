@@ -79,6 +79,7 @@ document.addEventListener("DOMContentLoaded", function () {
   const selectEntrenamiento = document.getElementById("select-entrenamiento");
   const btnEliminar = document.getElementById("btn-eliminar-entrenamiento");
 
+  const btnAsignarSemana = document.getElementById("btn-asignar-semana");
   const btnAsignarCiclo = document.getElementById("btn-asignar-ciclo");
   const modalCicloEl = document.getElementById("modalAsignarCiclo");
   const modalCiclo = modalCicloEl ? new bootstrap.Modal(modalCicloEl) : null;
@@ -992,7 +993,24 @@ btnEditarBloques?.addEventListener("click", () => {
 
   if (atletaId) cargarNombreAtleta(atletaId);
 
-  // ----------------------------- Asignar ciclo al atleta -----------------------------
+  
+  btnAsignarSemana?.addEventListener("click", async () => {
+    if (!modalCiclo) return;
+    selectCicloTipo.value = "micro";
+    ciclosCache[selectCicloTipo.value] = null;
+    await actualizarSelectCiclo(selectCicloTipo.value);
+    const hoy = new Date();
+    const day = hoy.getDay();
+    const diff = day === 0 ? 1 : 8 - day;
+    const lunes = new Date(hoy);
+    lunes.setDate(hoy.getDate() + (day === 1 ? 0 : diff));
+    inputCicloFecha.value = lunes.toISOString().slice(0, 10);
+    selectCicloAnclaje.value = "inicio";
+    labelCicloFecha.textContent = "Fecha de inicio real";
+    modalCiclo.show();
+  });
+
+// ----------------------------- Asignar ciclo al atleta -----------------------------
   btnAsignarCiclo?.addEventListener("click", async () => {
     if (!modalCiclo) return;
     ciclosCache[selectCicloTipo.value] = null;

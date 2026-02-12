@@ -33,6 +33,7 @@ const elements = {
   resumenZonasFuente: document.getElementById("resumen-zonas-fuente"),
   resumenZonasMetrica: document.getElementById("resumen-zonas-metrica"),
   resumenZonasTabla: document.getElementById("resumen-zonas-tabla"),
+  resumenZonasRecalcular: document.getElementById("resumen-zonas-recalcular"),
   resumenZonasCanvas: document.getElementById("resumen-zonas-canvas"),
   resumenZonasComparativaCanvas: document.getElementById("resumen-zonas-comparativa-canvas"),
   resumenZonasEstado: document.getElementById("resumen-zonas-estado")
@@ -198,7 +199,7 @@ const renderPieZonas = (canvas, chartRef, resumen, estadoEl, metrica) => {
               return `${label}: ${formatTiempoChart(val)}`;
             }
           }
-
+        }
       }
     }
   });
@@ -265,6 +266,36 @@ const renderBarComparativaZonas = (canvas, chartRef, resumen) => {
 
 
 
+
+
+const recalcularZonasSemana = async () => {
+  if (!atletaId) return;
+  if (elements.resumenZonasEstado) {
+    elements.resumenZonasEstado.textContent = "Recalculando zonas...";
+  }
+  if (elements.resumenZonasRecalcular) {
+    elements.resumenZonasRecalcular.disabled = true;
+  }
+  try {
+    const res = await fetch(`${API_BASE}/analisis_atleta/${atletaId}?recalcular_zonas=1`, {
+      credentials: "include",
+      headers: { Authorization: authHeader() }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    ultimoZonasSemana = data.zonas_semana || null;
+    renderResumenZonasSemana(ultimoZonasSemana);
+  } catch (err) {
+    console.warn("No se pudo recalcular zonas", err);
+    if (elements.resumenZonasEstado) {
+      elements.resumenZonasEstado.textContent = "No se pudieron recalcular las zonas.";
+    }
+  } finally {
+    if (elements.resumenZonasRecalcular) {
+      elements.resumenZonasRecalcular.disabled = false;
+    }
+  }
+};
 
 const renderResumenZonasSemana = (zonasSemana) => {
   const ritmo = zonasSemana?.ritmo || null;
@@ -1087,6 +1118,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     elements.resumenZonasMetrica.addEventListener("change", () => {
       renderResumenZonasSemana(ultimoZonasSemana || null);
     });
+  }
+  if (elements.resumenZonasRecalcular) {
+    elements.resumenZonasRecalcular.addEventListener("click", recalcularZonasSemana);
   }
   await cargarAtleta();
   await cargarZonas();

@@ -12,7 +12,6 @@ const urlDatosInput = document.getElementById("url-datos");
 const fitFileInput = document.getElementById("fit-file");
 const fitOrigenSelect = document.getElementById("fit-origen");
 const fitStatus = document.getElementById("fit-status");
-const btnRegistrarFit = document.getElementById("btn-registrar-fit");
 const rpeInput = document.getElementById("rpe");
 const rpeValor = document.getElementById("rpe-valor");
 const rpeAyuda = document.getElementById("rpe-ayuda");
@@ -23,8 +22,10 @@ const zonaDolorSelect = document.getElementById("zona-dolor");
 const zonaDolorWrapper = document.getElementById("zona-dolor-wrapper");
 const completadoCheck = document.getElementById("completado");
 const btnGuardarTiempos = document.getElementById("btn-guardar-tiempos");
+const btnGuardarLabel = btnGuardarTiempos ? btnGuardarTiempos.textContent : "Guardar tiempos";
 const modalTitulo = modalEl?.querySelector(".modal-title");
 const modalRegistrar = modalEl ? new window.bootstrap.Modal(modalEl) : null;
+const registroStatus = document.getElementById("registro-status");
 
 const resultadosCache = new Map();
 let feedbacksEnviados = new Set();
@@ -67,6 +68,45 @@ const textoRpe = (valor) => {
   if (num <= 6) return "Controlado";
   if (num <= 8) return "Exigente";
   return "Máximo";
+};
+
+
+const setRegistroStatus = (msg, type = "info") => {
+  if (!registroStatus) return;
+  registroStatus.textContent = msg;
+  registroStatus.classList.remove("d-none", "registro-status--error", "registro-status--success");
+  if (type === "error") registroStatus.classList.add("registro-status--error");
+  if (type === "success") registroStatus.classList.add("registro-status--success");
+};
+
+const clearRegistroStatus = () => {
+  if (!registroStatus) return;
+  registroStatus.classList.add("d-none");
+  registroStatus.textContent = "";
+  registroStatus.classList.remove("registro-status--error", "registro-status--success");
+};
+
+
+const setGuardarLoading = (loading) => {
+  if (!btnGuardarTiempos) return;
+  if (loading) {
+    btnGuardarTiempos.disabled = true;
+    btnGuardarTiempos.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Guardando';
+  } else {
+    btnGuardarTiempos.disabled = false;
+    btnGuardarTiempos.textContent = btnGuardarLabel || 'Guardar tiempos';
+  }
+};
+
+
+const getRegistroGuardado = (entrenamientoId) => {
+  try {
+    const raw = localStorage.getItem(`registro_guardado_${entrenamientoId}`);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
 };
 
 const actualizarRpeUI = () => {
@@ -332,9 +372,6 @@ const abrirModalRegistro = async (entrenamientoId) => {
   modalRegistrar.show();
 };
 
-btnRegistrarFit?.addEventListener('click', () => {
-  registrarPlaceholderFit();
-});
 
 modalEl?.addEventListener("hidden.bs.modal", () => {
   entrenamientoActivo = null;
@@ -346,7 +383,8 @@ modalEl?.addEventListener("hidden.bs.modal", () => {
   }
   
   if (fitFileInput) fitFileInput.value = '';
-  if (fitStatus) fitStatus.textContent = 'Solo se guarda el placeholder, no el archivo.';
+  if (fitStatus) fitStatus.textContent = 'Adjunta el .fit y guarda en un solo paso.';
+  clearRegistroStatus();
 if (urlDatosInput) urlDatosInput.value = "";
   if (rpeInput) {
     rpeInput.value = "";
@@ -366,6 +404,7 @@ const renderEntreno = (ent) => {
   const clone = template.content.cloneNode(true);
   const card = clone.querySelector("article");
   if (!card) return;
+  card.dataset.entrenamientoId = ent.id;
   card.querySelector(".entrenamiento-nombre").textContent = ent.nombre || "Entrenamiento";
   card.querySelector(".entrenamiento-objetivo").textContent =
     [ent.objetivo, ent.notas].filter(Boolean).join(" · ") || "—";
@@ -377,12 +416,25 @@ const renderEntreno = (ent) => {
   }
 
   const statusChip = document.createElement("span");
+  const guardado = getRegistroGuardado(ent.id);
   const completado = Boolean(ent.estadoRegistro?.completado);
   statusChip.className = `chip ${completado ? "chip-success" : "chip-warning"}`;
   statusChip.textContent = completado ? "Completado" : "Pendiente";
   card.querySelector(".training-card__header-main")?.appendChild(statusChip);
 
+  const fechaCard = parseFechaAsignada(ent.fecha);
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const esHoy = fechaCard && fechaCard.getTime() === hoy.getTime();
+
   const actionBtn = card.querySelector(".btn-abrir");
+  if (guardado && !completado) {
+    const savedChip = document.createElement("span");
+    savedChip.className = "chip chip-success ms-2";
+    savedChip.textContent = "Guardado";
+    card.querySelector(".training-card__header-main")?.appendChild(savedChip);
+  }
+
   if (completado) {
     card.classList.add("training-card--completed");
     actionBtn.textContent = "Ver historial";
@@ -392,7 +444,9 @@ const renderEntreno = (ent) => {
       window.location.href = `historial.html#entreno-${ent.id}`;
     });
   } else {
-    actionBtn.textContent = "Registrar tiempos";
+    actionBtn.textContent = esHoy ? "Registrar hoy" : "Registrar tiempos";
+    actionBtn.classList.toggle("btn-primary", esHoy);
+    actionBtn.classList.toggle("btn-outline-primary", !esHoy);
     actionBtn.addEventListener("click", () => abrirModalRegistro(ent.id));
     card.classList.add("training-card--pending");
   }
@@ -456,6 +510,25 @@ const cargarEntrenamientos = async () => {
       };
       entrenamientosPorId.set(ent.id, ent);
       renderEntreno(ent);
+    }
+
+    const hash = window.location.hash || "";
+    const match = hash.match(/#entreno-(\d+)/);
+    if (match) {
+      const entId = Number(match[1]);
+      const ent = entrenamientosPorId.get(entId);
+      const auto = /auto=1/.test(hash);
+      if (ent) {
+        const fecha = parseFechaAsignada(ent.fecha);
+        const hoyCheck = new Date();
+        hoyCheck.setHours(0, 0, 0, 0);
+        const esHoy = fecha && fecha.getTime() === hoyCheck.getTime();
+        const cardEl = contenedor.querySelector(`[data-entrenamiento-id="${entId}"]`);
+        cardEl?.scrollIntoView({ behavior: "smooth", block: "center" });
+        if (!ent.estadoRegistro?.completado && (auto || esHoy)) {
+          abrirModalRegistro(entId);
+        }
+      }
     }
   } catch (err) {
     console.error("Error al cargar entrenamientos:", err);
@@ -545,17 +618,34 @@ btnGuardarTiempos?.addEventListener("click", async () => {
     }
   });
 
+  const invalidInputs = [];
+  const invalidTimes = Array.from(document.querySelectorAll('#lista-intervalos-tiempos input')).filter((input) => {
+    if (!input.value) return false;
+    return !/^\d+:([0-5]\d)$/.test(input.value);
+  });
+  invalidTimes.forEach((input) => input.classList.add('is-invalid'));
+  if (invalidTimes.length) {
+    invalidInputs.push('Revisa el formato de tiempos (mm:ss).');
+  }
+  if (Number.isFinite(kmRealizadosValor) && kmRealizadosValor < 0) {
+    kmInput?.classList.add('is-invalid');
+    invalidInputs.push('Los kilómetros no pueden ser negativos.');
+  }
+  if (invalidInputs.length) {
+    setRegistroStatus(invalidInputs[0], 'error');
+    return;
+  }
   const hayResultados = seriesPayload.length > 0 || Number.isFinite(kmRealizadosValor);
   const hayFeedback = tieneDatosFeedback(feedbackPayload);
+  const hayFit = Boolean(fitFileInput?.files?.[0]);
 
-  if (!hayResultados && !hayFeedback) {
-    alert("Añade tiempos/km o completa algún campo de feedback para enviar.");
+  if (!hayResultados && !hayFeedback && !hayFit) {
+    setRegistroStatus("Añade tiempos/km, adjunta un .fit o completa algún campo de feedback para enviar.", "error");
     return;
   }
 
   if (btnGuardarTiempos) {
-    btnGuardarTiempos.disabled = true;
-    btnGuardarTiempos.textContent = "Guardando...";
+    setGuardarLoading(true);
   }
 
   try {
@@ -590,14 +680,24 @@ btnGuardarTiempos?.addEventListener("click", async () => {
       feedbacksEnviados.add(Number(entrenamientoActivo.id));
     }
 
+    if (hayFit) {
+      await registrarPlaceholderFit();
+    }
+
     const mensaje =
       hayResultados && hayFeedback
         ? "Tiempos y feedback enviados correctamente"
         : hayResultados
           ? "Tiempos guardados correctamente"
-          : "Feedback enviado correctamente";
+          : hayFeedback
+            ? "Feedback enviado correctamente"
+            : "Archivo FIT registrado correctamente";
 
-    alert(mensaje);
+    setRegistroStatus(mensaje, "success");
+    try {
+      const key = `registro_guardado_${entrenamientoActivo.id}`;
+      localStorage.setItem(key, JSON.stringify({ ts: Date.now(), msg: mensaje }));
+    } catch (_) {}
     modalRegistrar?.hide();
     await cargarEntrenamientos();
   } catch (err) {

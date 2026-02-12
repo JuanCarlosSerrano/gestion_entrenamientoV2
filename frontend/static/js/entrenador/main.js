@@ -65,6 +65,151 @@ const getCsrfToken = () =>
     ? window.CSRF.getToken()
     : localStorage.getItem("csrfToken"));
 
+
+const configurarOnboardingEntrenador = () => {
+  const setupBar = document.getElementById("setup-bar");
+  const setupDetails = document.getElementById("setup-bar-details");
+  if (!setupBar) return;
+  if (localStorage.getItem("onboarding_entrenador_closed") === "1") {
+    setupBar.classList.add("d-none");
+    setupDetails?.classList.add("d-none");
+    return;
+  }
+  const hideBtn = document.getElementById("setup-bar-hide");
+  const toggleBtn = document.getElementById("setup-bar-toggle");
+  const toggleDetails = () => {
+    if (!setupDetails) return;
+    setupDetails.classList.toggle("d-none");
+    if (toggleBtn) {
+      toggleBtn.textContent = setupDetails.classList.contains("d-none") ? "Ver detalles" : "Ocultar";
+    }
+  };
+  if (hideBtn) {
+    hideBtn.addEventListener("click", () => {
+      setupBar.classList.add("d-none");
+      setupDetails?.classList.add("d-none");
+      localStorage.setItem("onboarding_entrenador_closed", "1");
+    });
+  }
+  if (toggleBtn) {
+    toggleBtn.addEventListener("click", toggleDetails);
+  }
+};
+
+
+const setOnboardingBadge = (key, done, helpText) => {
+  const el = document.querySelector(`[data-step-status="${key}"]`);
+  if (el) {
+    el.textContent = done ? "Completado" : "Pendiente";
+    el.classList.remove("bg-secondary", "bg-success");
+    el.classList.add(done ? "bg-success" : "bg-secondary");
+  }
+  const helpEl = document.querySelector(`[data-step-help="${key}"]`);
+  if (helpEl && helpText) {
+    helpEl.textContent = helpText;
+  }
+  actualizarSetupBar();
+};
+
+const actualizarSetupBar = () => {
+  const chips = document.getElementById("setup-bar-chips");
+  const countEl = document.getElementById("setup-bar-count");
+  const progressEl = document.getElementById("setup-bar-progress");
+  if (!chips || !countEl || !progressEl) return;
+  const steps = Array.from(document.querySelectorAll('[data-step-status]'));
+  const total = steps.length;
+  const completados = steps.filter((step) => step.textContent.trim() === "Completado").length;
+  countEl.textContent = `${completados}/${total} completado`;
+  const porcentaje = total ? Math.round((completados / total) * 100) : 0;
+  progressEl.style.width = `${porcentaje}%`;
+  const labels = [
+    "Atleta",
+    "Zonas",
+    "Plan",
+    "Semana",
+    "Comparativa"
+  ];
+  chips.innerHTML = steps
+    .map((step, idx) => {
+      const done = step.textContent.trim() === "Completado";
+      return `<span class="setup-chip ${done ? 'setup-chip--done' : ''}">${done ? '✓' : idx + 1} ${labels[idx] || ''}</span>`;
+    })
+    .join('');
+};
+
+const evaluarOnboardingEntrenador = async () => {
+  const card = document.getElementById("onboarding-entrenador");
+  if (!card) return;
+  try {
+    const atletasRes = await fetch(`${API_BASE}/atletas`, { credentials: "include" });
+    const atletas = atletasRes.ok ? await atletasRes.json() : [];
+    const tieneAtletas = Array.isArray(atletas) && atletas.length > 0;
+    setOnboardingBadge("crear-atleta", tieneAtletas, tieneAtletas ? "Atleta creado. Puedes seguir con zonas y VDOT." : "Crea el primer atleta para empezar a planificar.");
+
+    let tieneZonas = false;
+    let tieneAsignaciones = false;
+    let tieneResultados = false;
+    let anyAsignadoId = null;
+
+    if (tieneAtletas) {
+      for (const atleta of atletas) {
+        try {
+          const zonasRes = await fetch(`${API_BASE}/zonas_atleta/${atleta.id}`, { credentials: "include" });
+          if (zonasRes.ok) {
+            const zonas = await zonasRes.json();
+            if (zonas && (zonas.vdot_val || zonas.z1 || zonas.fc_z1)) {
+              tieneZonas = true;
+            }
+          }
+        } catch (_) {}
+        if (tieneZonas) break;
+      }
+
+      for (const atleta of atletas) {
+        try {
+          const asignRes = await fetch(`${API_BASE}/entrenamientos_asignados/${atleta.id}`, { credentials: "include" });
+          if (asignRes.ok) {
+            const asignados = await asignRes.json();
+            if (Array.isArray(asignados) && asignados.length) {
+              tieneAsignaciones = true;
+              anyAsignadoId = asignados[0].id;
+              break;
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (anyAsignadoId) {
+        try {
+          const resRes = await fetch(`${API_BASE}/entrenamientos_asignados/${anyAsignadoId}/resultados`, { credentials: "include" });
+          if (resRes.ok) {
+            const resultados = await resRes.json();
+            if (Array.isArray(resultados) && resultados.length > 0) {
+              tieneResultados = true;
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    setOnboardingBadge("zonas-vdot", tieneZonas, tieneZonas ? "Zonas/VDOT configurados." : "Calcula zonas o VDOT para personalizar ritmos.");
+
+    let tienePlan = false;
+    try {
+      const planRes = await fetch(`${API_BASE}/entrenamientos`, { credentials: "include" });
+      if (planRes.ok) {
+        const planes = await planRes.json();
+        tienePlan = Array.isArray(planes) && planes.length > 0;
+      }
+    } catch (_) {}
+    setOnboardingBadge("crear-plan", tienePlan, tienePlan ? "Ya tienes entrenamientos en biblioteca." : "Crea tu primer entrenamiento o plantilla.");
+    setOnboardingBadge("asignar-semana", tieneAsignaciones, tieneAsignaciones ? "Semana asignada." : "Asigna una semana a tus atletas.");
+    setOnboardingBadge("revisar-comparativa", tieneResultados, tieneResultados ? "Ya hay resultados para analizar." : "Registra al menos una sesión para ver comparativas.");
+  } catch (err) {
+    console.warn("No se pudo evaluar onboarding", err);
+  }
+};
+
 const API_BASE =
   window.API_BASE_URL ||
   (window.location && window.location.origin
@@ -90,7 +235,13 @@ document.addEventListener("DOMContentLoaded", () => {
     import("./entrenamientos.js")
       .then((module) => {
         Entrenamientos = module;
-        Entrenamientos.init();
+        if (Entrenamientos?.init) {
+          Entrenamientos.init();
+          return;
+        }
+        if (window.Entrenamientos?.init) {
+          window.Entrenamientos.init();
+        }
       })
       .catch((error) => {
         console.error("Error cargando entrenamientos.js", error);
@@ -107,12 +258,22 @@ document.addEventListener("DOMContentLoaded", () => {
   } else if (ruta.endsWith("index.html")) {
     // Página de inicio del entrenador
     inicializarDashboardEntrenador();
+    const rail = document.getElementById("coach-rail");
+    const toggle = document.querySelector(".coach-rail__toggle");
+    if (rail && toggle) {
+      toggle.addEventListener("click", () => {
+        rail.classList.toggle("is-open");
+      });
+    }
   }
 });
 
 function inicializarDashboardEntrenador() {
   cargarProximosEntrenamientos();
   mostrarFeedbacksPendientes();
+  configurarOnboardingEntrenador();
+  evaluarOnboardingEntrenador();
+  actualizarSetupBar();
 
   // Configurar modal de visibilidad
   const modalElement = document.getElementById("modalVisibilidadEntreno");

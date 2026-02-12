@@ -12,7 +12,7 @@
     <script src="../js/entrenador/main.js" type="module"></script>
     <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
 </head>
-<body class="app-bg">
+<body class="app-bg dashboard-trainer">
     <div class="container app-container">
         <div data-include="../partials/header.html" data-nav-active="inicio"></div>
 
@@ -23,22 +23,90 @@
             </div>
         </div>
 
-        <div class="app-card">
-            <h2 class="display-4">Bienvenido, Entrenador</h2>
-            <p class="lead">Aquí podrás gestionar a tus atletas y sus entrenamientos.</p>
-            <hr class="my-4">
+        <section id="setup-bar" class="setup-bar">
+            <div class="setup-bar__summary">
+                <span class="setup-bar__label">Guía rápida:</span>
+                <strong class="setup-bar__count" id="setup-bar-count">0/5 completado</strong>
+                <div class="setup-bar__progress">
+                    <span id="setup-bar-progress" style="width: 0%"></span>
+                </div>
+                <div class="setup-bar__chips" id="setup-bar-chips"></div>
+            </div>
+            <div class="setup-bar__actions">
+                <button class="btn btn-sm btn-outline-primary" id="setup-bar-toggle" type="button">Ver detalles</button>
+                <button class="btn btn-sm btn-outline-secondary" id="setup-bar-hide" type="button">Ocultar</button>
+            </div>
+        </section>
+        <section id="setup-bar-details" class="setup-bar__details d-none">
+            <div class="setup-bar__details-grid">
+                <div class="setup-step">
+                    <div class="setup-step__head">
+                        <h3 class="h6 mb-1">1) Crear atleta</h3>
+                        <span class="badge bg-secondary" data-step-status="crear-atleta">Pendiente</span>
+                    </div>
+                    <p class="text-muted small" data-step-help="crear-atleta">Da de alta a tu atleta y completa sus datos básicos.</p>
+                    <a class="btn btn-sm btn-outline-primary" href="atletas.html">Ir a atletas</a>
+                </div>
+                <div class="setup-step">
+                    <div class="setup-step__head">
+                        <h3 class="h6 mb-1">2) Calcular zonas / VDOT</h3>
+                        <span class="badge bg-secondary" data-step-status="zonas-vdot">Pendiente</span>
+                    </div>
+                    <p class="text-muted small" data-step-help="zonas-vdot">Genera las zonas para personalizar ritmos y tiempos.</p>
+                    <a class="btn btn-sm btn-outline-primary" href="utilidades.html">Ir a utilidades</a>
+                </div>
+                <div class="setup-step">
+                    <div class="setup-step__head">
+                        <h3 class="h6 mb-1">3) Crear plan</h3>
+                        <span class="badge bg-secondary" data-step-status="crear-plan">Pendiente</span>
+                    </div>
+                    <p class="text-muted small" data-step-help="crear-plan">Crea plantillas y entrenamientos reutilizables.</p>
+                    <a class="btn btn-sm btn-outline-primary" href="entrenamientos.html">Ir a entrenamientos</a>
+                </div>
+                <div class="setup-step">
+                    <div class="setup-step__head">
+                        <h3 class="h6 mb-1">4) Asignar semana</h3>
+                        <span class="badge bg-secondary" data-step-status="asignar-semana">Pendiente</span>
+                    </div>
+                    <p class="text-muted small" data-step-help="asignar-semana">Asigna entrenamientos a tus atletas para la semana.</p>
+                    <a class="btn btn-sm btn-outline-primary" href="entrenamientos.html">Asignar semana</a>
+                </div>
+                <div class="setup-step">
+                    <div class="setup-step__head">
+                        <h3 class="h6 mb-1">5) Revisar comparativa</h3>
+                        <span class="badge bg-secondary" data-step-status="revisar-comparativa">Pendiente</span>
+                    </div>
+                    <p class="text-muted small" data-step-help="revisar-comparativa">Consulta planificado vs real y métricas de progreso.</p>
+                    <a class="btn btn-sm btn-outline-primary" href="estadisticas.html">Ir a análisis</a>
+                </div>
+            </div>
+        </section>
 
-            <div class="row">
-                <div class="col-md-6">
-                  <h3>Próximos Entrenamientos</h3>
-                  <div id="proximos-entrenamientos" class="mt-2 text-muted"></div>
+        <section class="app-card coach-alerts">
+            <div class="coach-alerts__header">
+                <div>
+                    <p class="eyebrow eyebrow--subtle mb-1">Alertas que requieren atención</p>
+                    <h2 class="h5 mb-1">Alertas próximas</h2>
+                    <p class="text-muted mb-0">Visibilidad y feedback que requieren atención inmediata.</p>
                 </div>
-                <div class="col-md-6">
-                  <h3>Atletas con Feedback Pendiente</h3>
-                  <div id="feedbacks-pendientes" class="mt-2 text-muted"></div>
+                <a class="btn btn-sm btn-outline-primary" href="alertas.html">Ver todas las alertas</a>
+            </div>
+        </section>
+
+        <section class="coach-columns">
+            <div class="app-card coach-inbox">
+                <div class="coach-inbox__header">
+                    <h3 class="h6 mb-0">Próximos entrenamientos</h3>
                 </div>
-              </div>              
-        </div>
+                <div id="proximos-entrenamientos" class="coach-inbox__list text-muted"></div>
+            </div>
+            <div class="app-card coach-inbox">
+                <div class="coach-inbox__header">
+                    <h3 class="h6 mb-0">Feedback pendiente</h3>
+                </div>
+                <div id="feedbacks-pendientes" class="coach-inbox__list text-muted"></div>
+            </div>
+        </section>
         <div data-include="../partials/footer.html"></div>
     </div>
 

@@ -6,6 +6,9 @@ const listaPendientes = document.getElementById("lista-pendientes");
 const nombreAtletaEl = document.getElementById("nombre-atleta");
 const cardTemplate = document.getElementById("inicio-entrenamiento-card");
 
+const onboardingCard = document.getElementById("onboarding-atleta");
+const onboardingClose = document.getElementById("onboarding-atleta-close");
+
 // NUEVOS: elementos del resumen semanal
 const resumenSesionesEl = document.getElementById("resumen-semana-sesiones");
 const resumenCompletadasEl = document.getElementById("resumen-semana-completadas");
@@ -14,6 +17,35 @@ const resumenRangoEl = document.getElementById("resumen-semana-rango");
 let zonasAtleta = null;
 
 // dd-mm-yyyy
+
+const configurarOnboardingAtleta = () => {
+  if (!onboardingCard) return;
+  if (localStorage.getItem("onboarding_atleta_closed") === "1") {
+    onboardingCard.classList.add("d-none");
+    return;
+  }
+  if (onboardingClose) {
+    onboardingClose.addEventListener("click", () => {
+      onboardingCard.classList.add("d-none");
+      localStorage.setItem("onboarding_atleta_closed", "1");
+    });
+  }
+};
+
+
+const setOnboardingBadge = (key, done, helpText) => {
+  const el = document.querySelector(`[data-step-status="${key}"]`);
+  if (el) {
+    el.textContent = done ? "Completado" : "Pendiente";
+    el.classList.remove("bg-secondary", "bg-success");
+    el.classList.add(done ? "bg-success" : "bg-secondary");
+  }
+  const helpEl = document.querySelector(`[data-step-help="${key}"]`);
+  if (helpEl && helpText) {
+    helpEl.textContent = helpText;
+  }
+};
+
 const formatearFecha = (valor) => {
   if (!valor) return "--/--/----";
   const fecha = new Date(valor);
@@ -143,22 +175,22 @@ const construirPendientes = async (pasados) => {
           `${API}/entrenamientos_asignados/${ent.id}/resultados`
         );
         const tieneResultados = Array.isArray(datos) && datos.length > 0;
-        return { entreno: ent, pendiente: !tieneResultados };
+        return { entreno: ent, pendiente: !tieneResultados, tieneResultados };
       } catch (e) {
         console.warn(
           "No se pudieron obtener resultados para el entrenamiento",
           ent.id,
           e
         );
-        // Si falla la consulta, por prudencia lo marcamos como pendiente
-        return { entreno: ent, pendiente: true };
+        return { entreno: ent, pendiente: true, tieneResultados: false };
       }
     })
   );
 
-  return resultados
-    .filter((r) => r.pendiente)
-    .map((r) => r.entreno);
+  return {
+    pendientes: resultados.filter((r) => r.pendiente).map((r) => r.entreno),
+    resultados: resultados,
+  };
 };
 
 // Nuevo: actualizar resumen semanal (sesiones / completadas / pendientes)
@@ -267,14 +299,20 @@ const cargarInicio = async () => {
     renderListaEntrenos(
       listaProximos,
       proximosDetallados,
-      (ent) => ({
-        estadoLabel: "Próximo",
-        cardClass: "training-card--pending",
-        actionLabel: "Ver entrenamiento",
-        onAction: () => {
-          window.location.href = `entrenamientos.html#entreno-${ent.id}`;
-        }
-      }),
+      (ent) => {
+        const fecha = ent.fecha ? new Date(ent.fecha) : null;
+        if (fecha) fecha.setHours(0, 0, 0, 0);
+        const esHoy = fecha && fecha.getTime() === hoy.getTime();
+        return {
+          estadoLabel: esHoy ? "Hoy" : "Próximo",
+          cardClass: "training-card--pending",
+          actionLabel: esHoy ? "Registrar" : "Ver entrenamiento",
+          onAction: () => {
+            const extra = esHoy ? "&auto=1" : "";
+            window.location.href = `entrenamientos.html#entreno-${ent.id}${extra}`;
+          }
+        };
+      },
       "No hay entrenamientos publicados."
     );
 
@@ -286,7 +324,9 @@ const cargarInicio = async () => {
       return f < hoy;
     });
 
-    const pendientes = await construirPendientes(pasados);
+    const pendientesData = await construirPendientes(pasados);
+    const pendientes = pendientesData.pendientes;
+    const resultadosInfo = pendientesData.resultados;
     const pendientesDetallados = await Promise.all(
       pendientes.slice(0, 3).map((ent) => hidratarEntrenamiento(ent))
     );
@@ -307,6 +347,30 @@ const cargarInicio = async () => {
 
     // 🔹 Actualizar el mini-resumen semanal arriba
     actualizarResumenSemana(entrenos, pendientes, hoy);
+    const tienePlan = Array.isArray(entrenos) && entrenos.length > 0;
+    setOnboardingBadge("ver-plan", tienePlan, tienePlan ? "Ya tienes sesiones visibles." : "Aún no hay plan asignado. Pide a tu entrenador que lo publique.");
+
+    const tieneResultados = Array.isArray(resultadosInfo) && resultadosInfo.some((r) => r.tieneResultados);
+    setOnboardingBadge("registrar-sesion", !!tieneResultados, tieneResultados ? "Sesión registrada." : "Cuando completes un entreno, registra tus tiempos.");
+
+    let tieneFit = false;
+    if (tieneResultados) {
+      const conResultados = resultadosInfo.find((r) => r.tieneResultados);
+      if (conResultados) {
+        try {
+          const resumen = await fetchJSON(
+            `${API}/entrenamientos_asignados/${conResultados.entreno.id}/resumen_zonas?fuente=ritmo`
+          );
+          if (resumen && Array.isArray(resumen.zonas)) {
+            const totalReal = resumen.zonas.reduce((acc, z) => acc + (Number(z.real_seg) || 0), 0);
+            if (totalReal > 0) tieneFit = true;
+          }
+        } catch (_) {}
+      }
+    }
+    setOnboardingBadge("subir-fit", tieneFit, tieneFit ? "Archivo FIT procesado." : "Si tienes un FIT, súbelo para completar el análisis.");
+    setOnboardingBadge("ver-analisis", tieneResultados || tieneFit, (tieneResultados || tieneFit) ? "Ya puedes ver tu comparativa." : "Registra una sesión para ver el análisis.");
+
   } catch (err) {
     console.error("Error al cargar entrenamientos:", err);
     listaProximos.innerHTML =
@@ -320,7 +384,14 @@ const cargarInicio = async () => {
       resumenPendientesEl.textContent = "-";
       if (resumenRangoEl) resumenRangoEl.textContent = "Semana actual";
     }
+    setOnboardingBadge("ver-plan", false, "Aún no hay plan asignado.");
+    setOnboardingBadge("registrar-sesion", false, "Registra tus tiempos al completar un entreno.");
+    setOnboardingBadge("subir-fit", false, "Sube un FIT si lo tienes disponible.");
+    setOnboardingBadge("ver-analisis", false, "Registra una sesión para ver el análisis.");
   }
 };
 
-document.addEventListener("DOMContentLoaded", cargarInicio);
+document.addEventListener("DOMContentLoaded", () => {
+  configurarOnboardingAtleta();
+  cargarInicio();
+});

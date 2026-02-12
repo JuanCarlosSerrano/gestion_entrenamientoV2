@@ -59,6 +59,7 @@
       </div>
 
       <div class="modal-body">
+        <div id="registro-status" class="registro-status d-none" role="status"></div>
         <div class="row g-3 mb-3">
           <div class="col-12">
             <label for="rpe" class="form-label fw-semibold d-flex justify-content-between">
@@ -136,7 +137,7 @@
           <small class="text-muted">Añade la URL de tu dispositivo (Garmin, Strava, etc.)</small>
         </div>
         <div class="mb-3">
-          <label class="form-label fw-semibold">Archivo FIT (placeholder)</label>
+          <label class="form-label fw-semibold">Archivo FIT (opcional)</label>
           <div class="row g-2 align-items-end">
             <div class="col-12 col-md-6">
               <input class="form-control" type="file" id="fit-file" accept=".fit" />
@@ -151,13 +152,11 @@
               </select>
             </div>
             <div class="col-12 col-md-2 d-grid">
-              <button class="btn btn-outline-primary" type="button" id="btn-registrar-fit">
-                Registrar
-              </button>
+              <span class="text-muted small">Se envía al guardar.</span>
             </div>
           </div>
           <small id="fit-status" class="text-muted d-block mt-2">
-            Solo se guarda el placeholder, no el archivo.
+            Adjunta el .fit y guarda tiempos/feedback en un solo paso.
           </small>
         </div>
         <div class="mb-3">

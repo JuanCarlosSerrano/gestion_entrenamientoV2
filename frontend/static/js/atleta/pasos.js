@@ -26,6 +26,66 @@ const getBlockClass = (tipo) => {
   }
 };
 
+const VDOT_PACE_RANGES = {
+  E: { min: 0.65, max: 0.78 },
+  M: { min: 0.80, max: 0.84 },
+  T: { min: 0.88, max: 0.92 },
+  I: { min: 0.95, max: 1.00 },
+  R: { min: 1.05, max: 1.15 },
+  FR: { min: 1.18, max: 1.30 }
+};
+
+const vdotSpeedFromVo2 = (vo2) => {
+  const a = 0.000104;
+  const b = 0.182258;
+  const c = -4.60 - vo2;
+  const disc = b * b - 4 * a * c;
+  if (disc <= 0) return null;
+  const v = (-b + Math.sqrt(disc)) / (2 * a);
+  return v > 0 ? v : null;
+};
+
+const vdotPaceFromFraction = (vdot, fraction) => {
+  if (!vdot || !fraction) return null;
+  const vo2 = vdot * fraction;
+  const speed = vdotSpeedFromVo2(vo2);
+  if (!speed) return null;
+  const minPerKm = 1000 / speed;
+  return minPerKm * 60;
+};
+
+const categoriaDesdeZona = (zonaNum) => {
+  if (!zonaNum) return "I";
+  if (zonaNum <= 2) return "E";
+  if (zonaNum == 3) return "M";
+  if (zonaNum == 4) return "T";
+  if (zonaNum == 5) return "I";
+  return "R";
+};
+
+const calcularTiempoDesdeVdot = (paso, zonas) => {
+  if (!paso || !zonas) return null;
+  if (paso.tipo_paso && paso.tipo_paso !== "interval") return null;
+  const vdotVal = Number(zonas.vdot_val);
+  if (!Number.isFinite(vdotVal) || vdotVal <= 0) return null;
+  const metros = distanciaEnMetros(paso.objetivo_valor, paso.unidad || "");
+  if (!metros) return null;
+  const zonaKey = obtenerClaveZona(paso.zona);
+  let zonaNum = null;
+  if (zonaKey) {
+    const match = zonaKey.match(/z(\d+)/);
+    if (match) zonaNum = Number(match[1]);
+  }
+  const categoria = categoriaDesdeZona(zonaNum);
+  const rango = VDOT_PACE_RANGES[categoria];
+  if (!rango) return null;
+  const fraccion = (rango.min + rango.max) / 2;
+  const ritmoSeg = vdotPaceFromFraction(vdotVal, fraccion);
+  if (!ritmoSeg) return null;
+  return formatearTiempo(ritmoSeg * (metros / 1000));
+};
+
+
 const obtenerClaveZona = (valor) => {
   if (!valor) return null;
   const match = String(valor).toLowerCase().match(/(\d+)/);
@@ -81,6 +141,8 @@ const formatearTiempo = (segundos) => {
 
 export const calcularTiempoDesdeZona = (paso, zonas) => {
   if (!zonas) return null;
+  const tiempoVdot = calcularTiempoDesdeVdot(paso, zonas);
+  if (tiempoVdot) return tiempoVdot;
   const zonaKey = obtenerClaveZona(paso.zona);
   if (!zonaKey || !(zonaKey in zonas)) return null;
   const ritmoSeg = parseRitmoSegundos(zonas[zonaKey]);

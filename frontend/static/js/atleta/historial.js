@@ -17,7 +17,6 @@ const urlDatosInput = document.getElementById("url-datos");
 const fitFileInput = document.getElementById("fit-file");
 const fitOrigenSelect = document.getElementById("fit-origen");
 const fitStatus = document.getElementById("fit-status");
-const btnRegistrarFit = document.getElementById("btn-registrar-fit");
 const rpeInput = document.getElementById("rpe");
 const rpeValor = document.getElementById("rpe-valor");
 const rpeAyuda = document.getElementById("rpe-ayuda");
@@ -28,8 +27,10 @@ const zonaDolorSelect = document.getElementById("zona-dolor");
 const zonaDolorWrapper = document.getElementById("zona-dolor-wrapper");
 const completadoCheck = document.getElementById("completado");
 const btnGuardarTiempos = document.getElementById("btn-guardar-tiempos");
+const btnGuardarLabel = btnGuardarTiempos ? btnGuardarTiempos.textContent : "Guardar tiempos";
 const modalTitulo = modalEl?.querySelector(".modal-title");
 const modalRegistrar = modalEl ? new window.bootstrap.Modal(modalEl) : null;
+const registroStatus = document.getElementById("registro-status");
 const modalAnalisisEl = document.getElementById("modalAnalisisEntreno");
 const modalAnalisis = modalAnalisisEl ? new window.bootstrap.Modal(modalAnalisisEl) : null;
 const analisisBody = document.getElementById("analisis-entreno-body");
@@ -108,6 +109,45 @@ const textoRpe = (valor) => {
   if (num <= 6) return "Controlado";
   if (num <= 8) return "Exigente";
   return "Máximo";
+};
+
+
+const setRegistroStatus = (msg, type = "info") => {
+  if (!registroStatus) return;
+  registroStatus.textContent = msg;
+  registroStatus.classList.remove("d-none", "registro-status--error", "registro-status--success");
+  if (type === "error") registroStatus.classList.add("registro-status--error");
+  if (type === "success") registroStatus.classList.add("registro-status--success");
+};
+
+const clearRegistroStatus = () => {
+  if (!registroStatus) return;
+  registroStatus.classList.add("d-none");
+  registroStatus.textContent = "";
+  registroStatus.classList.remove("registro-status--error", "registro-status--success");
+};
+
+
+const setGuardarLoading = (loading) => {
+  if (!btnGuardarTiempos) return;
+  if (loading) {
+    btnGuardarTiempos.disabled = true;
+    btnGuardarTiempos.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Guardando';
+  } else {
+    btnGuardarTiempos.disabled = false;
+    btnGuardarTiempos.textContent = btnGuardarLabel || 'Guardar tiempos';
+  }
+};
+
+
+const getRegistroGuardado = (entrenamientoId) => {
+  try {
+    const raw = localStorage.getItem(`registro_guardado_${entrenamientoId}`);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
 };
 
 const actualizarRpeUI = () => {
@@ -572,10 +612,18 @@ const renderCard = (ent) => {
   clone.querySelector(".historial-observaciones").textContent = observacion;
 
   const statusChip = document.createElement("span");
+  const guardado = getRegistroGuardado(ent.id);
   statusChip.className = `chip ${completado ? "chip-success" : "chip-warning"}`;
   statusChip.textContent = completado ? "Completado" : "Pendiente";
   clone.querySelector(".training-card__header-main")?.appendChild(statusChip);
   const card = clone.querySelector(".training-card");
+  if (guardado && !completado) {
+    const savedChip = document.createElement("span");
+    savedChip.className = "chip chip-success ms-2";
+    savedChip.textContent = "Guardado";
+    card.querySelector(".training-card__header-main")?.appendChild(savedChip);
+  }
+
   if (completado) {
     card?.classList.add("training-card--completed");
   } else {
@@ -721,11 +769,29 @@ btnGuardarTiempos?.addEventListener("click", async () => {
     }
   });
 
+  const invalidInputs = [];
+  const invalidTimes = Array.from(document.querySelectorAll('#lista-intervalos-tiempos input')).filter((input) => {
+    if (!input.value) return false;
+    return !/^\d+:([0-5]\d)$/.test(input.value);
+  });
+  invalidTimes.forEach((input) => input.classList.add('is-invalid'));
+  if (invalidTimes.length) {
+    invalidInputs.push('Revisa el formato de tiempos (mm:ss).');
+  }
+  if (Number.isFinite(kmRealizadosValor) && kmRealizadosValor < 0) {
+    kmInput?.classList.add('is-invalid');
+    invalidInputs.push('Los kilómetros no pueden ser negativos.');
+  }
+  if (invalidInputs.length) {
+    setRegistroStatus(invalidInputs[0], 'error');
+    return;
+  }
   const hayResultados = seriesPayload.length > 0 || Number.isFinite(kmRealizadosValor);
   const hayFeedback = tieneDatosFeedback(feedbackPayload);
+  const hayFit = Boolean(fitFileInput?.files?.[0]);
 
-  if (!hayResultados && !hayFeedback) {
-    alert("Añade tiempos/km o completa algún campo de feedback para enviar.");
+  if (!hayResultados && !hayFeedback && !hayFit) {
+    setRegistroStatus("Añade tiempos/km, adjunta un .fit o completa algún campo de feedback para enviar.", "error");
     return;
   }
 
@@ -764,14 +830,24 @@ btnGuardarTiempos?.addEventListener("click", async () => {
       feedbacksEnviados.add(Number(entrenamientoActivo.id));
     }
 
+    if (hayFit) {
+      await registrarPlaceholderFit();
+    }
+
     const mensaje =
       hayResultados && hayFeedback
         ? "Tiempos y feedback enviados correctamente"
         : hayResultados
           ? "Tiempos guardados correctamente"
-          : "Feedback enviado correctamente";
+          : hayFeedback
+            ? "Feedback enviado correctamente"
+            : "Archivo FIT registrado correctamente";
 
-    alert(mensaje);
+    setRegistroStatus(mensaje, "success");
+    try {
+      const key = `registro_guardado_${entrenamientoActivo.id}`;
+      localStorage.setItem(key, JSON.stringify({ ts: Date.now(), msg: mensaje }));
+    } catch (_) {}
     modalRegistrar?.hide();
     const soloPendientes = btnPendientes?.dataset.mode === "pendientes";
     cargarHistorial(soloPendientes);
@@ -779,12 +855,8 @@ btnGuardarTiempos?.addEventListener("click", async () => {
     console.error("Error al guardar tiempos:", err);
     alert(err.message || "No se pudieron guardar los tiempos");
   } finally {
-    btnGuardarTiempos.disabled = false;
-    btnGuardarTiempos.textContent = "Guardar tiempos";
+    setGuardarLoading(false);
   }
 });
 
 
-btnRegistrarFit?.addEventListener('click', () => {
-  registrarPlaceholderFit();
-});
