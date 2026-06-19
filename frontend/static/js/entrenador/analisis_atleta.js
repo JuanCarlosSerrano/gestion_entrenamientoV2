@@ -24,6 +24,9 @@ const elements = {
   resumenPendientes: document.getElementById("resumen-semana-pendientes-entrenador"),
   resumenKmPlan: document.getElementById("resumen-semana-km-plan"),
   resumenKmReal: document.getElementById("resumen-semana-km-real"),
+  semanaPrevBtn: document.getElementById("semana-prev-btn"),
+  semanaNextBtn: document.getElementById("semana-next-btn"),
+  semanaActualLabel: document.getElementById("semana-actual-label"),
   graficoCanvas: document.getElementById("grafico-tiempo-canvas"),
   graficoEstado: document.getElementById("grafico-tiempo-estado"),
   graficoKmsPlanCanvas: document.getElementById("grafico-kms-plan-canvas"),
@@ -49,6 +52,8 @@ let graficoKmsReal = null;
 let graficoZonas = null;
 let graficoZonasComparativa = null;
 let ultimoZonasSemana = null;
+let semanasDisponibles = [];
+let semanaSeleccionada = null;
 let entrenamientosFiltrados = [];
 let sesionesSeleccionadas = new Set();
 let entrenamientoSeleccionado = null;
@@ -85,6 +90,27 @@ const formatearSemanaLabel = (semanaStr) => {
   } catch (err) {
     return semanaStr;
   }
+};
+
+const obtenerClaveSemanaDeFecha = (fecha) => {
+  const base = new Date(fecha);
+  if (Number.isNaN(base.getTime())) return null;
+  base.setHours(0, 0, 0, 0);
+  const monday = new Date(base);
+  monday.setDate(base.getDate() - ((base.getDay() + 6) % 7));
+  const year = monday.getFullYear();
+  const month = String(monday.getMonth() + 1).padStart(2, "0");
+  const day = String(monday.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const semanaActualClave = () => obtenerClaveSemanaDeFecha(new Date());
+
+const desplazarSemana = (weekKey, deltaSemanas) => {
+  const base = weekKey ? new Date(`${weekKey}T00:00:00`) : new Date();
+  if (Number.isNaN(base.getTime())) return semanaActualClave();
+  base.setDate(base.getDate() + deltaSemanas * 7);
+  return obtenerClaveSemanaDeFecha(base);
 };
 
 const formatTiempoChart = (segundos) => {
@@ -277,12 +303,7 @@ const recalcularZonasSemana = async () => {
     elements.resumenZonasRecalcular.disabled = true;
   }
   try {
-    const res = await fetch(`${API_BASE}/analisis_atleta/${atletaId}?recalcular_zonas=1`, {
-      credentials: "include",
-      headers: { Authorization: authHeader() }
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    const data = await fetchAnalisisServidor(semanaSeleccionada, true);
     ultimoZonasSemana = data.zonas_semana || null;
     renderResumenZonasSemana(ultimoZonasSemana);
   } catch (err) {
@@ -333,9 +354,14 @@ const cargarZonas = async () => {
 };
 
 
-const resumenSemana = (entrenos, pendientes, hoy) => {
-  const inicioSemana = new Date(hoy);
-  inicioSemana.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7)); // lunes
+const resumenSemana = (entrenos, pendientes, weekKey) => {
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  const inicioSemana = weekKey ? new Date(`${weekKey}T00:00:00`) : new Date(hoy);
+  if (Number.isNaN(inicioSemana.getTime())) return;
+  if (!weekKey) {
+    inicioSemana.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7)); // lunes
+  }
   inicioSemana.setHours(0, 0, 0, 0);
   const finSemana = new Date(inicioSemana);
   finSemana.setDate(inicioSemana.getDate() + 6);
@@ -345,6 +371,9 @@ const resumenSemana = (entrenos, pendientes, hoy) => {
     const ini = inicioSemana.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" });
     const fin = finSemana.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" });
     elements.resumenRango.textContent = `${ini} – ${fin}`;
+  }
+  if (elements.semanaActualLabel) {
+    elements.semanaActualLabel.textContent = formatearSemanaLabel(weekKey || semanaActualClave());
   }
 
   const idsPend = new Set((pendientes || []).map((e) => e.id));
@@ -372,8 +401,6 @@ const resumenSemana = (entrenos, pendientes, hoy) => {
   if (elements.resumenSesiones) elements.resumenSesiones.textContent = `${totalSemana}`;
   if (elements.resumenCompletadas) elements.resumenCompletadas.textContent = `${completadas}`;
   if (elements.resumenPendientes) elements.resumenPendientes.textContent = `${pend}`;
-  if (elements.resumenKmPlan) elements.resumenKmPlan.textContent = "—";
-  if (elements.resumenKmReal) elements.resumenKmReal.textContent = "—";
 };
 
 const obtenerZonasPorFecha = async (fecha) => {
@@ -916,8 +943,6 @@ const cargarEntrenamientos = async () => {
       return;
     }
     entrenamientosCargados = [];
-    const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0);
     for (const ent of entrenos) {
       let pasos = [];
       try {
@@ -944,13 +969,9 @@ const cargarEntrenamientos = async () => {
         _tieneResultados: Array.isArray(resultados) && resultados.length > 0
       });
     }
-    const pendientes = entrenamientosCargados.filter((ent) => {
-      const fecha = ent.fecha ? new Date(ent.fecha) : null;
-      if (!fecha) return false;
-      fecha.setHours(0, 0, 0, 0);
-      return fecha < hoy && !ent._tieneResultados;
-    });
-    resumenSemana(entrenamientosCargados, pendientes, hoy);
+    const actual = semanaActualClave();
+    if (!semanaSeleccionada) semanaSeleccionada = actual;
+    resumenSemana(entrenamientosCargados, calcularPendientes(entrenamientosCargados), semanaSeleccionada);
     poblarSelectNombres();
     aplicarFiltro();
     await cargarKmsSemanales();
@@ -967,20 +988,7 @@ const cargarEntrenamientos = async () => {
 };
 
 const obtenerClaveSemana = (fecha) => {
-  const base = new Date(fecha);
-  if (Number.isNaN(base.getTime())) return null;
-  base.setHours(0, 0, 0, 0);
-
-  // Lunes de esa semana
-  const monday = new Date(base);
-  monday.setDate(base.getDate() - ((base.getDay() + 6) % 7));
-  monday.setHours(0, 0, 0, 0);
-
-  // Clave igual que el backend: 'YYYY-MM-DD' (usando fecha local para evitar desfaces por zona horaria)
-  const year = monday.getFullYear();
-  const month = String(monday.getMonth() + 1).padStart(2, "0");
-  const day = String(monday.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return obtenerClaveSemanaDeFecha(fecha);
 };
 
 const agruparKmsSemanalesLocal = () => {
@@ -1024,33 +1032,36 @@ const agruparKmsSemanalesLocal = () => {
   );
 };
 
-const actualizarResumenKm = (kmsDatos) => {
+const actualizarResumenKm = (kmsDatos, weekKey) => {
   if (!elements.resumenKmPlan || !elements.resumenKmReal) return;
 
   const lista = Array.isArray(kmsDatos) ? kmsDatos : [];
   if (!lista.length) return;
 
-  // 1️⃣ Cogemos la semana MÁS RECIENTE que no sea futura
-  const hoy = new Date();
-  hoy.setHours(0, 0, 0, 0);
+  let registro = null;
+  if (weekKey) {
+    registro = lista.find((k) => k.semana === weekKey) || null;
+  }
 
-  const semanasValidas = lista
-    .filter(k => k.semana)
-    .map(k => ({
-      ...k,
-      fechaLunes: new Date(k.semana)
-    }))
-    .filter(k => k.fechaLunes <= hoy)
-    .sort((a, b) => b.fechaLunes - a.fechaLunes);
+  if (!registro) {
+    const hoy = new Date();
+    hoy.setHours(0, 0, 0, 0);
+    const semanasValidas = lista
+      .filter((k) => k.semana)
+      .map((k) => ({
+        ...k,
+        fechaLunes: new Date(k.semana)
+      }))
+      .filter((k) => k.fechaLunes <= hoy)
+      .sort((a, b) => b.fechaLunes - a.fechaLunes);
+    registro = semanasValidas[0] || null;
+  }
 
-  if (!semanasValidas.length) {
+  if (!registro) {
     elements.resumenKmPlan.textContent = "—";
     elements.resumenKmReal.textContent = "—";
     return;
   }
-
-  // 👉 ESTA es la semana “actual” real
-  const registro = semanasValidas[0];
 
   const plan = Number(registro.planificados) || 0;
   const real = Number(registro.realizados) || 0;
@@ -1059,16 +1070,43 @@ const actualizarResumenKm = (kmsDatos) => {
   elements.resumenKmReal.textContent = `${real.toFixed(1)} km`;
 };
 
+const sincronizarSemanasDisponibles = (kmsDatos) => {
+  const delServidor = (Array.isArray(kmsDatos) ? kmsDatos : [])
+    .map((k) => k.semana)
+    .filter(Boolean);
+  const locales = agruparKmsSemanalesLocal().map((k) => k.semana).filter(Boolean);
+  semanasDisponibles = Array.from(new Set([...delServidor, ...locales])).sort();
 
-async function cargarKmsSemanales() {
-  if (!atletaId) {
-    renderGraficoKmsPlan([], "Falta el id de atleta.");
-    renderGraficoKmsReal([], "Falta el id de atleta.");
-    return;
+  if (!semanaSeleccionada || !semanasDisponibles.includes(semanaSeleccionada)) {
+    const actual = semanaActualClave();
+    const candidatas = semanasDisponibles.filter((s) => s <= actual);
+    semanaSeleccionada =
+      (candidatas.length ? candidatas[candidatas.length - 1] : semanasDisponibles[semanasDisponibles.length - 1]) ||
+      actual;
   }
 
-const fetchKmsServidor = async () => {
-  const res = await fetch(`${API_BASE}/analisis_atleta/${atletaId}`, {
+  if (elements.semanaActualLabel) {
+    elements.semanaActualLabel.textContent = formatearSemanaLabel(semanaSeleccionada);
+  }
+  if (elements.semanaPrevBtn && elements.semanaNextBtn) {
+    // Permitir navegar semana a semana aunque el backend no devuelva histórico completo.
+    elements.semanaPrevBtn.disabled = false;
+    const actual = semanaActualClave();
+    const selectedDate = new Date(`${semanaSeleccionada}T00:00:00`);
+    const actualDate = new Date(`${actual}T00:00:00`);
+    elements.semanaNextBtn.disabled =
+      Number.isNaN(selectedDate.getTime()) || Number.isNaN(actualDate.getTime())
+        ? false
+        : selectedDate >= actualDate;
+  }
+};
+
+const fetchAnalisisServidor = async (weekKey, recalc = false) => {
+  const params = new URLSearchParams();
+  if (weekKey) params.set("week", weekKey);
+  if (recalc) params.set("recalcular_zonas", "1");
+  const qs = params.toString();
+  const res = await fetch(`${API_BASE}/analisis_atleta/${atletaId}${qs ? `?${qs}` : ""}`, {
     credentials: "include",
     headers: { Authorization: authHeader() }
   });
@@ -1076,33 +1114,68 @@ const fetchKmsServidor = async () => {
   return await res.json();
 };
 
+const calcularPendientes = (entrenos) => {
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  return entrenos.filter((ent) => {
+    const fecha = ent.fecha ? new Date(ent.fecha) : null;
+    if (!fecha) return false;
+    fecha.setHours(0, 0, 0, 0);
+    return fecha < hoy && !ent._tieneResultados;
+  });
+};
 
+const cambiarSemana = async (delta) => {
+  const base = semanaSeleccionada || semanaActualClave();
+  const next = desplazarSemana(base, delta);
+  if (!next) return;
+  const actual = semanaActualClave();
+  if (delta > 0 && next > actual) return;
+  semanaSeleccionada = next;
+  if (elements.semanaActualLabel) {
+    elements.semanaActualLabel.textContent = formatearSemanaLabel(semanaSeleccionada);
+  }
+  await cargarKmsSemanales();
+};
 
+async function cargarKmsSemanales() {
+  if (!atletaId) {
+    renderGraficoKmsPlan([], "Falta el id de atleta.");
+    renderGraficoKmsReal([], "Falta el id de atleta.");
+    return;
+  }
   try {
-    const data = await fetchKmsServidor();
+    const data = await fetchAnalisisServidor(semanaSeleccionada);
+    if (Array.isArray(data.kms_semana) && data.kms_semana.length) {
+      sincronizarSemanasDisponibles(data.kms_semana);
+      if (!semanaSeleccionada) {
+        semanaSeleccionada = data.semana_objetivo?.inicio || semanaSeleccionada || semanaActualClave();
+      }
+      renderGraficoKmsPlan(data.kms_semana);
+      renderGraficoKmsReal(data.kms_semana);
+      actualizarResumenKm(data.kms_semana, semanaSeleccionada);
+      resumenSemana(entrenamientosCargados, calcularPendientes(entrenamientosCargados), semanaSeleccionada);
+      ultimoZonasSemana = data.zonas_semana || null;
+      renderResumenZonasSemana(ultimoZonasSemana);
+      return;
+    }
 
-if (Array.isArray(data.kms_semana) && data.kms_semana.length) {
-  renderGraficoKmsPlan(data.kms_semana);
-  renderGraficoKmsReal(data.kms_semana);
-  actualizarResumenKm(data.kms_semana);
-  ultimoZonasSemana = data.zonas_semana || null;
-  renderResumenZonasSemana(ultimoZonasSemana);
-  return; // ⛔ NO cálculo local
-}
-
-    // Si no hay datos útiles del servidor, usamos cálculo local
     const kmsLocal = agruparKmsSemanalesLocal();
+    sincronizarSemanasDisponibles(kmsLocal);
     renderGraficoKmsPlan(kmsLocal, "No hay kms previstos para este atleta.");
     renderGraficoKmsReal(kmsLocal, "No hay kms reales para este atleta.");
-    actualizarResumenKm(kmsLocal);
+    actualizarResumenKm(kmsLocal, semanaSeleccionada);
+    resumenSemana(entrenamientosCargados, calcularPendientes(entrenamientosCargados), semanaSeleccionada);
     ultimoZonasSemana = null;
     renderResumenZonasSemana(null);
   } catch (err) {
     console.warn("No se pudieron cargar kms del servidor, usando cálculo local.", err);
     const kmsLocal = agruparKmsSemanalesLocal();
+    sincronizarSemanasDisponibles(kmsLocal);
     renderGraficoKmsPlan(kmsLocal, "No se pudieron cargar los kms previstos.");
     renderGraficoKmsReal(kmsLocal, "No se pudieron cargar los kms reales.");
-    actualizarResumenKm(kmsLocal);
+    actualizarResumenKm(kmsLocal, semanaSeleccionada);
+    resumenSemana(entrenamientosCargados, calcularPendientes(entrenamientosCargados), semanaSeleccionada);
     ultimoZonasSemana = null;
     renderResumenZonasSemana(null);
   }
@@ -1121,6 +1194,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   if (elements.resumenZonasRecalcular) {
     elements.resumenZonasRecalcular.addEventListener("click", recalcularZonasSemana);
+  }
+  if (elements.semanaPrevBtn) {
+    elements.semanaPrevBtn.addEventListener("click", () => cambiarSemana(-1));
+  }
+  if (elements.semanaNextBtn) {
+    elements.semanaNextBtn.addEventListener("click", () => cambiarSemana(1));
   }
   await cargarAtleta();
   await cargarZonas();

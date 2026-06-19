@@ -7,6 +7,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import os
 import hashlib
+import time
+import re
 from werkzeug.utils import secure_filename
 import secrets
 import sqlite3
@@ -1290,10 +1292,10 @@ def crear_entrenamiento(current_user):
             tipo_paso = step.get('tipo_paso') or 'custom'
             repeticiones = step.get('repeticiones')
             objetivo_tipo = step.get('objetivo_tipo')
-            objetivo_valor = step.get('objetivo_valor')
+            objetivo_valor = _to_optional_float(step.get('objetivo_valor'))
             unidad = step.get('unidad')
             zona = step.get('zona')
-            recuperacion_valor = step.get('recuperacion_valor')
+            recuperacion_valor = _to_optional_float(step.get('recuperacion_valor'))
             recuperacion_unidad = step.get('recuperacion_unidad')
             intensidad = step.get('intensidad')
             descripcion = step.get('descripcion')
@@ -1346,6 +1348,54 @@ def crear_entrenamiento(current_user):
     except Exception as e:
         print("Error en crear_entrenamiento:", e)
         return jsonify({'error': 'Error al crear el entrenamiento'}), 500
+def _to_optional_float(value):
+    """
+    Convierte entradas de formulario a float o None.
+    Acepta: 12, 12.5, "12,5", "1'", "1:30", "  ".
+    """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    txt = str(value).strip()
+    if not txt:
+        return None
+
+    txt = txt.replace(",", ".")
+
+    # Formato mm:ss o hh:mm:ss
+    if ":" in txt:
+        parts = [p.strip() for p in txt.split(":")]
+        if all(p.isdigit() for p in parts):
+            try:
+                if len(parts) == 2:
+                    m, s = map(int, parts)
+                    return float(m * 60 + s)
+                if len(parts) == 3:
+                    h, m, s = map(int, parts)
+                    return float(h * 3600 + m * 60 + s)
+            except Exception:
+                pass
+
+    # Formato 1'30 o 1' (minutos/segundos)
+    m_ap = re.match(r"^\s*(\d+)\s*'\s*(\d+)?\s*\"?\s*$", txt)
+    if m_ap:
+        mins = int(m_ap.group(1))
+        secs = int(m_ap.group(2) or 0)
+        return float(mins * 60 + secs)
+
+    # Número simple (usa el primer número encontrado para evitar truncados SQL)
+    m_num = re.search(r"[-+]?\d*\.?\d+", txt)
+    if m_num:
+        try:
+            return float(m_num.group(0))
+        except Exception:
+            return None
+
+    return None
+
+
 def calcular_km_totales_desde_pasos(pasos):
     """
     Calcula km totales de un entrenamiento a partir de la estructura de pasos
@@ -1366,7 +1416,7 @@ def calcular_km_totales_desde_pasos(pasos):
         reps = step.get('repeticiones') or 1
         objetivo_tipo = (step.get('objetivo_tipo') or '').lower()
         unidad = (step.get('unidad') or '').lower()
-        valor = step.get('objetivo_valor') or 0
+        valor = _to_optional_float(step.get('objetivo_valor')) or 0
 
         # Distancias directas (ej: 1000 m, 8 km…)
         if objetivo_tipo in ('distancia', 'distance') and valor:
@@ -1527,151 +1577,168 @@ def actualizar_entrenamiento(current_user, entrenamiento_id):
     if not isinstance(pasos, list) or not pasos:
         return jsonify({'error': 'Debe haber al menos un bloque (paso) en el entrenamiento'}), 400
 
-    try:
-        conn = get_db()
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
+    # 2) Generar un pequeño resumen para bloque_principal (opcional)
+    def describe_step_py(step):
+        partes = []
+        tipo = (step.get('tipo_paso') or '').lower()
 
-        # 1) Comprobar que existe el entrenamiento
-        cur.execute("SELECT id FROM entrenamientos WHERE id = ?", (entrenamiento_id,))
-        if not cur.fetchone():
-            cur.close()
-            conn.close()
-            return jsonify({'error': 'Entrenamiento no encontrado'}), 404
-
-        # 2) Generar un pequeño resumen para bloque_principal (opcional)
-        def describe_step_py(step):
-            partes = []
-            tipo = (step.get('tipo_paso') or '').lower()
-
-            if tipo == 'warmup':
-                partes.append('Calentamiento')
-            elif tipo == 'interval':
-                partes.append('Intervalos')
-            elif tipo == 'rest':
-                partes.append('Recuperación')
-            elif tipo == 'cooldown':
-                partes.append('Enfriamiento')
-            elif tipo == 'repeat':
-                reps = step.get('repeticiones') or 1
-                partes.append(f'{reps}× bloque')
-            else:
-                partes.append('Bloque')
-
-            val = (str(step.get('objetivo_valor') or '')).strip()
-            unidad = (step.get('unidad') or '').strip()
-            if val:
-                partes.append(f'{val}{unidad}')
-
-            zona = (step.get('zona') or '').strip()
-            if zona:
-                partes.append(zona if zona.upper().startswith('Z') else f'Z{zona}')
-
-            return ' '.join(partes).strip()
-
-        resumen_partes = []
-
-        def flatten_steps(steps):
-            for s in steps:
-                desc = describe_step_py(s)
-                if desc:
-                    resumen_partes.append(desc)
-                sub = s.get('subpasos') or []
-                if sub:
-                    flatten_steps(sub)
-
-        flatten_steps(pasos)
-        bloque_principal = ' · '.join(resumen_partes) or None
-
-        calculado_km_totales = calcular_km_totales_desde_pasos(pasos)
-        if km_totales is None:
-            km_totales_val = calculado_km_totales
+        if tipo == 'warmup':
+            partes.append('Calentamiento')
+        elif tipo == 'interval':
+            partes.append('Intervalos')
+        elif tipo == 'rest':
+            partes.append('Recuperación')
+        elif tipo == 'cooldown':
+            partes.append('Enfriamiento')
+        elif tipo == 'repeat':
+            reps = step.get('repeticiones') or 1
+            partes.append(f'{reps}× bloque')
         else:
-            try:
-                km_totales_val = float(km_totales)
-            except (TypeError, ValueError):
-                km_totales_val = calculado_km_totales
-        if km_totales_val < 0:
-            km_totales_val = 0
+            partes.append('Bloque')
 
-        # 3) Actualizar tabla principal de entrenamientos
-        cur.execute(
-            """
-            UPDATE entrenamientos
-            SET nombre = ?, objetivo = ?, notas = ?, bloque_principal = ?, km_totales = ?
-            WHERE id = ?
-            """,
-            (nombre, objetivo, notas, bloque_principal, km_totales_val, entrenamiento_id)
-        )
+        val = (str(step.get('objetivo_valor') or '')).strip()
+        unidad = (step.get('unidad') or '').strip()
+        if val:
+            partes.append(f'{val}{unidad}')
 
-        # 4) Borrar detalles antiguos
-        cur.execute(
-            "DELETE FROM entrenamientos_detalle WHERE entrenamiento_id = ?",
-            (entrenamiento_id,)
-        )
+        zona = (step.get('zona') or '').strip()
+        if zona:
+            partes.append(zona if zona.upper().startswith('Z') else f'Z{zona}')
 
-        # 5) Insertar nuevos pasos en entrenamientos_detalle
-        now = datetime.now().isoformat(' ')
-        orden_counter = 1
+        return ' '.join(partes).strip()
 
-        def insert_step(step, parent_id=None):
-            nonlocal orden_counter
+    resumen_partes = []
 
-            tipo_paso = step.get('tipo_paso') or 'custom'
-            repeticiones = step.get('repeticiones')
-            objetivo_tipo = step.get('objetivo_tipo')
-            objetivo_valor = step.get('objetivo_valor')
-            unidad = step.get('unidad')
-            zona = step.get('zona')
-            recuperacion_valor = step.get('recuperacion_valor')
-            recuperacion_unidad = step.get('recuperacion_unidad')
-            intensidad = step.get('intensidad')
-            descripcion = step.get('descripcion')
+    def flatten_steps(steps):
+        for s in steps:
+            desc = describe_step_py(s)
+            if desc:
+                resumen_partes.append(desc)
+            sub = s.get('subpasos') or []
+            if sub:
+                flatten_steps(sub)
 
+    flatten_steps(pasos)
+    bloque_principal = ' · '.join(resumen_partes) or None
+
+    calculado_km_totales = calcular_km_totales_desde_pasos(pasos)
+    if km_totales is None:
+        km_totales_val = calculado_km_totales
+    else:
+        try:
+            km_totales_val = float(km_totales)
+        except (TypeError, ValueError):
+            km_totales_val = calculado_km_totales
+    if km_totales_val < 0:
+        km_totales_val = 0
+
+    # Reintento corto solo para lock timeout de MariaDB (1205)
+    for intento in range(2):
+        conn = None
+        cur = None
+        try:
+            conn = get_db()
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+
+            # 1) Comprobar que existe el entrenamiento
+            cur.execute("SELECT id FROM entrenamientos WHERE id = ?", (entrenamiento_id,))
+            if not cur.fetchone():
+                return jsonify({'error': 'Entrenamiento no encontrado'}), 404
+
+            # 3) Actualizar tabla principal de entrenamientos
             cur.execute(
                 """
-                INSERT INTO entrenamientos_detalle
-                    (entrenamiento_id, tipo_paso, repeticiones,
-                     objetivo_tipo, objetivo_valor, unidad, zona,
-                     recuperacion_valor, recuperacion_unidad,
-                     intensidad, descripcion, parent_id, orden)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                UPDATE entrenamientos
+                SET nombre = ?, objetivo = ?, notas = ?, bloque_principal = ?, km_totales = ?
+                WHERE id = ?
                 """,
-                (
-                    entrenamiento_id,
-                    tipo_paso,
-                    repeticiones,
-                    objetivo_tipo,
-                    objetivo_valor,
-                    unidad,
-                    zona,
-                    recuperacion_valor,
-                    recuperacion_unidad,
-                    intensidad,
-                    descripcion,
-                    parent_id,
-                    orden_counter
-                )
+                (nombre, objetivo, notas, bloque_principal, km_totales_val, entrenamiento_id)
             )
-            this_id = cur.lastrowid
-            orden_counter += 1
 
-            # subpasos (para repeat)
-            for sub in step.get('subpasos') or []:
-                insert_step(sub, this_id)
+            # 4) Borrar detalles antiguos
+            cur.execute(
+                "DELETE FROM entrenamientos_detalle WHERE entrenamiento_id = ?",
+                (entrenamiento_id,)
+            )
 
-        for step in pasos:
-            insert_step(step, None)
+            # 5) Insertar nuevos pasos en entrenamientos_detalle
+            orden_counter = 1
 
-        conn.commit()
-        cur.close()
-        conn.close()
+            def insert_step(step, parent_id=None):
+                nonlocal orden_counter
 
-        return jsonify({'message': 'Entrenamiento actualizado'}), 200
+                tipo_paso = step.get('tipo_paso') or 'custom'
+                repeticiones = step.get('repeticiones')
+                objetivo_tipo = step.get('objetivo_tipo')
+                objetivo_valor = _to_optional_float(step.get('objetivo_valor'))
+                unidad = step.get('unidad')
+                zona = step.get('zona')
+                recuperacion_valor = _to_optional_float(step.get('recuperacion_valor'))
+                recuperacion_unidad = step.get('recuperacion_unidad')
+                intensidad = step.get('intensidad')
+                descripcion = step.get('descripcion')
 
-    except Exception as e:
-        print("Error en actualizar_entrenamiento:", e)
-        return jsonify({'error': 'Error al actualizar el entrenamiento'}), 500
+                cur.execute(
+                    """
+                    INSERT INTO entrenamientos_detalle
+                        (entrenamiento_id, tipo_paso, repeticiones,
+                         objetivo_tipo, objetivo_valor, unidad, zona,
+                         recuperacion_valor, recuperacion_unidad,
+                         intensidad, descripcion, parent_id, orden)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        entrenamiento_id,
+                        tipo_paso,
+                        repeticiones,
+                        objetivo_tipo,
+                        objetivo_valor,
+                        unidad,
+                        zona,
+                        recuperacion_valor,
+                        recuperacion_unidad,
+                        intensidad,
+                        descripcion,
+                        parent_id,
+                        orden_counter
+                    )
+                )
+                this_id = cur.lastrowid
+                orden_counter += 1
+
+                for sub in step.get('subpasos') or []:
+                    insert_step(sub, this_id)
+
+            for step in pasos:
+                insert_step(step, None)
+
+            conn.commit()
+            return jsonify({'message': 'Entrenamiento actualizado'}), 200
+
+        except Exception as e:
+            try:
+                if conn:
+                    conn.rollback()
+            except Exception:
+                pass
+            err_code = e.args[0] if getattr(e, "args", None) else None
+            if err_code == 1205 and intento == 0:
+                time.sleep(0.25)
+                continue
+            print("Error en actualizar_entrenamiento:", e)
+            return jsonify({'error': 'Error al actualizar el entrenamiento'}), 500
+        finally:
+            try:
+                if cur:
+                    cur.close()
+            except Exception:
+                pass
+            try:
+                if conn:
+                    conn.close()
+            except Exception:
+                pass
 
 
 @app.route('/entrenamientos/<int:id>', methods=['DELETE'])
@@ -6404,7 +6471,30 @@ def obtener_zonas_atleta_por_fecha(cur, atleta_id, fecha_ref=None):
         '''
     cur.execute(query, tuple(params))
     row = cur.fetchone()
-    return dict(row) if row else None
+    if row:
+        return dict(row)
+
+    # Fallback: si no hay histórico para esa fecha (p.ej. entrenos antiguos),
+    # usar la última zona disponible del atleta para no dejar el análisis vacío.
+    if fecha_ref:
+        cur.execute(
+            '''
+            SELECT z.vam, z.z1, z.z2, z.z3, z.z4, z.z5, z.z6,
+                   z.fc_z1, z.fc_z2, z.fc_z3, z.fc_z4, z.fc_z5, z.fc_z6,
+                   z.metodo, z.fecha_inicio, z.fecha_fin,
+                   u.vdot_val, u.vdot_fecha
+            FROM zonas_entrenamiento z
+            JOIN usuarios u ON u.id = z.atleta_id
+            WHERE z.atleta_id = ?
+            ORDER BY z.fecha_inicio DESC
+            LIMIT 1
+            ''',
+            (atleta_id,),
+        )
+        row = cur.fetchone()
+        if row:
+            return dict(row)
+    return None
 
 def _fecha_ts(valor):
     try:
@@ -6909,7 +6999,11 @@ def estadisticas_analisis_atleta(current_user, atleta_id):
             """, (atleta_id,))
 
         plan_dict = {
-            row["lunes_semana"]: round(row["km_planificados"] or 0, 2)
+            (
+                row["lunes_semana"].date().isoformat()
+                if isinstance(row["lunes_semana"], datetime)
+                else (row["lunes_semana"].isoformat() if hasattr(row["lunes_semana"], "isoformat") else str(row["lunes_semana"]))
+            ): round(row["km_planificados"] or 0, 2)
             for row in plan_rows
             if row["lunes_semana"]
         }
@@ -6935,13 +7029,22 @@ def estadisticas_analisis_atleta(current_user, atleta_id):
                 ORDER BY lunes_semana
             """, (atleta_id,))
         for row in plan_prev_rows:
-            semana = row.get("lunes_semana")
+            semana_raw = row.get("lunes_semana")
+            semana = (
+                semana_raw.date().isoformat()
+                if isinstance(semana_raw, datetime)
+                else (semana_raw.isoformat() if hasattr(semana_raw, "isoformat") else str(semana_raw))
+            ) if semana_raw else None
             if not semana:
                 continue
             if semana not in plan_dict or plan_dict.get(semana, 0) == 0:
                 plan_dict[semana] = round(row["km_planificados"] or 0, 2)
         real_dict = {
-            row["lunes_semana"]: round(row["km_realizados"] or 0, 2)
+            (
+                row["lunes_semana"].date().isoformat()
+                if isinstance(row["lunes_semana"], datetime)
+                else (row["lunes_semana"].isoformat() if hasattr(row["lunes_semana"], "isoformat") else str(row["lunes_semana"]))
+            ): round(row["km_realizados"] or 0, 2)
             for row in real_rows
             if row["lunes_semana"]
         }
@@ -6971,14 +7074,28 @@ def estadisticas_analisis_atleta(current_user, atleta_id):
             for lunes_str in semanas
         ]
 
-        # 3bis) Resumen de tiempo en zonas (plan vs real) de la semana actual
+        # 3bis) Resumen de tiempo en zonas (plan vs real) de la semana seleccionada
         zonas_semana = {
             "ritmo": {"zonas": [], "totales": {"plan_seg": 0.0, "real_seg": 0.0}},
             "fc": {"zonas": [], "totales": {"plan_seg": 0.0, "real_seg": 0.0}},
         }
+        week_arg = (request.args.get('week') or '').strip()
+        week_ref = None
+        if week_arg:
+            try:
+                week_ref = datetime.fromisoformat(week_arg).date()
+            except Exception:
+                try:
+                    week_ref = datetime.strptime(week_arg[:10], "%Y-%m-%d").date()
+                except Exception:
+                    week_ref = None
+        inicio_semana = (week_ref or datetime.now().date())
+        inicio_semana = inicio_semana - timedelta(days=inicio_semana.weekday())
+        fin_semana = inicio_semana + timedelta(days=6)
         try:
             hoy = datetime.now().date()
-            inicio_semana = hoy - timedelta(days=hoy.weekday())
+            ref_date = week_ref or hoy
+            inicio_semana = ref_date - timedelta(days=ref_date.weekday())
             fin_semana = inicio_semana + timedelta(days=6)
             inicio_str = inicio_semana.isoformat()
             fin_str = fin_semana.isoformat()
@@ -7211,6 +7328,10 @@ def estadisticas_analisis_atleta(current_user, atleta_id):
                 "id": atleta["id"],
                 "nombre": atleta["nombre"],
                 "apellidos": atleta["apellidos"],
+            },
+            "semana_objetivo": {
+                "inicio": inicio_semana.isoformat(),
+                "fin": fin_semana.isoformat(),
             },
             "totales": {
                 "planificados": total_plan,

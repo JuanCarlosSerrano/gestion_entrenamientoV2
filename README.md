@@ -2,6 +2,10 @@
 
 Repositorio de evolución de la aplicación, aislado de v1.
 
+## Roadmap tecnico
+- Roadmap vivo del proyecto: `docs/ROADMAP_TECNICO_V2.md`
+- Kanban de ejecucion: `docs/KANBAN_V2.md`
+
 ## Reglas de trabajo (acordadas)
 - v1 no se toca.
 - En v2 se trabaja en un único entorno: `main`.
@@ -15,6 +19,7 @@ Repositorio de evolución de la aplicación, aislado de v1.
 - Scripts de sincronización BD:
   - `ops/db_export.sh`
   - `ops/db_import.sh`
+  - `ops/smoke_check.sh`
 
 ## Arranque único (v2)
 ```bash
@@ -22,6 +27,15 @@ Repositorio de evolución de la aplicación, aislado de v1.
 ```
 Servidor v2 en:
 - `http://127.0.0.1:5002`
+
+## Smoke check rapido
+```bash
+./ops/smoke_check.sh
+```
+Con login:
+```bash
+SMOKE_EMAIL="tu_email" SMOKE_PASSWORD="tu_password" ./ops/smoke_check.sh
+```
 
 ## Variables de entorno esperadas (`backend/.env`)
 ```env
