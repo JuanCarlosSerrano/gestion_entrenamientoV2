@@ -46,7 +46,7 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"  # Recomendado por seguridad
 app.config["SESSION_COOKIE_SECURE"] = os.getenv("SESSION_COOKIE_SECURE", "0") in ("1", "true", "True")
 Session(app)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE = os.path.join(BASE_DIR, 'atletas.db')
+DATABASE = os.getenv("DB_PATH", os.path.join(BASE_DIR, "atletas.db"))
 DB_ENGINE = os.getenv("DB_ENGINE", "mariadb").lower()  # mariadb | sqlite
 MARIADB_CONFIG = {
     "host": os.getenv("DB_HOST", "127.0.0.1"),
@@ -1468,7 +1468,7 @@ def get_entrenamiento_con_pasos(entrenamiento_id: int, current_user=None):
         cur.close()
         conn.close()
         return None
-    if current_user and current_user.get("rol") == "entrenador":
+    if current_user and current_user["rol"] == "entrenador":
         creador = row.get("creador_id") if isinstance(row, dict) else row[6]
         if creador not in (None, current_user.get("id")):
             cur.close()
@@ -1749,10 +1749,33 @@ def eliminar_entrenamiento(current_user, id):
 
 # --- Rutas para Feedback (Ejemplo) ---
 
+
+def atleta_pertenece_a_entrenador(atleta_id, entrenador_id):
+    resultado = query_db(
+        """
+        SELECT 1
+        FROM usuarios
+        WHERE id = ?
+          AND entrenador_id = ?
+          AND rol = 'atleta'
+        """,
+        (atleta_id, entrenador_id),
+        one=True
+    )
+    return resultado is not None
+
+
 @app.route('/calendario/<int:atleta_id>', methods=['GET'])
 @requires_roles('admin', 'entrenador', 'atleta')
 def get_calendario(current_user, atleta_id):
     try:
+        if current_user["rol"] == "entrenador":
+            if not atleta_pertenece_a_entrenador(atleta_id, current_user["id"]):
+                return jsonify({"error": "No autorizado"}), 403
+
+        if current_user["rol"] == "atleta" and current_user["id"] != atleta_id:
+            return jsonify({"error": "No autorizado"}), 403
+
         # Recuperamos todas las asignaciones del atleta
         entrenamientos_asignados = query_db(
             "SELECT id, nombre, fecha, visible FROM entrenamientos_asignados WHERE atleta_id = ?",
@@ -2840,6 +2863,21 @@ def feedbacks_no_leidos(current_user):
 @requires_roles('entrenador')
 def marcar_feedback_leido(current_user, feedback_id):
     try:
+        feedback = query_db(
+            """
+            SELECT f.id
+            FROM feedbacks f
+            JOIN usuarios u ON f.atleta_id = u.id
+            WHERE f.id = ?
+              AND u.entrenador_id = ?
+            """,
+            (feedback_id, current_user["id"]),
+            one=True
+        )
+
+        if not feedback:
+            return jsonify({"error": "No autorizado"}), 403
+
         data = request.get_json(silent=True) or {}
         nuevo_estado = data.get('leido', 1)  # Por defecto marcar como leído
 
@@ -3624,7 +3662,8 @@ def _fecha_iso(value):
         return str(value)
 
 @app.route('/entrenamientos_asignados/visibilidad', methods=['POST'])
-def actualizar_visibilidad_entrenamientos_asignados():
+@requires_roles('entrenador')
+def actualizar_visibilidad_entrenamientos_asignados(current_user):
     """
     Acepta JSON:
       { "atletas": [3,4], "fecha": "2025-11-21", "visible": 1, "modo": "dia|semana" }
@@ -3642,6 +3681,11 @@ def actualizar_visibilidad_entrenamientos_asignados():
 
     if not isinstance(atletas, list) or len(atletas) == 0:
         return jsonify({'error': 'Faltan atletas'}), 400
+
+    for atleta_id in atletas:
+        if not atleta_pertenece_a_entrenador(atleta_id, current_user["id"]):
+            return jsonify({"error": "No autorizado"}), 403
+
     if visible is None:
         return jsonify({'error': 'Falta campo visible'}), 400
 
