@@ -500,6 +500,212 @@ Debe permitir reconstruir exactamente qué recibió y realizó un atleta en cual
 
 ---
 
+# Reglas de negocio
+
+Las siguientes reglas son obligatorias en todo el sistema y cualquier desarrollo futuro deberá respetarlas.
+
+---
+
+## RN-001 · Propiedad de los entrenamientos
+
+Todo entrenamiento pertenece a un único entrenador.
+
+Un entrenador únicamente podrá visualizar, modificar o eliminar los entrenamientos que haya creado.
+
+Los entrenamientos nunca serán compartidos automáticamente entre entrenadores.
+
+El administrador podrá acceder únicamente con fines de mantenimiento.
+
+---
+
+## RN-002 · Biblioteca privada
+
+Cada entrenador dispone de una biblioteca propia de entrenamientos.
+
+La biblioteca es independiente del resto de entrenadores.
+
+Las acciones permitidas son:
+
+- crear
+- editar
+- duplicar
+- archivar
+- eliminar
+- buscar
+- clasificar
+
+---
+
+## RN-003 · Asignación de entrenamientos
+
+Una plantilla nunca se entrega directamente al atleta.
+
+Siempre debe existir una copia personalizada.
+
+Flujo:
+
+Plantilla
+
+↓
+
+Entrenamiento asignado
+
+↓
+
+Personalización
+
+↓
+
+Entrega al atleta
+
+La plantilla original nunca se modifica.
+
+---
+
+## RN-004 · Personalización individual
+
+Aunque un entrenamiento se asigne inicialmente a un grupo de atletas, cada copia será completamente independiente.
+
+El entrenador podrá modificar únicamente la copia de un atleta sin afectar al resto.
+
+Ejemplos:
+
+- cambiar ritmos
+- cambiar repeticiones
+- eliminar una serie
+- añadir observaciones
+- modificar recuperaciones
+
+---
+
+## RN-005 · Visibilidad
+
+Los entrenamientos asignados permanecen ocultos para el atleta hasta que el entrenador decida mostrarlos.
+
+Existen tres estados posibles:
+
+- Oculto
+- Visible
+- Programado
+
+---
+
+## RN-006 · Publicación programada
+
+El entrenador podrá indicar una fecha y hora de publicación.
+
+Mientras no llegue ese momento, el atleta no podrá acceder al entrenamiento.
+
+Al alcanzarse la fecha programada, el entrenamiento pasará automáticamente a estado Visible.
+
+---
+
+## RN-007 · Envío por WhatsApp
+
+El envío mediante WhatsApp nunca sustituye al entrenamiento asignado.
+
+El mensaje únicamente actúa como medio de comunicación.
+
+La información oficial permanecerá almacenada en MindPace.
+
+---
+
+## RN-008 · Historial permanente
+
+Una vez enviado un entrenamiento, la información quedará congelada.
+
+Aunque posteriormente se modifique la plantilla original, el entrenamiento enviado conservará exactamente los datos originales.
+
+---
+
+## RN-009 · Relación entrenador-atleta
+
+Un atleta pertenece a un único entrenador activo.
+
+Un entrenador puede gestionar múltiples atletas.
+
+Toda consulta realizada por el entrenador quedará limitada exclusivamente a sus atletas.
+
+---
+
+## RN-010 · Seguridad
+
+El sistema impedirá:
+
+- acceder a atletas de otro entrenador
+- modificar entrenamientos de otro entrenador
+- consultar historial ajeno
+- editar feedback de atletas ajenos
+- visualizar entrenamientos privados de otro entrenador
+
+---
+
+## RN-011 · Integridad deportiva
+
+Todo entrenamiento asignado deberá conservar para siempre:
+
+- la plantilla utilizada
+- los ritmos calculados
+- las zonas utilizadas
+- el VDOT empleado
+- la fecha de asignación
+
+Esto permitirá reconstruir exactamente qué entrenamiento recibió el atleta en cualquier momento del futuro.
+
+---
+
+## RN-012 · Trazabilidad
+
+Toda modificación importante deberá quedar registrada.
+
+Como mínimo deberá conocerse:
+
+- quién realizó la acción
+- cuándo se realizó
+- sobre qué entidad
+- cuál fue el resultado
+
+---
+
+## RN-013 · El entrenador nunca trabaja directamente sobre el historial
+
+Los entrenamientos ya realizados son inmutables.
+
+Si el entrenador necesita cambiar una sesión futura deberá modificar únicamente las sesiones pendientes.
+
+Nunca podrá alterarse la información histórica del atleta.
+
+El historial deportivo constituye el registro oficial de la planificación y del entrenamiento realizado.
+
+---
+
+## RN-014 · Histórico de zonas del atleta
+
+Las zonas de entrenamiento de un atleta deben conservarse históricamente.
+
+Un atleta puede tener varias configuraciones de zonas a lo largo del tiempo, pero solo una debe estar vigente para una fecha concreta.
+
+Cada registro de zonas debe incluir:
+
+- atleta;
+- método de cálculo;
+- VDOT o VAM utilizado;
+- ritmos o zonas resultantes;
+- fecha de inicio de vigencia;
+- fecha de fin de vigencia;
+- fuente del cálculo;
+- observaciones.
+
+Cuando se asigna un entrenamiento, el sistema debe utilizar las zonas vigentes en la fecha de asignación o en la fecha prevista del entrenamiento.
+
+El entrenamiento asignado debe guardar referencia a la configuración de zonas utilizada.
+
+Los cambios posteriores en las zonas del atleta nunca deben modificar entrenamientos ya asignados o realizados.
+
+Esto permite reconstruir correctamente qué ritmos correspondían a un atleta en cualquier momento histórico.
+
+---
+
 # Modelo conceptual
 
 La filosofía de MindPace puede resumirse así:

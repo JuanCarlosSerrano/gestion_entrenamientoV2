@@ -3,111 +3,209 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panel de Entrenador</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+    <title>Centro de Control · MindPace</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="../css/style.css">
     <script src="../js/utils/csrf.js"></script>
     <script src="../js/script.js"></script>
-    <script src="../js/utils/partials.js"></script>
     <script src="../js/entrenador/main.js" type="module"></script>
     <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
 </head>
-<body class="app-bg dashboard-trainer">
-    <div class="container app-container">
-        <div data-include="../partials/header.html" data-nav-active="inicio"></div>
+<body class="trainer-control">
+    <div class="trainer-shell">
+        <aside class="trainer-sidebar" aria-label="Navegación del entrenador">
+            <a class="trainer-brand" href="index.html" aria-label="MindPace">
+                <img src="../img/logo_sin_fondo.png" alt="" class="trainer-brand__mark">
+                <span>MindPace</span>
+            </a>
 
-        <div class="page-context-bar page-context-bar--hero">
-            <div>
-                <p class="eyebrow eyebrow--subtle">Panel de entrenador</p>
-                <h1 class="page-context-title">Inicio</h1>
-            </div>
-        </div>
+            <nav class="trainer-nav">
+                <a class="trainer-nav__link is-active" href="index.html"><span>⌂</span> Inicio</a>
+                <a class="trainer-nav__link" href="ciclos.html"><span>▦</span> Planificar</a>
+                <a class="trainer-nav__link" href="atletas.html"><span>👥</span> Atletas</a>
+                <a class="trainer-nav__link" href="estadisticas.html"><span>↗</span> Historial</a>
+                <a class="trainer-nav__link" href="alertas.html"><span>!</span> Actividad</a>
+                <a class="trainer-nav__link" href="utilidades.html"><span>⚙</span> Configuración</a>
+            </nav>
 
-        <section id="setup-bar" class="setup-bar">
-            <div class="setup-bar__summary">
-                <span class="setup-bar__label">Guía rápida:</span>
-                <strong class="setup-bar__count" id="setup-bar-count">0/5 completado</strong>
-                <div class="setup-bar__progress">
-                    <span id="setup-bar-progress" style="width: 0%"></span>
-                </div>
-                <div class="setup-bar__chips" id="setup-bar-chips"></div>
-            </div>
-            <div class="setup-bar__actions">
-                <button class="btn btn-sm btn-outline-primary" id="setup-bar-toggle" type="button">Ver detalles</button>
-                <button class="btn btn-sm btn-outline-secondary" id="setup-bar-hide" type="button">Ocultar</button>
-            </div>
-        </section>
-        <section id="setup-bar-details" class="setup-bar__details d-none">
-            <div class="setup-bar__details-grid">
-                <div class="setup-step">
-                    <div class="setup-step__head">
-                        <h3 class="h6 mb-1">1) Crear atleta</h3>
-                        <span class="badge bg-secondary" data-step-status="crear-atleta">Pendiente</span>
+            <div class="trainer-sidebar__footer">
+                <div class="trainer-version">
+                    <img src="../img/logo_sin_fondo.png" alt="" class="trainer-version__icon">
+                    <div>
+                        <strong>MindPace V2</strong>
+                        <span>Tu entrenamiento, tu evolución</span>
                     </div>
-                    <p class="text-muted small" data-step-help="crear-atleta">Da de alta a tu atleta y completa sus datos básicos.</p>
-                    <a class="btn btn-sm btn-outline-primary" href="atletas.html">Ir a atletas</a>
                 </div>
-                <div class="setup-step">
-                    <div class="setup-step__head">
-                        <h3 class="h6 mb-1">2) Calcular zonas / VDOT</h3>
-                        <span class="badge bg-secondary" data-step-status="zonas-vdot">Pendiente</span>
-                    </div>
-                    <p class="text-muted small" data-step-help="zonas-vdot">Genera las zonas para personalizar ritmos y tiempos.</p>
-                    <a class="btn btn-sm btn-outline-primary" href="utilidades.html">Ir a utilidades</a>
-                </div>
-                <div class="setup-step">
-                    <div class="setup-step__head">
-                        <h3 class="h6 mb-1">3) Crear plan</h3>
-                        <span class="badge bg-secondary" data-step-status="crear-plan">Pendiente</span>
-                    </div>
-                    <p class="text-muted small" data-step-help="crear-plan">Crea plantillas y entrenamientos reutilizables.</p>
-                    <a class="btn btn-sm btn-outline-primary" href="entrenamientos.html">Ir a entrenamientos</a>
-                </div>
-                <div class="setup-step">
-                    <div class="setup-step__head">
-                        <h3 class="h6 mb-1">4) Asignar semana</h3>
-                        <span class="badge bg-secondary" data-step-status="asignar-semana">Pendiente</span>
-                    </div>
-                    <p class="text-muted small" data-step-help="asignar-semana">Asigna entrenamientos a tus atletas para la semana.</p>
-                    <a class="btn btn-sm btn-outline-primary" href="entrenamientos.html">Asignar semana</a>
-                </div>
-                <div class="setup-step">
-                    <div class="setup-step__head">
-                        <h3 class="h6 mb-1">5) Revisar comparativa</h3>
-                        <span class="badge bg-secondary" data-step-status="revisar-comparativa">Pendiente</span>
-                    </div>
-                    <p class="text-muted small" data-step-help="revisar-comparativa">Consulta planificado vs real y métricas de progreso.</p>
-                    <a class="btn btn-sm btn-outline-primary" href="estadisticas.html">Ir a análisis</a>
+                <button class="trainer-logout" id="btn-logout" type="button">Salir</button>
+                <div class="trainer-secondary-links" aria-label="Accesos secundarios">
+                    <a href="entrenamientos.html">Entrenamientos</a>
+                    <a href="calendario.html">Calendario</a>
+                    <a href="feedback.html">Feedback</a>
                 </div>
             </div>
-        </section>
+        </aside>
 
-        <section class="app-card coach-alerts">
-            <div class="coach-alerts__header">
+        <main class="trainer-main">
+            <header class="trainer-topbar">
                 <div>
-                    <p class="eyebrow eyebrow--subtle mb-1">Alertas que requieren atención</p>
-                    <h2 class="h5 mb-1">Alertas próximas</h2>
-                    <p class="text-muted mb-0">Visibilidad y feedback que requieren atención inmediata.</p>
+                    <h1 id="trainer-greeting">Buenos días</h1>
+                    <p id="dashboard-priority">Cargando prioridades de hoy...</p>
                 </div>
-                <a class="btn btn-sm btn-outline-primary" href="alertas.html">Ver todas las alertas</a>
-            </div>
-        </section>
+                <div class="trainer-topbar__meta">
+                    <div class="trainer-date">
+                        <span class="trainer-date__icon">□</span>
+                        <div>
+                            <strong id="dashboard-date">Hoy</strong>
+                            <span id="dashboard-week">Semana</span>
+                        </div>
+                    </div>
+                    <a class="trainer-bell" href="alertas.html" aria-label="Ver centro de actividad">
+                        🔔
+                        <span id="activity-badge">0</span>
+                    </a>
+                    <div class="trainer-user">
+                        <span id="trainer-initials">MP</span>
+                        <div>
+                            <strong id="trainer-name">Entrenador</strong>
+                            <small>Entrenador</small>
+                        </div>
+                    </div>
+                </div>
+            </header>
 
-        <section class="coach-columns">
-            <div class="app-card coach-inbox">
-                <div class="coach-inbox__header">
-                    <h3 class="h6 mb-0">Próximos entrenamientos</h3>
+            <div class="trainer-content-grid">
+                <div class="trainer-workspace">
+                    <section class="today-panel" aria-label="Qué tengo que hacer hoy">
+                        <div class="today-panel__lead">
+                            <span>Hoy</span>
+                            <strong>Qué necesita tu atención</strong>
+                        </div>
+                        <a class="today-item today-item--warning" href="entrenamientos.html">
+                            <strong id="today-pending-publish">0</strong>
+                            <span>Pendientes de publicar</span>
+                        </a>
+                        <a class="today-item today-item--primary" href="feedback.html">
+                            <strong id="today-review">0</strong>
+                            <span>Sesiones por revisar</span>
+                        </a>
+                        <a class="today-item today-item--danger" href="alertas.html">
+                            <strong id="today-alerts">0</strong>
+                            <span>Alertas / molestias</span>
+                        </a>
+                        <a class="today-item today-item--info" href="feedback.html">
+                            <strong id="today-feedback">0</strong>
+                            <span>Feedbacks recibidos</span>
+                        </a>
+                        <div class="continue-card">
+                            <div>
+                                <strong>Continuar trabajando</strong>
+                                <span id="continue-working-text">Continúa con la planificación de la semana actual.</span>
+                            </div>
+                            <a href="ciclos.html">Continuar</a>
+                        </div>
+                    </section>
+
+                    <section class="control-section">
+                        <div class="control-section__header">
+                            <h2>Acciones rápidas</h2>
+                        </div>
+                        <div class="quick-actions" aria-label="Acciones rápidas">
+                            <a class="quick-action" href="ciclos.html">
+                                <span class="quick-action__icon quick-action__icon--blue">▣</span>
+                                <strong>Planificar semana</strong>
+                                <small>Continúa o crea la planificación</small>
+                                <em id="quick-plan-context">Semana actual</em>
+                            </a>
+                            <a class="quick-action" href="entrenamientos.html">
+                                <span class="quick-action__icon quick-action__icon--green">+</span>
+                                <strong>Crear entrenamiento</strong>
+                                <small>Nueva sesión o plantilla</small>
+                                <em>Crear ahora</em>
+                            </a>
+                            <a class="quick-action" href="atletas.html">
+                                <span class="quick-action__icon quick-action__icon--orange">👥</span>
+                                <strong>Gestionar atletas</strong>
+                                <small>Fichas, grupos y seguimiento</small>
+                                <em id="quick-athletes-context">Atletas activos</em>
+                            </a>
+                            <a class="quick-action" href="estadisticas.html">
+                                <span class="quick-action__icon quick-action__icon--violet">↗</span>
+                                <strong>Historial y rendimiento</strong>
+                                <small>Revisa sesiones y evolución</small>
+                                <em>Analizar</em>
+                            </a>
+                            <a class="quick-action" href="alertas.html">
+                                <span class="quick-action__icon quick-action__icon--red">~</span>
+                                <strong>Centro de actividad</strong>
+                                <small>Feedback, FIT y alertas</small>
+                                <em id="quick-activity-context">0 avisos nuevos</em>
+                            </a>
+                            <a class="quick-action" href="utilidades.html">
+                                <span class="quick-action__icon quick-action__icon--slate">⚙</span>
+                                <strong>Configuración</strong>
+                                <small>Ajustes del sistema</small>
+                                <em>Ajustes</em>
+                            </a>
+                        </div>
+                    </section>
+
+                    <section class="control-section">
+                        <div class="control-section__header">
+                            <h2>Resumen semanal</h2>
+                        </div>
+                        <div class="weekly-summary">
+                            <article class="metric-card">
+                                <span class="metric-card__icon metric-card__icon--blue">▰</span>
+                                <strong id="metric-sessions">0</strong>
+                                <small>Sesiones planificadas</small>
+                                <em id="metric-sessions-note">Semana actual</em>
+                            </article>
+                            <article class="metric-card">
+                                <span class="metric-card__icon metric-card__icon--green">▲</span>
+                                <strong id="metric-athletes">0</strong>
+                                <small>Atletas con sesión</small>
+                                <em>Planificación activa</em>
+                            </article>
+                            <article class="metric-card">
+                                <span class="metric-card__icon metric-card__icon--violet">◴</span>
+                                <strong id="metric-hidden">0</strong>
+                                <small>Pendientes de publicar</small>
+                                <em>Pendientes de publicar</em>
+                            </article>
+                            <article class="metric-card">
+                                <span class="metric-card__icon metric-card__icon--orange">▥</span>
+                                <strong id="metric-review">0</strong>
+                                <small>FIT / feedback por revisar</small>
+                                <em>Cola de trabajo</em>
+                            </article>
+                        </div>
+                    </section>
+
+                    <section class="control-section control-section--table">
+                        <div class="control-section__header">
+                            <h2>Próximos entrenamientos</h2>
+                            <a href="calendario.html">Ver calendario semanal</a>
+                        </div>
+                        <div id="proximos-entrenamientos" class="training-table" aria-live="polite"></div>
+                        <div id="proximos-entrenamientos-paginacion" class="training-pagination" aria-label="Paginación de próximos entrenamientos"></div>
+                    </section>
                 </div>
-                <div id="proximos-entrenamientos" class="coach-inbox__list text-muted"></div>
+
+                <aside class="activity-panel" aria-label="Actividad reciente">
+                    <div class="activity-panel__header">
+                        <h2>Actividad reciente</h2>
+                        <span id="activity-count">0</span>
+                    </div>
+                    <div id="feedbacks-pendientes" class="activity-list" aria-live="polite"></div>
+
+                    <div class="pending-send-card">
+                        <span>Entrenamientos pendientes de envío</span>
+                        <strong id="pending-send-count">0</strong>
+                        <a href="entrenamientos.html">Ver y gestionar envíos <span>›</span></a>
+                    </div>
+                </aside>
             </div>
-            <div class="app-card coach-inbox">
-                <div class="coach-inbox__header">
-                    <h3 class="h6 mb-0">Feedback pendiente</h3>
-                </div>
-                <div id="feedbacks-pendientes" class="coach-inbox__list text-muted"></div>
-            </div>
-        </section>
-        <div data-include="../partials/footer.html"></div>
+        </main>
     </div>
 
     <div class="modal fade" id="modalVisibilidadEntreno" tabindex="-1" aria-hidden="true">

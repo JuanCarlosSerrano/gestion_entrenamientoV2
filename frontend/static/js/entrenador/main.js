@@ -6,6 +6,17 @@ let Entrenamientos;
 let entrenoSeleccionado = null;
 let modalVisibilidad = null;
 let cachedAtletasIds = null;
+let proximosEntrenamientos = [];
+let proximosPaginaActual = 1;
+const PROXIMOS_POR_PAGINA = 5;
+const dashboardState = {
+  atletasActivos: 0,
+  pendientesPublicar: 0,
+  sesionesPorRevisar: 0,
+  sesionesPlanificadas: 0,
+  alertas: 0,
+  feedbacks: 0,
+};
 
 const formatFechaCorta = (valor) => {
   const d = new Date(valor);
@@ -15,6 +26,41 @@ const formatFechaCorta = (valor) => {
   const yyyy = d.getFullYear();
   return `${dd}-${mm}-${yyyy}`;
 };
+
+const formatFechaDashboard = (valor) => {
+  const d = valor ? new Date(valor) : new Date();
+  if (Number.isNaN(d.getTime())) return { dia: "Hoy", mes: "" };
+  const hoy = new Date();
+  const manana = new Date();
+  manana.setDate(hoy.getDate() + 1);
+  const mismoDia = d.toDateString() === hoy.toDateString();
+  const esManana = d.toDateString() === manana.toDateString();
+  const dia = mismoDia
+    ? "Hoy"
+    : esManana
+      ? "Mañana"
+      : d.toLocaleDateString("es-ES", { weekday: "short" });
+  return {
+    dia: dia.charAt(0).toUpperCase() + dia.slice(1).replace(".", ""),
+    mes: d.toLocaleDateString("es-ES", { day: "2-digit", month: "short" }).toUpperCase().replace(".", ""),
+  };
+};
+
+const getIsoWeek = (date = new Date()) => {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+};
+
+const escapeHtml = (valor) =>
+  String(valor ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 
 const textoRpe = (valor) => {
   const num = Number(valor);
@@ -269,6 +315,8 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function inicializarDashboardEntrenador() {
+  inicializarCentroControl();
+  cargarContextoAtletas();
   cargarProximosEntrenamientos();
   mostrarFeedbacksPendientes();
   configurarOnboardingEntrenador();
@@ -296,6 +344,275 @@ function inicializarDashboardEntrenador() {
   }
 }
 
+function inicializarCentroControl() {
+  const fechaEl = document.getElementById("dashboard-date");
+  const weekEl = document.getElementById("dashboard-week");
+  const hoy = new Date();
+  if (fechaEl) {
+    fechaEl.textContent = hoy.toLocaleDateString("es-ES", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+    fechaEl.textContent = fechaEl.textContent.charAt(0).toUpperCase() + fechaEl.textContent.slice(1);
+  }
+  if (weekEl) {
+    weekEl.textContent = `Semana ${getIsoWeek(hoy)}`;
+  }
+
+  const storedName =
+    localStorage.getItem("userName") ||
+    localStorage.getItem("userEmail") ||
+    localStorage.getItem("userRol") ||
+    "Entrenador";
+  const readableName = storedName.includes("@") ? storedName.split("@")[0] : storedName;
+  const displayName = readableName === "entrenador" ? "Entrenador" : readableName;
+  const greeting = document.getElementById("trainer-greeting");
+  const nameEl = document.getElementById("trainer-name");
+  const initialsEl = document.getElementById("trainer-initials");
+  if (greeting) greeting.textContent = `${saludoPorHora()}, ${displayName}`;
+  if (nameEl) nameEl.textContent = displayName;
+  if (initialsEl) {
+    const initials = displayName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0])
+      .join("")
+      .toUpperCase();
+    initialsEl.textContent = initials || "MP";
+  }
+  actualizarCabeceraPrioridad();
+}
+
+function saludoPorHora() {
+  const hora = new Date().getHours();
+  if (hora < 14) return "Buenos días";
+  if (hora < 21) return "Buenas tardes";
+  return "Buenas noches";
+}
+
+function textoPlural(valor, singular, plural) {
+  return `${valor} ${valor === 1 ? singular : plural}`;
+}
+
+function actualizarCabeceraPrioridad() {
+  const priorityEl = document.getElementById("dashboard-priority");
+  if (priorityEl) {
+    const pendientes = textoPlural(dashboardState.pendientesPublicar, "entrenamiento pendiente de publicar", "entrenamientos pendientes de publicar");
+    const revisar = textoPlural(dashboardState.sesionesPorRevisar, "sesión nueva por revisar", "sesiones nuevas por revisar");
+    priorityEl.textContent = `Hoy tienes ${pendientes} y ${revisar}.`;
+  }
+
+  const planContext = document.getElementById("quick-plan-context");
+  if (planContext) {
+    planContext.textContent = `Semana actual · ${dashboardState.pendientesPublicar} pendientes`;
+  }
+
+  const athletesContext = document.getElementById("quick-athletes-context");
+  if (athletesContext) {
+    athletesContext.textContent = `${dashboardState.atletasActivos} atletas activos`;
+  }
+
+  const activityContext = document.getElementById("quick-activity-context");
+  if (activityContext) {
+    activityContext.textContent = `${dashboardState.sesionesPorRevisar} avisos nuevos`;
+  }
+
+  const todayValues = {
+    "today-pending-publish": dashboardState.pendientesPublicar,
+    "today-review": dashboardState.sesionesPorRevisar,
+    "today-alerts": dashboardState.alertas,
+    "today-feedback": dashboardState.feedbacks,
+  };
+  Object.entries(todayValues).forEach(([id, value]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(value);
+  });
+
+  const continueText = document.getElementById("continue-working-text");
+  if (continueText) {
+    continueText.textContent = dashboardState.pendientesPublicar > 0
+      ? `Tienes ${textoPlural(dashboardState.pendientesPublicar, "entrenamiento pendiente de publicar", "entrenamientos pendientes de publicar")}.`
+      : "Continúa con la planificación de la semana actual.";
+  }
+}
+
+async function cargarContextoAtletas() {
+  try {
+    const res = await fetch(`${API_BASE}/atletas`, { credentials: "include" });
+    if (!res.ok) return;
+    const atletas = await res.json();
+    dashboardState.atletasActivos = Array.isArray(atletas) ? atletas.length : 0;
+    actualizarCabeceraPrioridad();
+  } catch (err) {
+    console.warn("No se pudo cargar el contexto de atletas", err);
+  }
+}
+
+function actualizarActividadBadges(total) {
+  dashboardState.sesionesPorRevisar = Number(total) || 0;
+  dashboardState.feedbacks = Number(total) || 0;
+  ["activity-count", "activity-badge"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(total);
+  });
+  const metricReview = document.getElementById("metric-review");
+  if (metricReview) metricReview.textContent = String(dashboardState.sesionesPorRevisar);
+  actualizarCabeceraPrioridad();
+}
+
+function actualizarResumenSemanal(entrenos) {
+  const lista = Array.isArray(entrenos) ? entrenos : [];
+  const sessionsEl = document.getElementById("metric-sessions");
+  const athletesEl = document.getElementById("metric-athletes");
+  const hiddenEl = document.getElementById("metric-hidden");
+  const pendingEl = document.getElementById("pending-send-count");
+  const noteEl = document.getElementById("metric-sessions-note");
+
+  const atletas = new Set();
+  let ocultos = 0;
+  lista.forEach((entreno) => {
+    if (Number(entreno.visible) !== 1) ocultos += 1;
+    String(entreno.atletas_ids || "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .forEach((id) => atletas.add(id));
+  });
+  dashboardState.sesionesPlanificadas = lista.length;
+  dashboardState.pendientesPublicar = ocultos;
+
+  if (sessionsEl) sessionsEl.textContent = String(lista.length);
+  if (athletesEl) athletesEl.textContent = String(atletas.size || lista.reduce((acc, e) => acc + (Number(e.num_atletas) || 0), 0));
+  if (hiddenEl) hiddenEl.textContent = String(ocultos);
+  if (pendingEl) pendingEl.textContent = String(ocultos);
+  if (noteEl) noteEl.textContent = lista.length ? "Próximas sesiones" : "Sin sesiones próximas";
+  actualizarCabeceraPrioridad();
+}
+
+function renderPaginacionProximos(total) {
+  const contenedor = document.getElementById("proximos-entrenamientos-paginacion");
+  if (!contenedor) return;
+
+  const totalPaginas = Math.max(1, Math.ceil(total / PROXIMOS_POR_PAGINA));
+  if (total <= PROXIMOS_POR_PAGINA) {
+    contenedor.innerHTML = "";
+    return;
+  }
+
+  contenedor.innerHTML = `
+    <button type="button" class="training-pagination__btn" data-page-action="prev" ${proximosPaginaActual <= 1 ? "disabled" : ""}>
+      Anterior
+    </button>
+    <span>Página ${proximosPaginaActual} de ${totalPaginas}</span>
+    <button type="button" class="training-pagination__btn" data-page-action="next" ${proximosPaginaActual >= totalPaginas ? "disabled" : ""}>
+      Siguiente
+    </button>
+  `;
+
+  contenedor.querySelectorAll("[data-page-action]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const action = btn.dataset.pageAction;
+      const nextPage = action === "next" ? proximosPaginaActual + 1 : proximosPaginaActual - 1;
+      proximosPaginaActual = Math.min(Math.max(nextPage, 1), totalPaginas);
+      renderProximosEntrenamientos();
+    });
+  });
+}
+
+function renderProximosEntrenamientos() {
+  const contenedor = document.getElementById("proximos-entrenamientos");
+  if (!contenedor) return;
+
+  contenedor.innerHTML = "";
+  const total = proximosEntrenamientos.length;
+
+  if (!total) {
+    contenedor.innerHTML = '<p class="trainer-empty">No hay entrenamientos próximos.</p>';
+    renderPaginacionProximos(0);
+    return;
+  }
+
+  const totalPaginas = Math.max(1, Math.ceil(total / PROXIMOS_POR_PAGINA));
+  proximosPaginaActual = Math.min(Math.max(proximosPaginaActual, 1), totalPaginas);
+  const inicio = (proximosPaginaActual - 1) * PROXIMOS_POR_PAGINA;
+  const entrenosPagina = proximosEntrenamientos.slice(inicio, inicio + PROXIMOS_POR_PAGINA);
+
+  entrenosPagina.forEach((e, idx) => {
+    const visibleValue = Number(e.visible);
+    const esVisible = visibleValue === 1;
+    const esProgramado = visibleValue === 2 || String(e.estado || "").toLowerCase() === "programado";
+    const estadoTexto = esProgramado ? "Programado" : esVisible ? "Visible" : "Oculto";
+    const statusClass = esProgramado ? "training-status--scheduled" : esVisible ? "training-status--visible" : "training-status--hidden";
+    const primaryAction = esProgramado
+      ? { label: "Ver programación", kind: "link", href: "calendario.html" }
+      : esVisible
+        ? { label: "WhatsApp", kind: "link", href: "entrenamientos.html" }
+        : { label: "Publicar", kind: "button" };
+    const fecha = formatFechaDashboard(e.fecha);
+    const div = document.createElement("div");
+    div.className = "training-row";
+    div.dataset.index = String(inicio + idx);
+
+    div.innerHTML = `
+      <div class="training-row__date">
+        <strong>${fecha.dia}</strong>
+        <span>${fecha.mes}</span>
+      </div>
+      <span class="training-row__icon ${esVisible ? "training-row__icon--green" : esProgramado ? "training-row__icon--orange" : "training-row__icon--blue"}">▰</span>
+      <div class="training-row__main">
+        <strong>${escapeHtml(e.nombre || "Entrenamiento")}</strong>
+        <span>${formatFechaCorta(e.fecha)} · ${Number(e.num_atletas) || 0} atletas</span>
+      </div>
+      <div class="training-row__group">
+        <strong>${Number(e.num_atletas) > 1 ? "Grupo asignado" : "Atleta"}</strong>
+        <span>${Number(e.num_atletas) || 0} atletas</span>
+      </div>
+      <span class="training-status ${statusClass}">${estadoTexto}</span>
+      <div class="training-row__actions">
+        ${
+          primaryAction.kind === "button"
+            ? '<button class="training-action training-action--primary" type="button" data-action="publish">Publicar</button>'
+            : `<a class="training-action training-action--primary" href="${primaryAction.href}" data-action="primary">${primaryAction.label}</a>`
+        }
+        <a class="training-action training-action--secondary" href="calendario.html" data-action="view">Ver</a>
+        <a class="training-action training-action--secondary" href="calendario.html" data-action="edit">Editar</a>
+      </div>
+    `;
+
+    div.querySelectorAll("a, button").forEach((actionEl) => {
+      actionEl.addEventListener("click", (event) => {
+        event.stopPropagation();
+      });
+    });
+
+    const publishBtn = div.querySelector('[data-action="publish"]');
+    if (publishBtn) {
+      publishBtn.addEventListener("click", () => {
+        entrenoSeleccionado = e;
+        cambiarVisibilidadDesdeModal(1);
+      });
+    }
+
+    div.addEventListener("click", () => {
+      entrenoSeleccionado = e;
+      const info = document.getElementById("modal-entreno-info");
+      if (info) {
+        info.textContent = `${e.nombre} · ${formatFechaCorta(e.fecha)} · ${e.num_atletas} atletas`;
+      }
+      if (modalVisibilidad) {
+        modalVisibilidad.show();
+      }
+    });
+
+    contenedor.appendChild(div);
+  });
+
+  renderPaginacionProximos(total);
+}
+
 // --- FEEDBACKS PENDIENTES ---
 async function mostrarFeedbacksPendientes() {
   const contenedor = document.getElementById("feedbacks-pendientes");
@@ -309,7 +626,8 @@ async function mostrarFeedbacksPendientes() {
     if (!res.ok) {
       console.error("Error HTTP en feedbacks_pendientes:", res.status);
       contenedor.innerHTML =
-        '<p class="text-danger">Error al cargar los feedbacks.</p>';
+        '<p class="trainer-error">Error al cargar los feedbacks.</p>';
+      actualizarActividadBadges(0);
       return;
     }
 
@@ -318,51 +636,54 @@ async function mostrarFeedbacksPendientes() {
 
     if (!Array.isArray(feedbacks)) {
       contenedor.innerHTML =
-        '<p class="text-danger">Error al procesar los feedbacks.</p>';
+        '<p class="trainer-error">Error al procesar los feedbacks.</p>';
+      actualizarActividadBadges(0);
       return;
     }
+
+    actualizarActividadBadges(feedbacks.length);
+    dashboardState.alertas = feedbacks.filter((fb) => {
+      const rpeVal = Number(fb.rpe);
+      return Number(fb.dolor) === 1 || fb.dolor === true || rpeVal >= 8;
+    }).length;
+    actualizarCabeceraPrioridad();
 
     if (feedbacks.length === 0) {
       contenedor.innerHTML =
-        '<p class="text-muted">No hay feedbacks pendientes.</p>';
+        '<p class="trainer-empty">No hay actividad pendiente.</p>';
       return;
     }
 
-    const lista = document.createElement("ul");
-    lista.classList.add("list-group", "mt-3");
-
     feedbacks.forEach((fb) => {
-      const li = document.createElement("li");
-      li.className = "list-group-item";
+      const item = document.createElement("article");
+      item.className = "activity-item";
       const comentario = fb.comentario ? fb.comentario.slice(0, 80) : "Sin comentario";
-      const resumen = renderChipsFeedback(fb);
-      li.innerHTML = `
-        <a href="feedback.html?id=${fb.id}" class="text-decoration-none d-block">
-          <div class="d-flex justify-content-between align-items-start">
-            <div>
-              <strong>${fb.atleta}</strong>
-              ${fb.entrenamiento_nombre ? `<div class="small text-muted">${fb.entrenamiento_nombre}</div>` : ""}
-              ${resumen ? `<div class="d-flex flex-wrap gap-1 mt-2">${resumen}</div>` : ""}
-              <div class="mt-2 text-body">${comentario}</div>
-              ${
-                fb.url_datos
-                  ? `<small><a href="${fb.url_datos}" target="_blank" rel="noopener">Actividad</a></small><br>`
-                  : ""
-              }
-              <small class="text-muted">${formatFechaCorta(fb.fecha)}</small>
-            </div>
-            <span class="chip chip-warning ms-2">Nuevo</span>
+      const rpeVal = Number(fb.rpe);
+      const tieneDolor = Number(fb.dolor) === 1 || fb.dolor === true;
+      const iconClass = tieneDolor || rpeVal >= 9 ? "activity-item__icon--red" : rpeVal >= 7 ? "activity-item__icon--orange" : "activity-item__icon--violet";
+      const title = tieneDolor ? "Molestias reportadas" : rpeVal >= 8 ? "RPE alto" : "Nuevo feedback";
+      const chip = tieneDolor && fb.zona_dolor ? escapeHtml(fb.zona_dolor) : rpeVal ? `RPE ${rpeVal}` : "Nuevo";
+      const actionText = tieneDolor || rpeVal >= 8 ? "Revisar" : "Ver feedback";
+      item.innerHTML = `
+          <span class="activity-item__icon ${iconClass}">${tieneDolor ? "!" : "~"}</span>
+          <div class="activity-item__body">
+            <strong>${escapeHtml(fb.atleta || "Atleta")}</strong>
+            <span>${escapeHtml(title)}${fb.entrenamiento_nombre ? ` · ${escapeHtml(fb.entrenamiento_nombre)}` : ""}</span>
+            <small>${escapeHtml(comentario)}</small>
+            <small>${formatFechaCorta(fb.fecha)}</small>
           </div>
-        </a>
+          <div class="activity-item__side">
+            <span class="activity-chip">${chip}</span>
+            <a class="activity-action" href="feedback.html?id=${fb.id}">${actionText}</a>
+          </div>
       `;
-      lista.appendChild(li);
+      contenedor.appendChild(item);
     });
-
-    contenedor.appendChild(lista);
   } catch (err) {
     console.error("Error al obtener feedbacks pendientes:", err);
     contenedor.innerHTML =
-      '<p class="text-danger">Error al cargar los feedbacks.</p>';
+      '<p class="trainer-error">Error al cargar los feedbacks.</p>';
+    actualizarActividadBadges(0);
   }
 }
 
@@ -379,64 +700,32 @@ async function cargarProximosEntrenamientos() {
     if (!res.ok) {
       console.error("Error HTTP en entrenamientos_proximos:", res.status);
       contenedor.innerHTML =
-        '<p class="text-danger">Error al cargar los entrenamientos.</p>';
+        '<p class="trainer-error">Error al cargar los entrenamientos.</p>';
+      actualizarResumenSemanal([]);
+      proximosEntrenamientos = [];
+      renderPaginacionProximos(0);
       return;
     }
 
     const entrenos = await res.json();
     contenedor.innerHTML = "";
+    proximosEntrenamientos = Array.isArray(entrenos) ? entrenos : [];
+    proximosPaginaActual = 1;
+    actualizarResumenSemanal(proximosEntrenamientos);
 
-    if (!Array.isArray(entrenos) || entrenos.length === 0) {
-      contenedor.innerHTML =
-        '<p class="text-muted">No hay entrenamientos próximos.</p>';
+    if (!proximosEntrenamientos.length) {
+      renderProximosEntrenamientos();
       return;
     }
 
-    entrenos.forEach((e, idx) => {
-      const esVisible = Number(e.visible) === 1; // 1 = visible, 0 = oculto
-      const estadoTexto = esVisible
-        ? "Visible para atletas"
-        : "Oculto para atletas";
-
-      const colorClase = esVisible
-        ? "border-success text-success"
-        : "border-primary text-primary";
-
-      const div = document.createElement("div");
-      div.className = `mb-2 p-2 rounded border ${colorClase}`;
-      div.style.cursor = "pointer";
-      div.dataset.index = idx;
-
-      div.innerHTML = `
-        <div class="d-flex justify-content-between align-items-center">
-          <div>
-            <strong>${e.nombre}</strong><br>
-            <small>${formatFechaCorta(e.fecha)} · ${e.num_atletas} atletas</small>
-          </div>
-          <span class="badge ${esVisible ? "bg-success" : "bg-primary"}">
-            ${estadoTexto}
-          </span>
-        </div>
-      `;
-
-      // Al hacer clic, abrir modal para cambiar visibilidad
-      div.addEventListener("click", () => {
-        entrenoSeleccionado = e;
-        const info = document.getElementById("modal-entreno-info");
-        if (info) {
-          info.textContent = `${e.nombre} · ${formatFechaCorta(e.fecha)} · ${e.num_atletas} atletas`;
-        }
-        if (modalVisibilidad) {
-          modalVisibilidad.show();
-        }
-      });
-
-      contenedor.appendChild(div);
-    });
+    renderProximosEntrenamientos();
   } catch (err) {
     console.error("Error cargando entrenamientos:", err);
     contenedor.innerHTML =
-      '<p class="text-danger">Error al cargar los entrenamientos.</p>';
+      '<p class="trainer-error">Error al cargar los entrenamientos.</p>';
+    actualizarResumenSemanal([]);
+    proximosEntrenamientos = [];
+    renderPaginacionProximos(0);
   }
 }
 
