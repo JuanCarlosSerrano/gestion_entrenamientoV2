@@ -3707,7 +3707,7 @@ def actualizar_visibilidad_entrenamientos_asignados(current_user):
             query = f"""
                 UPDATE entrenamientos_asignados
                    SET visible = ?
-                 WHERE asignacion_id = ?
+                 WHERE id = ?
                    AND atleta_id IN ({placeholders})
             """
             params.append(asignacion_id)
