@@ -424,7 +424,7 @@ function actualizarCabeceraPrioridad() {
     "today-pending-publish": dashboardState.pendientesPublicar,
     "today-review": dashboardState.sesionesPorRevisar,
     "today-alerts": dashboardState.alertas,
-    "today-feedback": dashboardState.feedbacks,
+    "today-fit": dashboardState.feedbacks,
   };
   Object.entries(todayValues).forEach(([id, value]) => {
     const el = document.getElementById(id);
@@ -468,13 +468,21 @@ function actualizarResumenSemanal(entrenos) {
   const sessionsEl = document.getElementById("metric-sessions");
   const athletesEl = document.getElementById("metric-athletes");
   const hiddenEl = document.getElementById("metric-hidden");
-  const pendingEl = document.getElementById("pending-send-count");
-  const noteEl = document.getElementById("metric-sessions-note");
+  const kmEl = document.getElementById("metric-km");
 
   const atletas = new Set();
   let ocultos = 0;
+  let kmPlanificados = 0;
   lista.forEach((entreno) => {
     if (Number(entreno.visible) !== 1) ocultos += 1;
+    const km = Number(
+      entreno.km_planificados ??
+      entreno.distancia_km ??
+      entreno.distancia ??
+      entreno.km ??
+      0
+    );
+    if (Number.isFinite(km)) kmPlanificados += km;
     String(entreno.atletas_ids || "")
       .split(",")
       .map((id) => id.trim())
@@ -487,8 +495,7 @@ function actualizarResumenSemanal(entrenos) {
   if (sessionsEl) sessionsEl.textContent = String(lista.length);
   if (athletesEl) athletesEl.textContent = String(atletas.size || lista.reduce((acc, e) => acc + (Number(e.num_atletas) || 0), 0));
   if (hiddenEl) hiddenEl.textContent = String(ocultos);
-  if (pendingEl) pendingEl.textContent = String(ocultos);
-  if (noteEl) noteEl.textContent = lista.length ? "Próximas sesiones" : "Sin sesiones próximas";
+  if (kmEl) kmEl.textContent = kmPlanificados > 0 ? `${kmPlanificados.toLocaleString("es-ES", { maximumFractionDigits: 1 })}` : "--";
   actualizarCabeceraPrioridad();
 }
 
@@ -654,10 +661,10 @@ async function mostrarFeedbacksPendientes() {
       return;
     }
 
-    feedbacks.forEach((fb) => {
+    feedbacks.slice(0, 4).forEach((fb) => {
       const item = document.createElement("article");
       item.className = "activity-item";
-      const comentario = fb.comentario ? fb.comentario.slice(0, 80) : "Sin comentario";
+      const comentario = fb.comentario ? fb.comentario.slice(0, 54) : "Sin comentario";
       const rpeVal = Number(fb.rpe);
       const tieneDolor = Number(fb.dolor) === 1 || fb.dolor === true;
       const iconClass = tieneDolor || rpeVal >= 9 ? "activity-item__icon--red" : rpeVal >= 7 ? "activity-item__icon--orange" : "activity-item__icon--violet";
@@ -690,7 +697,6 @@ async function mostrarFeedbacksPendientes() {
 // --- PRÓXIMOS ENTRENAMIENTOS ---
 async function cargarProximosEntrenamientos() {
   const contenedor = document.getElementById("proximos-entrenamientos");
-  if (!contenedor) return;
 
   try {
     const res = await fetch(`${API_BASE}/entrenamientos_proximos`, {
@@ -699,8 +705,10 @@ async function cargarProximosEntrenamientos() {
 
     if (!res.ok) {
       console.error("Error HTTP en entrenamientos_proximos:", res.status);
-      contenedor.innerHTML =
-        '<p class="trainer-error">Error al cargar los entrenamientos.</p>';
+      if (contenedor) {
+        contenedor.innerHTML =
+          '<p class="trainer-error">Error al cargar los entrenamientos.</p>';
+      }
       actualizarResumenSemanal([]);
       proximosEntrenamientos = [];
       renderPaginacionProximos(0);
@@ -708,10 +716,12 @@ async function cargarProximosEntrenamientos() {
     }
 
     const entrenos = await res.json();
-    contenedor.innerHTML = "";
+    if (contenedor) contenedor.innerHTML = "";
     proximosEntrenamientos = Array.isArray(entrenos) ? entrenos : [];
     proximosPaginaActual = 1;
     actualizarResumenSemanal(proximosEntrenamientos);
+
+    if (!contenedor) return;
 
     if (!proximosEntrenamientos.length) {
       renderProximosEntrenamientos();
@@ -721,8 +731,10 @@ async function cargarProximosEntrenamientos() {
     renderProximosEntrenamientos();
   } catch (err) {
     console.error("Error cargando entrenamientos:", err);
-    contenedor.innerHTML =
-      '<p class="trainer-error">Error al cargar los entrenamientos.</p>';
+    if (contenedor) {
+      contenedor.innerHTML =
+        '<p class="trainer-error">Error al cargar los entrenamientos.</p>';
+    }
     actualizarResumenSemanal([]);
     proximosEntrenamientos = [];
     renderPaginacionProximos(0);
