@@ -21,7 +21,7 @@
 
             <nav class="trainer-nav">
                 <a class="trainer-nav__link is-active" href="index.html"><span>⌂</span> Inicio</a>
-                <a class="trainer-nav__link" href="ciclos.html"><span>▦</span> Planificar</a>
+                <a class="trainer-nav__link" href="calendario.html"><span>▦</span> Planificar</a>
                 <a class="trainer-nav__link" href="atletas.html"><span>👥</span> Atletas</a>
                 <a class="trainer-nav__link" href="estadisticas.html"><span>↗</span> Historial</a>
                 <a class="trainer-nav__link" href="alertas.html"><span>!</span> Actividad</a>
@@ -29,6 +29,14 @@
             </nav>
 
             <div class="trainer-sidebar__footer">
+                <div class="trainer-sidebar-user">
+                    <span id="sidebar-trainer-initials">E</span>
+                    <div>
+                        <strong id="sidebar-trainer-name">Entrenador</strong>
+                        <small>Entrenador</small>
+                    </div>
+                </div>
+                <button class="trainer-logout" id="btn-logout" type="button">Salir</button>
                 <div class="trainer-version">
                     <img src="../img/logo_sin_fondo.png" alt="" class="trainer-version__icon">
                     <div>
@@ -36,7 +44,6 @@
                         <span>Tu entrenamiento, tu evolución</span>
                     </div>
                 </div>
-                <button class="trainer-logout" id="btn-logout" type="button">Salir</button>
                 <div class="trainer-secondary-links" aria-label="Accesos secundarios">
                     <a href="entrenamientos.html">Entrenamientos</a>
                     <a href="calendario.html">Calendario</a>
@@ -75,85 +82,61 @@
 
             <div class="trainer-content-grid">
                 <div class="trainer-workspace">
-                    <section class="today-panel" aria-label="Qué tengo que hacer hoy">
-                        <div class="today-panel__content">
-                            <div>
-                                <span class="today-panel__eyebrow">Hoy</span>
-                                <h2>Qué necesita tu atención</h2>
-                            </div>
-                            <ul class="today-list">
-                                <li class="today-line today-line--warning">
-                                    <span class="today-line__icon">▣</span>
-                                    <div>
-                                        <strong id="today-pending-publish">0</strong>
-                                        <a href="entrenamientos.html">Pendientes de publicar</a>
-                                    </div>
-                                </li>
-                                <li class="today-line today-line--primary">
-                                    <span class="today-line__icon">↩</span>
-                                    <div>
-                                        <strong id="today-review">0</strong>
-                                        <a href="feedback.html">Sesiones / feedback por revisar</a>
-                                    </div>
-                                </li>
-                                <li class="today-line today-line--danger">
-                                    <span class="today-line__icon">!</span>
-                                    <div>
-                                        <strong id="today-alerts">0</strong>
-                                        <a href="alertas.html">Atletas con molestias</a>
-                                    </div>
-                                </li>
-                                <li class="today-line today-line--info">
-                                    <span class="today-line__icon">▤</span>
-                                    <div>
-                                        <strong id="today-fit">0</strong>
-                                        <a href="feedback.html">FIT pendientes</a>
-                                    </div>
-                                </li>
-                            </ul>
-                        </div>
-                        <div class="continue-card">
-                            <span id="continue-working-text">Continúa con la planificación de la semana actual.</span>
-                            <a href="ciclos.html">Continuar trabajando</a>
-                        </div>
-                    </section>
-
                     <section class="control-section">
                         <div class="control-section__header">
                             <h2>Acciones rápidas</h2>
                         </div>
                         <div class="quick-actions" aria-label="Acciones rápidas">
-                            <a class="quick-action" href="ciclos.html">
-                                <span class="quick-action__icon quick-action__icon--blue">▣</span>
-                                <strong>Planificar semana</strong>
-                                <small>Continúa o crea la planificación</small>
-                                <em id="quick-plan-context">Semana actual</em>
-                            </a>
-                            <a class="quick-action" href="entrenamientos.html">
+                            <a class="quick-action quick-action--primary" href="entrenamientos.html">
                                 <span class="quick-action__icon quick-action__icon--green">+</span>
                                 <strong>Crear entrenamiento</strong>
-                                <small>Nueva sesión o plantilla</small>
-                                <em>Crear ahora</em>
+                                <em>Nueva sesión</em>
+                            </a>
+                            <a class="quick-action quick-action--secondary" href="calendario.html">
+                                <span class="quick-action__icon quick-action__icon--blue">▣</span>
+                                <strong>Planificar semana</strong>
+                                <em id="quick-plan-context">Semana actual</em>
                             </a>
                             <a class="quick-action" href="atletas.html">
                                 <span class="quick-action__icon quick-action__icon--orange">👥</span>
-                                <strong>Gestionar atletas</strong>
-                                <small>Fichas, grupos y seguimiento</small>
+                                <strong>Atletas</strong>
                                 <em id="quick-athletes-context">Atletas activos</em>
                             </a>
                             <a class="quick-action" href="estadisticas.html">
                                 <span class="quick-action__icon quick-action__icon--violet">↗</span>
-                                <strong>Historial y rendimiento</strong>
-                                <small>Revisa sesiones y evolución</small>
+                                <strong>Historial</strong>
                                 <em>Analizar</em>
                             </a>
-                            <a class="quick-action" href="alertas.html">
-                                <span class="quick-action__icon quick-action__icon--red">~</span>
-                                <strong>Centro de actividad</strong>
-                                <small>Feedback, FIT y alertas</small>
-                                <em id="quick-activity-context">0 avisos nuevos</em>
-                            </a>
                         </div>
+                    </section>
+
+                    <section class="today-panel" aria-label="Pendientes de hoy">
+                        <div class="control-section__header today-panel__header">
+                            <h2>Pendientes de hoy</h2>
+                            <a class="today-panel__link" href="calendario.html" id="continue-working-link">Continuar trabajando</a>
+                        </div>
+                        <ul class="today-list quick-actions">
+                            <li class="today-line today-line--warning quick-action">
+                                <span class="today-line__icon quick-action__icon">↑</span>
+                                <strong id="today-pending-publish">0</strong>
+                                <a href="entrenamientos.html">Publicar</a>
+                            </li>
+                            <li class="today-line today-line--primary quick-action">
+                                <span class="today-line__icon quick-action__icon">↻</span>
+                                <strong id="today-review">0</strong>
+                                <a href="feedback.html">Revisar</a>
+                            </li>
+                            <li class="today-line today-line--danger quick-action">
+                                <span class="today-line__icon quick-action__icon">!</span>
+                                <strong id="today-alerts">0</strong>
+                                <a href="alertas.html">Alerta</a>
+                            </li>
+                            <li class="today-line today-line--info quick-action">
+                                <span class="today-line__icon quick-action__icon">□</span>
+                                <strong id="today-fit">0</strong>
+                                <a href="feedback.html">FIT</a>
+                            </li>
+                        </ul>
                     </section>
 
                     <section class="control-section">
@@ -164,12 +147,12 @@
                             <div class="weekly-summary__item">
                                 <span class="weekly-summary__icon weekly-summary__icon--blue">👥</span>
                                 <strong id="metric-athletes">0</strong>
-                                <span>atletas con planificación</span>
+                                <span>atletas</span>
                             </div>
                             <div class="weekly-summary__item">
                                 <span class="weekly-summary__icon weekly-summary__icon--green">▣</span>
                                 <strong id="metric-sessions">0</strong>
-                                <span>sesiones planificadas</span>
+                                <span>sesiones</span>
                             </div>
                             <div class="weekly-summary__item">
                                 <span class="weekly-summary__icon weekly-summary__icon--violet">⌁</span>
@@ -182,6 +165,7 @@
                                 <span>pendientes</span>
                             </div>
                         </div>
+                        <p class="weekly-summary__note" id="weekly-summary-note">Datos de la semana actual</p>
                     </section>
                 </div>
 

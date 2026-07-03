@@ -349,40 +349,42 @@ function inicializarCentroControl() {
   const weekEl = document.getElementById("dashboard-week");
   const hoy = new Date();
   if (fechaEl) {
-    fechaEl.textContent = hoy.toLocaleDateString("es-ES", {
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    });
-    fechaEl.textContent = fechaEl.textContent.charAt(0).toUpperCase() + fechaEl.textContent.slice(1);
+    const weekday = hoy.toLocaleDateString("es-ES", { weekday: "long" });
+    const month = hoy.toLocaleDateString("es-ES", { month: "long" });
+    const compactDate = `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)} ${hoy.getDate()} ${month}`;
+    fechaEl.textContent = compactDate;
   }
   if (weekEl) {
     weekEl.textContent = `Semana ${getIsoWeek(hoy)}`;
+  }
+  const weekNoteEl = document.getElementById("weekly-summary-note");
+  if (weekNoteEl) {
+    weekNoteEl.textContent = `Datos de la semana actual (Semana ${getIsoWeek(hoy)})`;
   }
 
   const storedName =
     localStorage.getItem("userName") ||
     localStorage.getItem("userEmail") ||
-    localStorage.getItem("userRol") ||
-    "Entrenador";
+    "";
   const readableName = storedName.includes("@") ? storedName.split("@")[0] : storedName;
-  const displayName = readableName === "entrenador" ? "Entrenador" : readableName;
+  const displayName = !readableName || readableName.toLowerCase() === "entrenador" ? "Juan Carlos" : readableName;
   const greeting = document.getElementById("trainer-greeting");
   const nameEl = document.getElementById("trainer-name");
   const initialsEl = document.getElementById("trainer-initials");
+  const sidebarNameEl = document.getElementById("sidebar-trainer-name");
+  const sidebarInitialsEl = document.getElementById("sidebar-trainer-initials");
   if (greeting) greeting.textContent = `${saludoPorHora()}, ${displayName}`;
   if (nameEl) nameEl.textContent = displayName;
-  if (initialsEl) {
-    const initials = displayName
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0])
-      .join("")
-      .toUpperCase();
-    initialsEl.textContent = initials || "MP";
-  }
+  if (sidebarNameEl) sidebarNameEl.textContent = displayName;
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+  if (initialsEl) initialsEl.textContent = initials || "MP";
+  if (sidebarInitialsEl) sidebarInitialsEl.textContent = initials || "MP";
   actualizarCabeceraPrioridad();
 }
 
@@ -407,17 +409,12 @@ function actualizarCabeceraPrioridad() {
 
   const planContext = document.getElementById("quick-plan-context");
   if (planContext) {
-    planContext.textContent = `Semana actual · ${dashboardState.pendientesPublicar} pendientes`;
+    planContext.textContent = `${dashboardState.pendientesPublicar} pendientes`;
   }
 
   const athletesContext = document.getElementById("quick-athletes-context");
   if (athletesContext) {
-    athletesContext.textContent = `${dashboardState.atletasActivos} atletas activos`;
-  }
-
-  const activityContext = document.getElementById("quick-activity-context");
-  if (activityContext) {
-    activityContext.textContent = `${dashboardState.sesionesPorRevisar} avisos nuevos`;
+    athletesContext.textContent = `${dashboardState.atletasActivos} activos`;
   }
 
   const todayValues = {
@@ -431,12 +428,6 @@ function actualizarCabeceraPrioridad() {
     if (el) el.textContent = String(value);
   });
 
-  const continueText = document.getElementById("continue-working-text");
-  if (continueText) {
-    continueText.textContent = dashboardState.pendientesPublicar > 0
-      ? `Tienes ${textoPlural(dashboardState.pendientesPublicar, "entrenamiento pendiente de publicar", "entrenamientos pendientes de publicar")}.`
-      : "Continúa con la planificación de la semana actual.";
-  }
 }
 
 async function cargarContextoAtletas() {
@@ -661,10 +652,10 @@ async function mostrarFeedbacksPendientes() {
       return;
     }
 
-    feedbacks.slice(0, 4).forEach((fb) => {
+    feedbacks.slice(0, 3).forEach((fb) => {
       const item = document.createElement("article");
       item.className = "activity-item";
-      const comentario = fb.comentario ? fb.comentario.slice(0, 54) : "Sin comentario";
+      const comentario = fb.comentario ? fb.comentario.slice(0, 42) : "";
       const rpeVal = Number(fb.rpe);
       const tieneDolor = Number(fb.dolor) === 1 || fb.dolor === true;
       const iconClass = tieneDolor || rpeVal >= 9 ? "activity-item__icon--red" : rpeVal >= 7 ? "activity-item__icon--orange" : "activity-item__icon--violet";
@@ -676,7 +667,7 @@ async function mostrarFeedbacksPendientes() {
           <div class="activity-item__body">
             <strong>${escapeHtml(fb.atleta || "Atleta")}</strong>
             <span>${escapeHtml(title)}${fb.entrenamiento_nombre ? ` · ${escapeHtml(fb.entrenamiento_nombre)}` : ""}</span>
-            <small>${escapeHtml(comentario)}</small>
+            ${comentario ? `<small>${escapeHtml(comentario)}</small>` : ""}
             <small>${formatFechaCorta(fb.fecha)}</small>
           </div>
           <div class="activity-item__side">

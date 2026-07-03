@@ -12,38 +12,169 @@
   <script src="../js/entrenador/main.js" type="module"></script>
   <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
 </head>
-<body class="app-bg">
-  <div class="container app-container">
-    <div data-include="../partials/header.html" data-nav-active="entrenamientos"></div>
-    <div class="page-context-bar page-context-bar--hero">
-      <div>
-        <p class="eyebrow eyebrow--subtle">Panel de entrenador</p>
-        <h1 class="page-context-title">Entrenamientos</h1>
-      </div>
-      <div class="page-context-actions gap-2">
-        <a href="index.html" class="btn btn-outline-secondary btn-sm">Volver</a>
-      </div>
-    </div>
-    <div class="app-card">
-      <div class="d-flex flex-wrap gap-2 mb-3 main-tab-buttons">
-        <button class="btn btn-light btn-sm active" data-main-tab-btn="entrenamientos">Entrenamientos</button>
-        <button class="btn btn-light btn-sm" data-main-tab-btn="micro">Microciclos</button>
-        <button class="btn btn-light btn-sm" data-main-tab-btn="meso">Mesociclos</button>
-        <button class="btn btn-light btn-sm" data-main-tab-btn="macro">Macrociclos</button>
-      </div>
+<body class="trainer-control trainer-control--workouts">
+  <div class="trainer-shell">
+    <aside class="trainer-sidebar" aria-label="Navegación del entrenador">
+      <a class="trainer-brand" href="index.html" aria-label="MindPace">
+        <img src="../img/logo_sin_fondo.png" alt="" class="trainer-brand__mark">
+        <span>MindPace</span>
+      </a>
 
+      <nav class="trainer-nav">
+        <a class="trainer-nav__link" href="index.html"><span>⌂</span> Inicio</a>
+        <a class="trainer-nav__link is-active" href="calendario.html"><span>▦</span> Planificar</a>
+        <a class="trainer-nav__link" href="atletas.html"><span>👥</span> Atletas</a>
+        <a class="trainer-nav__link" href="estadisticas.html"><span>↗</span> Historial</a>
+        <a class="trainer-nav__link" href="alertas.html"><span>!</span> Actividad</a>
+        <a class="trainer-nav__link" href="utilidades.html"><span>⚙</span> Configuración</a>
+      </nav>
+
+      <div class="trainer-sidebar__footer">
+        <div class="trainer-sidebar-user">
+          <span id="sidebar-trainer-initials">E</span>
+          <div>
+            <strong id="sidebar-trainer-name">Entrenador</strong>
+            <small>Entrenador</small>
+          </div>
+        </div>
+        <button class="trainer-logout" id="btn-logout" type="button">Salir</button>
+        <div class="trainer-version">
+          <img src="../img/logo_sin_fondo.png" alt="" class="trainer-version__icon">
+          <div>
+            <strong>MindPace V2</strong>
+            <span>Tu entrenamiento, tu evolución</span>
+          </div>
+        </div>
+        <div class="trainer-secondary-links" aria-label="Accesos secundarios">
+          <a href="entrenamientos.html">Entrenamientos</a>
+          <a href="calendario.html">Calendario</a>
+          <a href="feedback.html">Feedback</a>
+        </div>
+      </div>
+    </aside>
+
+    <main class="trainer-main">
+      <header class="trainer-topbar">
+        <div>
+          <h1 id="trainer-greeting">Buenos días</h1>
+          <p id="dashboard-priority">Crea entrenamientos desde plantilla o reutiliza sesiones guardadas.</p>
+        </div>
+        <div class="trainer-topbar__meta">
+          <div class="trainer-date">
+            <span class="trainer-date__icon">□</span>
+            <div>
+              <strong id="dashboard-date">Hoy</strong>
+              <span id="dashboard-week">Semana</span>
+            </div>
+          </div>
+          <a class="trainer-bell" href="alertas.html" aria-label="Ver centro de actividad">
+            🔔
+            <span id="activity-badge">3</span>
+          </a>
+          <div class="trainer-user">
+            <span id="trainer-initials">MP</span>
+            <div>
+              <strong id="trainer-name">Entrenador</strong>
+              <small>Entrenador</small>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div class="trainer-content-grid trainer-content-grid--single">
+        <div class="trainer-workspace trainer-workspace--wide">
+          <section class="control-section workout-flow-section">
       <!-- ================== TAB ENTRENAMIENTOS ================== -->
       <section data-main-tab-panel="entrenamientos" class="main-tab-panel active">
-        <div class="row g-4" id="entrenamientos-layout">
+        <div class="create-flow" id="create-flow">
+          <div class="create-flow__header">
+            <div>
+              <p class="eyebrow eyebrow--subtle mb-1">Crear entrenamiento</p>
+              <h2 id="create-flow-title">¿Cómo quieres empezar?</h2>
+              <p id="create-flow-help">Elige un punto de partida. MindPace preparará una estructura inicial para que no empieces desde cero.</p>
+            </div>
+            <div class="create-flow__steps" aria-label="Progreso del flujo">
+              <span class="is-active" data-flow-step-indicator="start">1</span>
+              <span data-flow-step-indicator="type">2</span>
+              <span data-flow-step-indicator="template">3</span>
+              <span data-flow-step-indicator="editor">4</span>
+            </div>
+          </div>
+
+          <div class="create-flow__screen is-active" data-flow-screen="start">
+            <button class="create-choice create-choice--primary" type="button" data-flow-start="new">
+              <span>＋</span>
+              <strong>Nuevo entrenamiento</strong>
+              <small>Desde plantilla.</small>
+            </button>
+            <button class="create-choice" type="button" data-flow-start="library">
+              <span>▤</span>
+              <strong>Mis entrenamientos</strong>
+              <small>Edita, o reutiliza.</small>
+            </button>
+          </div>
+
+          <div class="create-flow__screen" data-flow-screen="type">
+            <div class="training-type-grid" id="training-type-grid">
+              <button type="button" data-training-type="rodaje">
+                <span>□</span>
+                <strong>Rodaje</strong>
+              </button>
+              <button type="button" data-training-type="series">
+                <span>≡</span>
+                <strong>Series</strong>
+              </button>
+              <button type="button" data-training-type="cuestas">
+                <span>↗</span>
+                <strong>Cuestas</strong>
+              </button>
+              <button type="button" data-training-type="fartlek">
+                <span>~</span>
+                <strong>Fartlek</strong>
+              </button>
+              <button type="button" data-training-type="fuerza">
+                <span>＋</span>
+                <strong>Fuerza</strong>
+              </button>
+              <button type="button" data-training-type="competicion">
+                <span>!</span>
+                <strong>Competición</strong>
+              </button>
+            </div>
+          </div>
+
+          <div class="create-flow__screen" data-flow-screen="template">
+            <div class="template-preview">
+              <div>
+                <h3 id="template-preview-title">Plantilla inteligente</h3>
+                <p id="template-preview-copy">MindPace preparará una estructura inicial editable.</p>
+              </div>
+              <div id="template-preview-blocks" class="template-preview__blocks"></div>
+            </div>
+            <div class="create-flow__actions">
+              <button class="btn btn-outline-secondary" type="button" data-flow-back="type">Volver</button>
+              <button class="btn btn-brand" type="button" id="use-template-btn">Usar plantilla</button>
+            </div>
+          </div>
+
+          <div class="create-flow__screen" data-flow-screen="library">
+            <div class="create-flow__notice">
+              <strong>Elige un entrenamiento guardado</strong>
+              <span>Usa las acciones de cada tarjeta: editar, duplicar o asignar.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="row g-4 d-none" id="entrenamientos-layout">
           <div class="col-12 col-lg-5" id="entrenamientos-column">
             <div id="entrenamientos-list-container" class="app-card d-flex flex-column">
               <div class="d-flex justify-content-between align-items-start mb-3">
                 <div>
-                  <h2 class="mb-0">Entrenamientos Tipo</h2>
-                  <p class="text-muted small mb-0">Selecciona uno para editarlo o crea un nuevo bloque</p>
+                  <h2 class="mb-0">Mis entrenamientos</h2>
+                  <p class="text-muted small mb-0">Entrenamientos guardados para editar, duplicar o asignar.</p>
                 </div>
                 <button id="create-entrenamiento-btn" class="btn btn-primary btn-sm">
-                  <span class="me-1">＋</span>Nuevo
+                  <span class="me-1">＋</span>Crear entrenamiento
                 </button>
               </div>
               <div id="entrenamientos-grid" class="entrenamiento-grid entrenamiento-grid--stacked"></div>
@@ -57,7 +188,7 @@
                   <p class="text-muted small mb-0">Configura calentamientos, bloques repetidos e intensidades</p>
                 </div>
                 <div class="d-flex align-items-center gap-2">
-                  <div class="btn-group btn-group-sm" role="group" aria-label="Modo de edición">
+                  <div class="btn-group btn-group-sm d-none" role="group" aria-label="Modo de edición">
                     <button class="btn btn-outline-secondary" type="button" id="builder-mode-avanzado">Avanzado</button>
                     <button class="btn btn-outline-secondary" type="button" id="builder-mode-guiado">Guiado</button>
                   </div>
@@ -147,7 +278,7 @@
       </section>
 
       <!-- ================== TAB MICROCICLOS ================== -->
-      <section data-main-tab-panel="micro" class="main-tab-panel">
+      <section data-main-tab-panel="micro" class="main-tab-panel" hidden>
         <div id="micro-list-view">
           <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
             <div>
@@ -241,7 +372,7 @@
       </section>
 
       <!-- ================== TAB MESOCICLOS ================== -->
-      <section data-main-tab-panel="meso" class="main-tab-panel">
+      <section data-main-tab-panel="meso" class="main-tab-panel" hidden>
         <div id="meso-list-view">
           <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
             <div>
@@ -315,7 +446,7 @@
       </section>
 
       <!-- ================== TAB MACROCICLOS ================== -->
-      <section data-main-tab-panel="macro" class="main-tab-panel">
+      <section data-main-tab-panel="macro" class="main-tab-panel" hidden>
         <div id="macro-list-view">
           <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
             <div>
@@ -399,9 +530,10 @@
           </div>
         </div>
       </section>
-    </div>
-
-    <div data-include="../partials/footer.html"></div>
+          </section>
+        </div>
+      </div>
+    </main>
   </div>
 
   <!-- Modal: asignar entrenamiento -->
@@ -560,4 +692,3 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
 </body>
 </html>
-

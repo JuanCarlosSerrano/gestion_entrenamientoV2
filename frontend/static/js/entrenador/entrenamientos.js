@@ -43,8 +43,21 @@ const notasInput = document.getElementById('notas');
 const kmTotalesInput = document.getElementById('km_totales');
 const listaColumn = document.getElementById('entrenamientos-column');
 const builderColumn = document.getElementById('builder-column');
+const entrenamientosLayout = document.getElementById('entrenamientos-layout');
 const mainTabButtons = document.querySelectorAll('[data-main-tab-btn]');
 const mainTabPanels = document.querySelectorAll('[data-main-tab-panel]');
+const createFlow = document.getElementById('create-flow');
+const createFlowTitle = document.getElementById('create-flow-title');
+const createFlowHelp = document.getElementById('create-flow-help');
+const createFlowScreens = document.querySelectorAll('[data-flow-screen]');
+const createFlowIndicators = document.querySelectorAll('[data-flow-step-indicator]');
+const flowStartButtons = document.querySelectorAll('[data-flow-start]');
+const trainingTypeButtons = document.querySelectorAll('[data-training-type]');
+const templatePreviewTitle = document.getElementById('template-preview-title');
+const templatePreviewCopy = document.getElementById('template-preview-copy');
+const templatePreviewBlocks = document.getElementById('template-preview-blocks');
+const useTemplateBtn = document.getElementById('use-template-btn');
+const flowBackButtons = document.querySelectorAll('[data-flow-back]');
 
 const STEP_TYPES = [
   { value: 'warmup', label: 'Calentamiento' },
@@ -81,8 +94,62 @@ let wizardStepIndex = 0;
 let guiadoStepIndex = 0;
 let guiadoSteps = [];
 let guiadoData = { info: {}, bloques: { warmup: false, main: true, cooldown: false }, steps: { warmup: null, main: null, cooldown: null } };
+let selectedTrainingType = 'rodaje';
 
 // ===================== UTILS BÁSICOS =====================
+
+function getIsoWeek(date = new Date()) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+
+function saludoPorHora() {
+  const hora = new Date().getHours();
+  if (hora < 14) return 'Buenos días';
+  if (hora < 21) return 'Buenas tardes';
+  return 'Buenas noches';
+}
+
+function initTrainerShell() {
+  const hoy = new Date();
+  const fechaEl = document.getElementById('dashboard-date');
+  const weekEl = document.getElementById('dashboard-week');
+  const storedName =
+    localStorage.getItem('userName') ||
+    localStorage.getItem('userEmail') ||
+    '';
+  const readableName = storedName.includes('@') ? storedName.split('@')[0] : storedName;
+  const displayName = !readableName || readableName.toLowerCase() === 'entrenador' ? 'Juan Carlos' : readableName;
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase();
+
+  if (fechaEl) {
+    const weekday = hoy.toLocaleDateString('es-ES', { weekday: 'long' });
+    const month = hoy.toLocaleDateString('es-ES', { month: 'long' });
+    fechaEl.textContent = `${weekday.charAt(0).toUpperCase()}${weekday.slice(1)} ${hoy.getDate()} ${month}`;
+  }
+  if (weekEl) weekEl.textContent = `Semana ${getIsoWeek(hoy)}`;
+
+  const greeting = document.getElementById('trainer-greeting');
+  const nameEl = document.getElementById('trainer-name');
+  const initialsEl = document.getElementById('trainer-initials');
+  const sidebarNameEl = document.getElementById('sidebar-trainer-name');
+  const sidebarInitialsEl = document.getElementById('sidebar-trainer-initials');
+
+  if (greeting) greeting.textContent = `${saludoPorHora()}, ${displayName}`;
+  if (nameEl) nameEl.textContent = displayName;
+  if (sidebarNameEl) sidebarNameEl.textContent = displayName;
+  if (initialsEl) initialsEl.textContent = initials || 'MP';
+  if (sidebarInitialsEl) sidebarInitialsEl.textContent = initials || 'MP';
+}
 
 function authHeader() {
   const email = localStorage.getItem('userEmail') || '';
@@ -421,6 +488,181 @@ function cloneStep(step) {
     descripcion: step.descripcion ?? null,
     subpasos: Array.isArray(step.subpasos) ? step.subpasos.map(cloneStep) : []
   };
+}
+
+function stepWith(tipo, overrides = {}) {
+  return { ...createStep(tipo), ...overrides };
+}
+
+function getTrainingTemplate(type) {
+  const templates = {
+    rodaje: {
+      title: 'Rodaje',
+      copy: 'Bloque principal único para editar volumen, tiempo o zona.',
+      nombre: 'Rodaje',
+      objetivo: 'Base aeróbica',
+      pasos: [
+        stepWith('interval', { objetivo_valor: 45, unidad: 'min', objetivo_tipo: 'tiempo', zona: 'Z2', descripcion: 'Bloque principal' })
+      ]
+    },
+    series: {
+      title: 'Series',
+      copy: 'Estructura inicial para trabajo de calidad.',
+      nombre: 'Series',
+      objetivo: 'Trabajo de intensidad',
+      pasos: [
+        stepWith('warmup', { objetivo_valor: 15, unidad: 'min', objetivo_tipo: 'tiempo', zona: 'Z1' }),
+        stepWith('repeat', {
+          repeticiones: 6,
+          subpasos: [
+            stepWith('interval', { objetivo_valor: 800, unidad: 'm', objetivo_tipo: 'distancia', zona: 'Z4', descripcion: 'Serie' }),
+            stepWith('rest', { objetivo_valor: 90, unidad: 's', objetivo_tipo: 'tiempo', zona: 'Z1', descripcion: 'Recuperación' })
+          ]
+        }),
+        stepWith('cooldown', { objetivo_valor: 10, unidad: 'min', objetivo_tipo: 'tiempo', zona: 'Z1' })
+      ]
+    },
+    cuestas: {
+      title: 'Cuestas',
+      copy: 'Plantilla para fuerza específica en subida.',
+      nombre: 'Cuestas',
+      objetivo: 'Fuerza específica',
+      pasos: [
+        stepWith('warmup', { objetivo_valor: 15, unidad: 'min', objetivo_tipo: 'tiempo', zona: 'Z1' }),
+        stepWith('repeat', {
+          repeticiones: 8,
+          subpasos: [
+            stepWith('interval', { objetivo_valor: 45, unidad: 's', objetivo_tipo: 'tiempo', zona: 'Z5', descripcion: 'Cuesta' }),
+            stepWith('rest', { objetivo_valor: 90, unidad: 's', objetivo_tipo: 'tiempo', zona: 'Z1', descripcion: 'Recuperación' })
+          ]
+        }),
+        stepWith('cooldown', { objetivo_valor: 10, unidad: 'min', objetivo_tipo: 'tiempo', zona: 'Z1' })
+      ]
+    },
+    fartlek: {
+      title: 'Fartlek',
+      copy: 'Cambios de ritmo para una sesión variable.',
+      nombre: 'Fartlek',
+      objetivo: 'Cambios de ritmo',
+      pasos: [
+        stepWith('warmup', { objetivo_valor: 15, unidad: 'min', objetivo_tipo: 'tiempo', zona: 'Z1' }),
+        stepWith('repeat', {
+          repeticiones: 8,
+          subpasos: [
+            stepWith('interval', { objetivo_valor: 2, unidad: 'min', objetivo_tipo: 'tiempo', zona: 'Z4' }),
+            stepWith('rest', { objetivo_valor: 1, unidad: 'min', objetivo_tipo: 'tiempo', zona: 'Z2' })
+          ]
+        }),
+        stepWith('cooldown', { objetivo_valor: 10, unidad: 'min', objetivo_tipo: 'tiempo', zona: 'Z1' })
+      ]
+    },
+    umbral: {
+      title: 'Umbral',
+      copy: 'Sesión controlada para sostener ritmo exigente.',
+      nombre: 'Umbral',
+      objetivo: 'Ritmo umbral',
+      pasos: [
+        stepWith('warmup', { objetivo_valor: 15, unidad: 'min', objetivo_tipo: 'tiempo', zona: 'Z1' }),
+        stepWith('interval', { objetivo_valor: 20, unidad: 'min', objetivo_tipo: 'tiempo', zona: 'Z3' }),
+        stepWith('cooldown', { objetivo_valor: 10, unidad: 'min', objetivo_tipo: 'tiempo', zona: 'Z1' })
+      ]
+    },
+    competicion: {
+      title: 'Competición',
+      copy: 'Plantilla simple para día de carrera.',
+      nombre: 'Competición',
+      objetivo: 'Carrera',
+      pasos: [
+        stepWith('warmup', { objetivo_valor: 15, unidad: 'min', objetivo_tipo: 'tiempo', zona: 'Z1' }),
+        stepWith('custom', { objetivo_tipo: 'libre', descripcion: 'Competición' }),
+        stepWith('cooldown', { objetivo_valor: 10, unidad: 'min', objetivo_tipo: 'tiempo', zona: 'Z1' })
+      ]
+    },
+    fuerza: {
+      title: 'Fuerza',
+      copy: 'Circuito inicial para trabajo complementario.',
+      nombre: 'Fuerza',
+      objetivo: 'Fuerza y estabilidad',
+      pasos: [
+        stepWith('custom', { objetivo_tipo: 'libre', descripcion: 'Movilidad' }),
+        stepWith('repeat', { repeticiones: 3, subpasos: [stepWith('custom', { objetivo_tipo: 'libre', descripcion: 'Circuito principal' })] }),
+        stepWith('custom', { objetivo_tipo: 'libre', descripcion: 'Core y estiramientos' })
+      ]
+    },
+    tecnica: {
+      title: 'Técnica',
+      copy: 'Sesión breve para técnica y coordinación.',
+      nombre: 'Técnica de carrera',
+      objetivo: 'Técnica',
+      pasos: [
+        stepWith('warmup', { objetivo_valor: 10, unidad: 'min', objetivo_tipo: 'tiempo', zona: 'Z1' }),
+        stepWith('custom', { objetivo_tipo: 'libre', descripcion: 'Técnica de carrera' }),
+        stepWith('custom', { objetivo_tipo: 'libre', descripcion: 'Progresivos' })
+      ]
+    },
+    recuperacion: {
+      title: 'Recuperación',
+      copy: 'Plantilla suave para regenerar.',
+      nombre: 'Recuperación',
+      objetivo: 'Regenerativo',
+      pasos: [
+        stepWith('warmup', { objetivo_valor: 5, unidad: 'min', objetivo_tipo: 'tiempo', zona: 'Z1' }),
+        stepWith('interval', { objetivo_valor: 30, unidad: 'min', objetivo_tipo: 'tiempo', zona: 'Z1' }),
+        stepWith('cooldown', { objetivo_valor: 5, unidad: 'min', objetivo_tipo: 'tiempo', zona: 'Z1' })
+      ]
+    },
+    personalizado: {
+      title: 'Personalizado',
+      copy: 'Punto de partida mínimo, siempre editable.',
+      nombre: 'Entrenamiento personalizado',
+      objetivo: '',
+      pasos: [stepWith('warmup'), stepWith('custom', { objetivo_tipo: 'libre', descripcion: 'Bloque principal' }), stepWith('cooldown')]
+    }
+  };
+  return templates[type] || templates.rodaje;
+}
+
+function showCreateFlowScreen(screen) {
+  createFlowScreens.forEach((el) => el.classList.toggle('is-active', el.dataset.flowScreen === screen));
+  const indicatorMap = { start: 'start', library: 'start', type: 'type', template: 'template', editor: 'editor' };
+  createFlowIndicators.forEach((el) => el.classList.toggle('is-active', el.dataset.flowStepIndicator === indicatorMap[screen]));
+  entrenamientosLayout?.classList.toggle('d-none', !['library', 'editor'].includes(screen));
+  if (!createFlowTitle || !createFlowHelp) return;
+  const copy = {
+    start: ['¿Cómo quieres empezar?', 'Diseña un entrenamiento nuevo o reutiliza una sesión guardada.'],
+    library: ['Mis entrenamientos', 'Selecciona un entrenamiento guardado para editarlo, duplicarlo o asignarlo.'],
+    type: ['Elige una plantilla de entrenamiento', 'Se abrirá directamente en el editor para ajustar los bloques.'],
+    template: ['Plantilla inteligente', 'Revisa la estructura inicial. Podrás modificar cualquier bloque en el editor.'],
+    editor: ['Editor de bloques', 'Ajusta la plantilla y guarda el entrenamiento en tu biblioteca.']
+  };
+  const [title, help] = copy[screen] || copy.start;
+  createFlowTitle.textContent = title;
+  createFlowHelp.textContent = help;
+}
+
+function renderTemplatePreview(type) {
+  const template = getTrainingTemplate(type);
+  if (templatePreviewTitle) templatePreviewTitle.textContent = template.title;
+  if (templatePreviewCopy) templatePreviewCopy.textContent = template.copy;
+  if (templatePreviewBlocks) {
+    templatePreviewBlocks.innerHTML = template.pasos
+      .map((paso, index) => `<span>${index + 1}. ${getStepLabel(paso.tipo_paso)}${paso.descripcion ? ` · ${paso.descripcion}` : ''}</span>`)
+      .join('');
+  }
+}
+
+function applyTemplate(type) {
+  const template = getTrainingTemplate(type);
+  currentEntrenamientoId = null;
+  if (nombreInput) nombreInput.value = template.nombre || '';
+  if (objetivoInput) objetivoInput.value = template.objetivo || '';
+  if (notasInput) notasInput.value = '';
+  if (kmTotalesInput) kmTotalesInput.value = '';
+  resetBuilderState(template.pasos);
+  wizardStepIndex = 0;
+  setGuidedMode(false);
+  toggleBuilder(true);
+  showCreateFlowScreen('editor');
 }
 
 function resetBuilderState(pasos = null) {
@@ -1419,6 +1661,7 @@ async function hydrateEntrenamientosPasos() {
 
 function toggleBuilder(show) {
   if (!listaColumn || !builderColumn) return;
+  entrenamientosLayout?.classList.remove('d-none');
   if (show) {
     listaColumn.classList.add('d-none');
     listaColumn.classList.remove('col-lg-12');
@@ -3351,6 +3594,7 @@ function init() {
     return;
   }
 
+  initTrainerShell();
   setupMainTabs();
 
   formElement?.addEventListener('submit', guardarEntrenamiento);
@@ -3360,13 +3604,40 @@ function init() {
   });
   cancelBtn?.addEventListener('click', () => {
     startNewEntrenamiento(false);
+    showCreateFlowScreen('start');
   });
   createBtn?.addEventListener('click', () => {
-    if (modalNuevoEntrenamientoEl && window.bootstrap?.Modal) {
-      bootstrap.Modal.getOrCreateInstance(modalNuevoEntrenamientoEl).show();
-    } else {
-      startNewEntrenamiento();
-    }
+    startNewEntrenamiento(false);
+    showCreateFlowScreen('start');
+    createFlow?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  flowStartButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.flowStart;
+      if (mode === 'new') {
+        showCreateFlowScreen('type');
+      } else {
+        showCreateFlowScreen('library');
+        toggleBuilder(false);
+        document.getElementById('entrenamientos-list-container')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  });
+  trainingTypeButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      selectedTrainingType = btn.dataset.trainingType || 'rodaje';
+      trainingTypeButtons.forEach((item) => item.classList.toggle('is-selected', item === btn));
+      applyTemplate(selectedTrainingType);
+      document.getElementById('entrenamiento-builder')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+  useTemplateBtn?.addEventListener('click', () => {
+    applyTemplate(selectedTrainingType);
+  });
+  flowBackButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      showCreateFlowScreen(btn.dataset.flowBack || 'start');
+    });
   });
   btnNuevoGuiado?.addEventListener('click', () => {
     if (modalNuevoEntrenamientoEl && window.bootstrap?.Modal) {
@@ -3441,6 +3712,8 @@ function init() {
   });
 
   startNewEntrenamiento(false);
+  renderTemplatePreview(selectedTrainingType);
+  showCreateFlowScreen('start');
   fetchEntrenamientos();
 
   // pestañas de ciclos
