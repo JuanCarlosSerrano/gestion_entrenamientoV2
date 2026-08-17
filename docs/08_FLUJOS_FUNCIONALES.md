@@ -737,6 +737,36 @@ MindPace sustituye la memoria dispersa de WhatsApp y Excel.
 
 ---
 
+# Flujo 9 · Publicar entrenamiento
+
+## Objetivo
+
+Hacer visible un entrenamiento asignado y preparar el aviso WhatsApp correspondiente.
+
+## Pasos
+
+1. El entrenador abre `Pendientes de hoy -> Publicar`.
+2. Filtra o busca sesiones pendientes.
+3. Selecciona una o varias sesiones.
+4. Publica ahora o programa fecha/hora.
+5. Al publicar, el entrenamiento pasa a visible.
+6. Se registra la publicación.
+7. Se genera el aviso.
+8. Se envía mediante WhatsApp Cloud API si está habilitado.
+9. Se registra el resultado en `entrenamientos_envios`.
+
+## Reglas
+
+- Un entrenamiento oculto no genera WhatsApp.
+- Un entrenamiento programado sigue oculto hasta `publicar_en`.
+- Publicar dos veces no duplica el aviso.
+- El entrenador solo puede publicar sesiones de sus atletas.
+- Un fallo de WhatsApp no revierte la publicación.
+
+En desarrollo se utiliza actualmente WhatsApp Cloud API con número y token de prueba de Meta. No se documentan credenciales en el repositorio.
+
+---
+
 # Orden recomendado de desarrollo
 
 ## Sprint 1
@@ -778,3 +808,49 @@ MindPace sustituye la memoria dispersa de WhatsApp y Excel.
 
 - Flujo 14 · Actualizar zonas del atleta
 - Consolidación de estadísticas
+
+---
+
+# Flujo 16 · Gestionar planificación de atleta
+
+## Objetivo
+
+Permitir al entrenador consultar y modificar la planificación de un atleta concreto sin entrar en análisis ni rendimiento.
+
+## Pantallas
+
+1. Centro de Control
+2. Atletas
+3. Planificación del atleta
+4. Detalle de día
+
+## Flujo
+
+```text
+Centro de Control
+  ↓
+Atletas
+  ↓
+Buscar / filtrar atleta
+  ↓
+Seleccionar atleta
+  ↓
+Calendario mensual
+  ↓
+Seleccionar día
+  ↓
+Ver sesiones de mañana y tarde
+  ↓
+Añadir / editar / mover / duplicar / eliminar / cambiar visibilidad
+  ↓
+Guardar
+  ↓
+Volver al calendario
+```
+
+## Reglas
+
+- Solo se muestran entrenamientos planificados.
+- No se muestran FIT, RPE, feedback, sensaciones, dolor, comparación ni estadísticas.
+- Toda edición se realiza sobre `entrenamientos_asignados`.
+- Añadir desde biblioteca crea una copia independiente y oculta por defecto.

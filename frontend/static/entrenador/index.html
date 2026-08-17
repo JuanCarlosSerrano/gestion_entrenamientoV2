@@ -21,7 +21,7 @@
 
             <nav class="trainer-nav">
                 <a class="trainer-nav__link is-active" href="index.html"><span>⌂</span> Inicio</a>
-                <a class="trainer-nav__link" href="calendario.html"><span>▦</span> Planificar</a>
+                <a class="trainer-nav__link" href="planificacion_semanal.html"><span>▦</span> Planificar</a>
                 <a class="trainer-nav__link" href="atletas.html"><span>👥</span> Atletas</a>
                 <a class="trainer-nav__link" href="estadisticas.html"><span>↗</span> Historial</a>
                 <a class="trainer-nav__link" href="alertas.html"><span>!</span> Actividad</a>
@@ -92,7 +92,7 @@
                                 <strong>Crear entrenamiento</strong>
                                 <em>Nueva sesión</em>
                             </a>
-                            <a class="quick-action quick-action--secondary" href="calendario.html">
+                            <a class="quick-action quick-action--secondary" href="planificacion_semanal.html">
                                 <span class="quick-action__icon quick-action__icon--blue">▣</span>
                                 <strong>Planificar semana</strong>
                                 <em id="quick-plan-context">Semana actual</em>
@@ -113,28 +113,36 @@
                     <section class="today-panel" aria-label="Pendientes de hoy">
                         <div class="control-section__header today-panel__header">
                             <h2>Pendientes de hoy</h2>
-                            <a class="today-panel__link" href="calendario.html" id="continue-working-link">Continuar trabajando</a>
+                            <a class="today-panel__link" href="planificacion_semanal.html" id="continue-working-link">Continuar trabajando</a>
                         </div>
                         <ul class="today-list quick-actions">
                             <li class="today-line today-line--warning quick-action">
-                                <span class="today-line__icon quick-action__icon">↑</span>
-                                <strong id="today-pending-publish">0</strong>
-                                <a href="entrenamientos.html">Publicar</a>
+                                <a class="today-line__link" href="publicacion_pendientes.html" aria-label="Abrir entrenamientos pendientes de publicar">
+                                    <span class="today-line__icon quick-action__icon">↑</span>
+                                    <strong id="today-pending-publish">0</strong>
+                                    <span>Publicar</span>
+                                </a>
                             </li>
                             <li class="today-line today-line--primary quick-action">
-                                <span class="today-line__icon quick-action__icon">↻</span>
-                                <strong id="today-review">0</strong>
-                                <a href="feedback.html">Revisar</a>
+                                <a class="today-line__link" href="feedback.html" aria-label="Abrir sesiones pendientes de revisar">
+                                    <span class="today-line__icon quick-action__icon">↻</span>
+                                    <strong id="today-review">0</strong>
+                                    <span>Revisar</span>
+                                </a>
                             </li>
                             <li class="today-line today-line--danger quick-action">
-                                <span class="today-line__icon quick-action__icon">!</span>
-                                <strong id="today-alerts">0</strong>
-                                <a href="alertas.html">Alerta</a>
+                                <a class="today-line__link" href="alertas.html" aria-label="Abrir alertas">
+                                    <span class="today-line__icon quick-action__icon">!</span>
+                                    <strong id="today-alerts">0</strong>
+                                    <span>Alerta</span>
+                                </a>
                             </li>
                             <li class="today-line today-line--info quick-action">
-                                <span class="today-line__icon quick-action__icon">□</span>
-                                <strong id="today-fit">0</strong>
-                                <a href="feedback.html">FIT</a>
+                                <a class="today-line__link" href="feedback.html" aria-label="Abrir actividad FIT">
+                                    <span class="today-line__icon quick-action__icon">□</span>
+                                    <strong id="today-fit">0</strong>
+                                    <span>FIT</span>
+                                </a>
                             </li>
                         </ul>
                     </section>

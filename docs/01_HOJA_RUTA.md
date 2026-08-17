@@ -441,4 +441,72 @@ Estas ideas pueden ir al parking lot para futuras versiones.
 
 MindPace V2 tendrá éxito si consigue que un entrenador deje de usar Excel o libreta para planificar y deje de enviar fotos por WhatsApp, pero mantiene la misma rapidez y comodidad de comunicación con sus atletas.
 
+---
+
+# Bloque funcional · Gestión de planificación individual por atleta
+
+## Objetivo
+
+Permitir que el entrenador consulte y modifique exclusivamente la planificación futura o pendiente de un atleta concreto.
+
+## Flujo
+
+```text
+Centro de Control
+  ↓
+Atletas
+  ↓
+Seleccionar atleta
+  ↓
+Calendario mensual
+  ↓
+Seleccionar día
+  ↓
+Modificar entrenamientos asignados
+  ↓
+Volver al calendario o al Centro de Control
+```
+
+## Alcance
+
+- Selección de atleta con búsqueda y filtros.
+- Calendario mensual de planificación.
+- Días con sesiones planificadas visibles de forma compacta.
+- Añadir, editar, mover, duplicar, eliminar y cambiar visibilidad de sesiones asignadas.
+
+## Límites
+
+Este bloque no incluye análisis, FIT, RPE, feedback, estadísticas ni rendimiento. Esa información pertenece a Historial y rendimiento.
+
 La aplicación debe recordar lo que hoy se pierde.
+
+---
+
+# Bloque funcional · Publicación y comunicación
+
+## Objetivo
+
+Conectar la planificación asignada con la comunicación al atleta sin añadir pasos duplicados al Centro de Control.
+
+## Flujo
+
+```text
+Entrenamiento asignado
+  ↓
+Oculto por defecto
+  ↓
+Pendientes de hoy > Publicar
+  ↓
+Publicar ahora o programar
+  ↓
+Visible
+  ↓
+Aviso WhatsApp preparado
+```
+
+## Alcance
+
+- Todo entrenamiento nuevo de planificación nace oculto.
+- El acceso al panel de publicación se hace desde el aviso existente `Pendientes de hoy -> Publicar`.
+- La publicación inmediata registra `publicado_en` y genera un único aviso WhatsApp.
+- La programación guarda `publicar_en` y mantiene el entrenamiento oculto hasta la fecha.

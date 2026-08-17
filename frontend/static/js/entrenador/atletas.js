@@ -1,181 +1,117 @@
-// frontend/js/entrenador/atletas.js
-
 const API_BASE =
   window.API_BASE ||
-  (window.location && window.location.origin ? window.location.origin : "http://127.0.0.1:5000");
-window.API_BASE = API_BASE;
+  (window.location && window.location.origin ? window.location.origin : "http://127.0.0.1:5002");
 
-const getCsrfToken = () =>
-  (window.CSRF && typeof window.CSRF.getToken === "function"
-    ? window.CSRF.getToken()
-    : localStorage.getItem("csrfToken"));
+const state = {
+  atletas: [],
+  filtersLoaded: false,
+};
 
-// 💬 Mensaje flotante reutilizable
-function mostrarMensaje(texto, tipo = "success") {
-  let contenedor = document.getElementById("mensaje-flotante");
-  if (!contenedor) {
-    contenedor = document.createElement("div");
-    contenedor.id = "mensaje-flotante";
-    contenedor.className =
-      "alert text-center position-fixed bottom-0 start-50 translate-middle-x w-50";
-    contenedor.style.zIndex = "2000";
-    contenedor.style.display = "none";
+const $ = (selector) => document.querySelector(selector);
 
-    const span = document.createElement("span");
-    span.id = "mensaje-texto";
-    contenedor.appendChild(span);
-    document.body.appendChild(contenedor);
-  }
+const escapeHtml = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 
-  const span = document.getElementById("mensaje-texto");
-  contenedor.classList.remove(
-    "alert-success",
-    "alert-danger",
-    "alert-warning",
-    "alert-info"
-  );
-  contenedor.classList.add(`alert-${tipo}`);
-
-  span.textContent = texto;
-  contenedor.style.display = "block";
-
-  setTimeout(() => {
-    contenedor.style.display = "none";
-  }, 2500);
+function setupIdentity() {
+  const storedName = localStorage.getItem("userName") || localStorage.getItem("userEmail") || "Entrenador";
+  const displayName = storedName.includes("@") ? storedName.split("@")[0] : storedName;
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+  const nameEl = $("#sidebar-trainer-name");
+  const initialsEl = $("#sidebar-trainer-initials");
+  if (nameEl) nameEl.textContent = displayName;
+  if (initialsEl) initialsEl.textContent = initials || "E";
 }
 
-// ✅ Confirmación usando modalConfirmacion (si existe)
-function mostrarConfirmacion(mensaje, onConfirm) {
-  const modalEl = document.getElementById("modalConfirmacion");
-  const mensajeEl = document.getElementById("modal-confirmacion-mensaje");
-  const btnAceptar = document.getElementById("modal-confirmacion-aceptar");
+function fillSelect(select, values, label) {
+  const current = select.value;
+  select.innerHTML = `<option value="">${label}</option>${values
+    .map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`)
+    .join("")}`;
+  select.value = current;
+}
 
-  // Si por lo que sea no está el modal en el HTML, hacemos fallback al confirm nativo
-  if (!modalEl || !mensajeEl || !btnAceptar) {
-    const ok = window.confirm(mensaje);
-    if (ok && typeof onConfirm === "function") onConfirm();
+async function fetchJson(url) {
+  const response = await fetch(`${API_BASE}${url}`, { credentials: "include" });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || "No se pudo cargar la información");
+  return data;
+}
+
+function renderAtletas() {
+  const container = $("#atletas-cards");
+  if (!container) return;
+  if (!state.atletas.length) {
+    container.innerHTML = '<div class="empty-state">No hay atletas con esos filtros.</div>';
     return;
   }
 
-  mensajeEl.textContent = mensaje;
+  container.innerHTML = state.atletas.map((a) => {
+    const name = `${a.nombre || ""} ${a.apellidos || ""}`.trim() || a.email || `Atleta ${a.id}`;
+    const meta = [a.categoria, a.grupo, a.subgrupo].filter(Boolean).join(" · ");
+    return `
+      <button class="athlete-card athlete-card--select" data-athlete-id="${a.id}" type="button">
+        <strong>${escapeHtml(name)}</strong>
+        <small>${escapeHtml(meta || "Sin grupo asignado")}</small>
+        <small>${a.vdot_val ? `VDOT ${escapeHtml(a.vdot_val)}` : "Planificación"}</small>
+      </button>
+    `;
+  }).join("");
 
-  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
-
-  // Evitamos acumular múltiples handlers
-  btnAceptar.onclick = () => {
-    modal.hide();
-    if (typeof onConfirm === "function") onConfirm();
-  };
-
-  modal.show();
-}
-
-/*
-  Implementación mínima y segura de Atletas:
-  - Si existe window.Atletas.init (legacy global), la invoca.
-  - No intenta cargar ficheros adicionales para evitar 404.
-  - Exporta default y named export `init` para compatibilidad con main.js.
-*/
-async function initAtletas() {
-  try {
-    if (window.Atletas && typeof window.Atletas.init === 'function') {
-      console.info('Atletas: usando implementación global legacy (window.Atletas.init).');
-      return await window.Atletas.init();
-    }
-
-    // Inicialización ligera por defecto (no rompe la app)
-    console.info('Atletas: no hay implementación global. Ejecutando init vacía (noop).');
-    // Si quieres aquí puedes inicializar elementos DOM mínimos para evitar más errores.
-    // Ejemplo: comprobar existencia del contenedor y establecer estado vacío.
-    const container = document.querySelector('.atletas-lista') || document.getElementById('atletas-lista');
-    if (container) {
-      container.innerHTML = container.innerHTML || '<div class="text-muted small">No hay datos de atletas (stub).</div>';
-    }
-
-    return Promise.resolve();
-  } catch (err) {
-    console.error('Atletas.init: error durante la inicialización:', err);
-    return Promise.reject(err);
-  }
-}
-
-// Exportaciones compatibles
-export default { init: initAtletas };
-export { initAtletas as init };
-
-document.addEventListener("DOMContentLoaded", () => {
-  const contenedor = document.getElementById("atletas-cards");
-
-  // 1️⃣ Cargar lista de atletas
-  async function cargarAtletas() {
-    try {
-      const res = await fetch(`${API_BASE}/atletas`, {
-        method: "GET",
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        console.error("Error al cargar atletas:", res.status);
-        mostrarMensaje("Error al cargar atletas", "danger");
-        return;
-      }
-
-      const atletas = await res.json();
-      pintarAtletas(atletas);
-    } catch (err) {
-      console.error("Error de red al cargar atletas:", err);
-      mostrarMensaje("Error de conexión al cargar atletas", "danger");
-    }
-  }
-
-  // 2️⃣ Pintar tarjetas
-  function pintarAtletas(atletas) {
-    if (!contenedor) return;
-
-    contenedor.innerHTML = "";
-
-    if (!Array.isArray(atletas) || atletas.length === 0) {
-      contenedor.innerHTML =
-        '<div class="col-12"><div class="alert alert-info">No hay atletas asignados.</div></div>';
-      return;
-    }
-
-    atletas.forEach((a) => {
-      const col = document.createElement("div");
-      col.className = "col-md-6 col-lg-4 mb-3";
-
-      col.innerHTML = `
-        <div class="card h-100 shadow-sm">
-          <div class="card-body">
-            <h5 class="card-title">${a.nombre} ${a.apellidos}</h5>
-            <p class="card-text mb-1"><strong>Fecha:</strong> ${
-              a.fecha_nacimiento || "-"
-            }</p>
-            <p class="card-text mb-1"><strong>Email:</strong> ${
-              a.email || "-"
-            }</p>
-            <p class="card-text mb-1"><strong>Teléfono:</strong> ${
-              a.telefono || "-"
-            }</p>
-            <p class="card-text mb-2"><strong>Categoría:</strong> ${
-              a.categoria || "-"
-            }</p>
-            <div class="d-flex flex-wrap gap-2 mt-2">
-              <a href="calendario.html?atletaId=${a.id}" class="btn btn-sm btn-success">
-                Ver Calendario
-              </a>
-              <a class="btn btn-sm btn-primary" href="perfil_atleta.html?atletaId=${a.id}">
-                Editar
-              </a>
-            </div>
-          </div>
-        </div>
-      `;
-
-      contenedor.appendChild(col);
+  container.querySelectorAll(".athlete-card").forEach((card) => {
+    card.addEventListener("click", () => {
+      window.location.href = `atleta_planificacion.html?atletaId=${card.dataset.athleteId}`;
     });
-  }
+  });
+}
 
-  // 🚀 Inicializar
-  cargarAtletas();
-});
+async function loadAtletas() {
+  const params = new URLSearchParams();
+  const search = $("#athlete-search")?.value.trim();
+  const group = $("#filter-group")?.value;
+  const subgroup = $("#filter-subgroup")?.value;
+  const category = $("#filter-category")?.value;
+  if (search) params.set("q", search);
+  if (group) params.set("grupo", group);
+  if (subgroup) params.set("subgrupo", subgroup);
+  if (category) params.set("categoria", category);
+
+  try {
+    const data = await fetchJson(`/planificacion/atletas?${params.toString()}`);
+    state.atletas = data.atletas || [];
+    if (!state.filtersLoaded && data.filtros) {
+      fillSelect($("#filter-group"), data.filtros.grupos || [], "Todos los grupos");
+      fillSelect($("#filter-subgroup"), data.filtros.subgrupos || [], "Todos los subgrupos");
+      fillSelect($("#filter-category"), data.filtros.categorias || [], "Todas las categorías");
+      state.filtersLoaded = true;
+    }
+    renderAtletas();
+  } catch (error) {
+    const container = $("#atletas-cards");
+    if (container) container.innerHTML = `<div class="empty-state">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+export async function init() {
+  setupIdentity();
+  ["athlete-search", "filter-group", "filter-subgroup", "filter-category"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener(id === "athlete-search" ? "input" : "change", loadAtletas);
+  });
+  await loadAtletas();
+}
+
+document.addEventListener("DOMContentLoaded", init);
+
+export default { init };

@@ -4024,7 +4024,7 @@ body {
 .today-line {
   gap: 6px;
   min-height: 112px;
-  padding: 12px 10px;
+  padding: 0;
   color: #334155;
   line-height: 1.25;
 }
@@ -4041,17 +4041,36 @@ body {
   margin-bottom: 0;
 }
 
-.today-line a {
-  display: block;
+.today-line__link {
+  align-items: flex-start;
+  color: #334155;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  justify-content: center;
+  min-height: 112px;
+  padding: 12px 10px;
+  text-decoration: none;
+  width: 100%;
+}
+
+.today-line__link span:not(.today-line__icon) {
   color: #334155;
   max-width: 104px;
   font-size: 0.82rem;
   font-weight: 700;
   line-height: 1.35;
-  text-decoration: none;
 }
 
-.today-line a:hover {
+.today-line__link:hover,
+.today-line__link:focus {
+  color: var(--mp-primary);
+  outline: none;
+}
+
+.today-line__link:hover span:not(.today-line__icon),
+.today-line__link:focus span:not(.today-line__icon) {
   color: var(--mp-primary);
 }
 

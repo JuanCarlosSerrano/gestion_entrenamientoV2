@@ -604,6 +604,16 @@ Al alcanzarse la fecha programada, el entrenamiento pasará automáticamente a e
 
 El envío mediante WhatsApp nunca sustituye al entrenamiento asignado.
 
+## RN-008 · Publicación de entrenamiento asignado
+
+Todo entrenamiento asignado en la planificación V2 nace oculto. La visibilidad puede cambiarse con publicación inmediata o mediante programación.
+
+La publicación y la comunicación son eventos relacionados: cuando un entrenamiento pasa a visible se registra `publicado_en` y se prepara el aviso en `entrenamientos_envios`.
+
+El mensaje de WhatsApp no forma parte del entrenamiento. Es una comunicación independiente asociada al entrenamiento asignado.
+
+Si el envío por WhatsApp falla, la publicación no se invalida ni se revierte. El entrenamiento permanece visible y el error de comunicación queda registrado para revisión o reintento.
+
 El mensaje únicamente actúa como medio de comunicación.
 
 La información oficial permanecerá almacenada en MindPace.
@@ -721,3 +731,39 @@ El feedback y el archivo FIT representan lo que realmente ocurrió.
 El historial conecta toda esa información.
 
 Las estadísticas y alertas ayudan al entrenador a tomar mejores decisiones sin sustituir su criterio profesional.
+
+---
+
+# Planificación individual del atleta
+
+La ficha de planificación del atleta representa únicamente lo que el atleta tiene planificado.
+
+## Tabla de trabajo
+
+La vista trabaja exclusivamente con:
+
+- `entrenamientos_asignados`
+- `entrenamientos_asignados_detalle`
+
+## Reglas
+
+- Añadir una sesión desde biblioteca crea una copia asignada independiente.
+- Editar una sesión individual modifica solo la asignación y su detalle.
+- Mover una sesión cambia la fecha de `entrenamientos_asignados`.
+- Cambiar mañana/tarde modifica la franja de la asignación.
+- Cambiar visibilidad no modifica el contenido.
+- La plantilla original nunca se modifica desde esta vista.
+
+## Separación de dominio
+
+Atletas / planificación responde:
+
+```text
+Qué tiene planificado el atleta.
+```
+
+Historial y rendimiento responde:
+
+```text
+Qué realizó el atleta y cómo respondió.
+```

@@ -1,0 +1,349 @@
+.weekly-planning-page {
+  background: #f4f7fb;
+}
+
+.weekly-main {
+  gap: 1rem;
+}
+
+.weekly-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.week-picker {
+  display: grid;
+  gap: 0.25rem;
+  color: #5f6b7a;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.week-picker input {
+  min-width: 160px;
+  border: 1px solid rgba(9, 33, 56, 0.12);
+  border-radius: 8px;
+  padding: 0.5rem 0.65rem;
+  color: #0a2c4c;
+}
+
+.planner-step,
+.week-board-wrap,
+.planning-library {
+  background: #fff;
+  border: 1px solid rgba(9, 33, 56, 0.08);
+  border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(5, 26, 48, 0.08);
+}
+
+.planner-step {
+  padding: 1rem;
+}
+
+.planner-step__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.8rem;
+}
+
+.planner-step__header h2 {
+  margin: 0;
+  color: #0a2c4c;
+  font-size: 1.25rem;
+}
+
+.planner-eyebrow {
+  margin: 0 0 0.1rem;
+  color: #0fa9c4;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.athlete-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) repeat(3, minmax(130px, 0.8fr)) auto;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.athlete-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.9rem;
+  max-height: 220px;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.athlete-card {
+  border: 1px solid rgba(9, 33, 56, 0.1);
+  border-radius: 8px;
+  background: #f9fbfd;
+  color: #0a2c4c;
+  cursor: pointer;
+  display: grid;
+  gap: 0.2rem;
+  min-height: 76px;
+  padding: 0.75rem;
+  text-align: left;
+}
+
+.athlete-card.is-selected {
+  background: #e8f8fb;
+  border-color: #0fa9c4;
+  box-shadow: inset 0 0 0 2px rgba(15, 169, 196, 0.18);
+}
+
+.athlete-card strong,
+.workout-card strong,
+.planned-session strong {
+  overflow-wrap: anywhere;
+}
+
+.athlete-card small {
+  color: #5f6b7a;
+}
+
+.weekly-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 1rem;
+  align-items: start;
+}
+
+.week-board-wrap {
+  padding: 1rem;
+  min-width: 0;
+}
+
+.board-header {
+  margin-bottom: 0.7rem;
+}
+
+.week-summary {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.week-summary span {
+  background: #f1f5f9;
+  border-radius: 999px;
+  color: #0a2c4c;
+  font-size: 0.82rem;
+  font-weight: 800;
+  padding: 0.35rem 0.65rem;
+}
+
+.week-board {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(120px, 1fr));
+  gap: 0.55rem;
+  overflow-x: auto;
+  padding-bottom: 0.2rem;
+}
+
+.day-column {
+  border: 1px solid rgba(9, 33, 56, 0.08);
+  border-radius: 8px;
+  background: #f7fafc;
+  min-width: 120px;
+  overflow: hidden;
+}
+
+.day-title {
+  background: #0a2c4c;
+  color: #fff;
+  font-size: 0.83rem;
+  font-weight: 800;
+  padding: 0.55rem;
+  text-align: center;
+}
+
+.slot {
+  min-height: 152px;
+  padding: 0.5rem;
+}
+
+.slot + .slot {
+  border-top: 1px solid rgba(9, 33, 56, 0.08);
+}
+
+.slot-label {
+  color: #5f6b7a;
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 900;
+  margin-bottom: 0.45rem;
+}
+
+.slot.is-over {
+  background: #e8f8fb;
+}
+
+.planned-session,
+.workout-card,
+.week-template-card {
+  border: 1px solid rgba(9, 33, 56, 0.09);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.planned-session {
+  display: grid;
+  gap: 0.35rem;
+  margin-bottom: 0.45rem;
+  padding: 0.55rem;
+}
+
+.planned-session small,
+.workout-card small,
+.week-template-card small {
+  color: #5f6b7a;
+}
+
+.session-actions {
+  display: flex;
+  gap: 0.3rem;
+  justify-content: flex-end;
+}
+
+.session-actions button {
+  align-items: center;
+  border: 1px solid rgba(9, 33, 56, 0.12);
+  border-radius: 7px;
+  background: #f8fafc;
+  color: #0a2c4c;
+  display: inline-flex;
+  height: 28px;
+  justify-content: center;
+  width: 30px;
+}
+
+.planning-library {
+  position: sticky;
+  top: 116px;
+  padding: 0.85rem;
+}
+
+.library-tabs {
+  background: #eef3f7;
+  border-radius: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.25rem;
+  padding: 0.25rem;
+}
+
+.library-tab {
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #5f6b7a;
+  font-weight: 800;
+  padding: 0.55rem;
+}
+
+.library-tab.is-active {
+  background: #fff;
+  color: #0a2c4c;
+  box-shadow: 0 4px 14px rgba(5, 26, 48, 0.08);
+}
+
+.library-panel {
+  display: none;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+
+.library-panel.is-active {
+  display: grid;
+}
+
+.library-list {
+  display: grid;
+  gap: 0.55rem;
+  max-height: calc(100vh - 280px);
+  overflow: auto;
+  padding-right: 0.15rem;
+}
+
+.workout-card,
+.week-template-card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.7rem;
+}
+
+.workout-card {
+  cursor: grab;
+}
+
+.workout-card:active {
+  cursor: grabbing;
+}
+
+.workout-card em {
+  color: #0fa9c4;
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.week-template-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.empty-state {
+  border: 1px dashed rgba(9, 33, 56, 0.18);
+  border-radius: 8px;
+  color: #5f6b7a;
+  padding: 0.9rem;
+  text-align: center;
+}
+
+@media (max-width: 1180px) {
+  .athlete-toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .weekly-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .planning-library {
+    position: static;
+  }
+
+  .library-list {
+    max-height: 360px;
+  }
+}
+
+@media (max-width: 760px) {
+  .athlete-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .weekly-topbar .trainer-topbar__meta {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .weekly-topbar .trainer-topbar__meta > * {
+    width: 100%;
+  }
+
+  .planner-step__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

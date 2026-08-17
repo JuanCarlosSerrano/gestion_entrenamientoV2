@@ -608,6 +608,33 @@ Todas las capacidades anteriores
 
 ---
 
+# CAP-016 · Publicación y comunicación
+
+## Objetivo
+
+Gestionar el paso de un entrenamiento asignado de oculto a visible y preparar el aviso WhatsApp asociado.
+
+## Incluye
+
+- Pendientes de publicar.
+- Publicación inmediata.
+- Programación de publicación.
+- Registro independiente en `entrenamientos_envios`.
+- Idempotencia para no duplicar avisos.
+- Integración inicial con WhatsApp Cloud API de Meta mediante servicio aislado.
+
+## Regla
+
+El aviso WhatsApp solo se genera cuando el entrenamiento pasa a visible. Mientras permanece oculto o programado no se genera comunicación.
+
+Si `WHATSAPP_ENABLED=false`, la publicación no llama a Meta y el intento queda registrado como deshabilitado.
+
+## Estado
+
+🟡 Parcial
+
+---
+
 # Objetivo final
 
 Todas las capacidades descritas en este documento deben funcionar de forma coordinada para que MindPace pueda cubrir el ciclo completo de trabajo de un entrenador:

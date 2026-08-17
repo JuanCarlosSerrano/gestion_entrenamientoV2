@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Planificación del atleta · MindPace</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="../css/style.css">
+  <link rel="stylesheet" href="../css/planificacion_semanal.css">
+  <link rel="stylesheet" href="../css/atleta_planificacion.css">
+  <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
+  <script src="../js/utils/csrf.js"></script>
+  <script src="../js/script.js"></script>
+  <script type="module" src="../js/entrenador/atleta_planificacion.js"></script>
+</head>
+<body class="trainer-control weekly-planning-page">
+  <div class="trainer-shell">
+    <aside class="trainer-sidebar" aria-label="Navegación del entrenador">
+      <a class="trainer-brand" href="index.html" aria-label="MindPace">
+        <img src="../img/logo_sin_fondo.png" alt="" class="trainer-brand__mark">
+        <span>MindPace</span>
+      </a>
+      <nav class="trainer-nav">
+        <a class="trainer-nav__link" href="index.html"><span>⌂</span> Inicio</a>
+        <a class="trainer-nav__link" href="planificacion_semanal.html"><span>▦</span> Planificar</a>
+        <a class="trainer-nav__link is-active" href="atletas.html"><span>👥</span> Atletas</a>
+        <a class="trainer-nav__link" href="estadisticas.html"><span>↗</span> Historial</a>
+        <a class="trainer-nav__link" href="alertas.html"><span>!</span> Actividad</a>
+        <a class="trainer-nav__link" href="utilidades.html"><span>⚙</span> Configuración</a>
+      </nav>
+      <div class="trainer-sidebar__footer">
+        <div class="trainer-sidebar-user">
+          <span id="sidebar-trainer-initials">E</span>
+          <div>
+            <strong id="sidebar-trainer-name">Entrenador</strong>
+            <small>Entrenador</small>
+          </div>
+        </div>
+        <button class="trainer-logout" id="btn-logout" type="button">Salir</button>
+      </div>
+    </aside>
+
+    <main class="trainer-main weekly-main">
+      <header class="trainer-topbar weekly-topbar">
+        <div>
+          <h1 id="athlete-name">Atleta</h1>
+          <p>Planificación</p>
+        </div>
+        <div class="trainer-topbar__meta">
+          <a class="btn btn-outline-secondary" href="atletas.html">Listado de atletas</a>
+          <a class="btn btn-brand" href="index.html">Centro de Control</a>
+        </div>
+      </header>
+
+      <section class="athlete-calendar-panel">
+        <div class="month-toolbar">
+          <button class="btn btn-outline-secondary" id="prev-month" type="button">‹</button>
+          <div>
+            <h2 id="month-title">Mes</h2>
+            <button class="btn btn-sm btn-outline-primary" id="today-month" type="button">Mes actual</button>
+          </div>
+          <button class="btn btn-outline-secondary" id="next-month" type="button">›</button>
+        </div>
+        <div class="monthly-calendar" id="monthly-calendar"></div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal fade" id="dayModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-content planning-day-modal">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title" id="day-modal-title">Día</h5>
+            <small id="day-modal-subtitle">Entrenamientos asignados</small>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body day-modal-grid">
+          <section class="day-sessions">
+            <div class="day-slot">
+              <h3>MAÑANA</h3>
+              <div id="morning-sessions"></div>
+            </div>
+            <div class="day-slot">
+              <h3>TARDE</h3>
+              <div id="afternoon-sessions"></div>
+            </div>
+          </section>
+          <aside class="day-library">
+            <h3>Añadir entrenamiento</h3>
+            <input type="search" id="library-search" class="form-control" placeholder="Buscar en biblioteca...">
+            <select id="library-franja" class="form-select">
+              <option value="manana">Mañana</option>
+              <option value="tarde">Tarde</option>
+            </select>
+            <div id="library-list" class="library-list"></div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="editSessionModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <form class="modal-content" id="edit-session-form">
+        <div class="modal-header">
+          <h5 class="modal-title">Editar sesión</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="edit-session-id">
+          <label class="form-label" for="edit-session-name">Nombre</label>
+          <input class="form-control" id="edit-session-name" required>
+          <label class="form-label mt-3" for="edit-session-date">Fecha</label>
+          <input class="form-control" id="edit-session-date" type="date" required>
+          <label class="form-label mt-3" for="edit-session-franja">Franja</label>
+          <select class="form-select" id="edit-session-franja">
+            <option value="manana">Mañana</option>
+            <option value="tarde">Tarde</option>
+          </select>
+          <label class="form-label mt-3" for="edit-session-visibility">Visibilidad</label>
+          <select class="form-select" id="edit-session-visibility">
+            <option value="oculto">Oculto</option>
+            <option value="visible">Visible</option>
+            <option value="programado">Programado</option>
+          </select>
+          <label class="form-label mt-3" for="edit-session-publish">Publicar en</label>
+          <input class="form-control" id="edit-session-publish" type="datetime-local">
+          <label class="form-label mt-3" for="edit-session-notes">Notas</label>
+          <textarea class="form-control" id="edit-session-notes" rows="3"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-danger me-auto" id="delete-session">Eliminar</button>
+          <button type="button" class="btn btn-outline-secondary" id="duplicate-session">Duplicar</button>
+          <button type="submit" class="btn btn-brand">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -1070,3 +1070,40 @@ La estrategia recomendada es evolución controlada:
 - priorizar primero el flujo completo entrenador → WhatsApp → atleta → feedback → FIT → revisión.
 
 El modelo actual permite construir la nueva experiencia sin reiniciar el proyecto.
+
+---
+
+# 14. Publicación y comunicación
+
+## `entrenamientos_asignados`
+
+Representa el estado de visibilidad del entrenamiento del atleta:
+
+- `visible`: indica si el atleta puede verlo.
+- `publicar_en`: fecha/hora programada de publicación.
+- `publicado_en`: fecha/hora real en la que pasó a visible.
+- `estado_envio`, `fecha_envio`, `canal_comunicacion`: resumen operativo de comunicación.
+
+## `entrenamientos_envios`
+
+Representa el aviso WhatsApp generado al publicar:
+
+- `entrenamiento_asignado_id`
+- `atleta_id`
+- `entrenador_id`
+- `canal`
+- `mensaje_generado`
+- `estado`
+- `provider_message_id`
+- `error`
+- `created_at`
+- `sent_at`
+
+Estados principales:
+
+- `pendiente`
+- `enviado`
+- `error`
+- `deshabilitado`
+
+`provider_message_id` almacena el `wamid` devuelto por Meta cuando el envío se confirma. La tabla es independiente del entrenamiento para permitir automatización futura sin modificar la planificación.

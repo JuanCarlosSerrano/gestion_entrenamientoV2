@@ -393,3 +393,84 @@ Ideas fuera del alcance de la V2:
 - Integración directa con Garmin.
 - Aplicación móvil nativa.
 - Chat interno.
+
+---
+
+# Módulo 13 · Planificación individual por atleta
+
+## MP-120 · Seleccionar atleta para planificación
+
+**Prioridad:** MUST
+
+**Debe permitir:**
+
+- Buscar atleta por nombre.
+- Filtrar por grupo, subgrupo y categoría.
+- Abrir directamente la planificación del atleta seleccionado.
+
+## MP-121 · Calendario mensual de planificación
+
+**Prioridad:** MUST
+
+**Debe permitir:**
+
+- Consultar mes anterior, mes siguiente y mes actual.
+- Identificar días con entrenamientos asignados.
+- Diferenciar estados oculto, visible y programado sin saturar la pantalla.
+
+## MP-122 · Gestión de sesiones asignadas
+
+**Prioridad:** MUST
+
+**Debe permitir:**
+
+- Abrir un día y ver sesiones de mañana y tarde.
+- Añadir una sesión desde la biblioteca privada.
+- Editar nombre, fecha, franja y notas de una sesión asignada.
+- Mover sesión a otra fecha.
+- Duplicar sesión.
+- Eliminar sesión de la planificación.
+- Cambiar visibilidad o programar publicación.
+
+**Criterios de aceptación:**
+
+- La edición afecta solo a `entrenamientos_asignados` y `entrenamientos_asignados_detalle`.
+- La plantilla original en `entrenamientos` y `entrenamientos_detalle` no se modifica.
+- El entrenador solo accede a sus atletas.
+- No se muestran métricas de rendimiento, FIT, RPE ni feedback.
+
+---
+
+# Módulo 14 · Publicación y WhatsApp
+
+## MP-130 · Panel de pendientes de publicar
+
+**Prioridad:** MUST
+
+**Debe permitir:**
+
+- Abrir el panel desde `Pendientes de hoy -> Publicar`.
+- Filtrar por Hoy, Mañana, Esta semana y Todos.
+- Ver atleta, fecha, entrenamiento, resumen y estado.
+- Seleccionar una o varias sesiones.
+
+## MP-131 · Publicar o programar
+
+**Prioridad:** MUST
+
+**Debe permitir:**
+
+- Publicar ahora una sesión o varias.
+- Programar fecha y hora de publicación.
+- Cambiar una programación existente.
+- Mantener ocultas las sesiones programadas hasta su fecha.
+
+## MP-132 · Aviso WhatsApp
+
+**Prioridad:** MUST
+
+**Debe permitir:**
+
+- Generar el aviso cuando el entrenamiento pasa a visible.
+- Registrar un único envío por entrenamiento asignado.
+- Mantener el mensaje corto y sin enlace.

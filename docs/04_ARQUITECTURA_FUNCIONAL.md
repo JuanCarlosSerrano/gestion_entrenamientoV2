@@ -665,6 +665,42 @@ MindPace debe funcionar como una cadena continua:
 El entrenador planifica.
 El sistema personaliza.
 WhatsApp comunica.
+
+---
+
+# Flujo V2 · Publicación y aviso WhatsApp
+
+```text
+entrenamientos_asignados
+  ↓
+visible = 0
+  ↓
+Panel pendientes de publicar
+  ↓
+Publicar ahora / Programar publicar_en
+  ↓
+visible = 1 + publicado_en
+  ↓
+entrenamientos_envios
+```
+
+La lógica de publicación es única y se reutiliza desde el panel de pendientes y desde la edición individual de una sesión asignada.
+
+## WhatsApp Cloud API
+
+```text
+Publicación
+  ↓
+WhatsAppService
+  ↓
+WhatsApp Cloud API
+  ↓
+entrenamientos_envios
+```
+
+Las credenciales se leen exclusivamente desde variables de entorno. En desarrollo puede usarse un token temporal de Meta; para un entorno estable hará falta un token permanente de System User.
+
+TODO: en producción puede ser necesario sustituir texto libre por plantillas aprobadas de WhatsApp según ventana de conversación y política de Meta.
 El atleta ejecuta.
 El FIT confirma.
 El feedback explica.
@@ -672,3 +708,30 @@ El historial recuerda.
 Las estadísticas ayudan.
 Las alertas priorizan.
 ```
+
+---
+
+# 11. Flujo funcional · Gestión de planificación de atleta
+
+Este flujo pertenece al motor de Planificación.
+
+```text
+Atletas
+  ↓
+Seleccionar atleta
+  ↓
+Calendario mensual
+  ↓
+Día
+  ↓
+Entrenamientos asignados
+  ↓
+Modificar planificación
+```
+
+## Reglas
+
+- La vista trabaja sobre `entrenamientos_asignados`.
+- Añadir una sesión clona una plantilla hacia una asignación del atleta.
+- Editar una sesión no modifica la plantilla original.
+- No se mezclan datos de ejecución, FIT, feedback, RPE, análisis ni estadísticas.
