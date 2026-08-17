@@ -159,7 +159,7 @@ function render() {
     btn.addEventListener("click", () => publishIds([Number(btn.dataset.id)]));
   });
   list.querySelectorAll("[data-action='schedule']").forEach((btn) => {
-    openSchedule([Number(btn.dataset.id)]);
+    btn.addEventListener("click", () => openSchedule([Number(btn.dataset.id)]));
   });
 }
 
