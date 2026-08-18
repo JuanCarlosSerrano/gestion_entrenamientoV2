@@ -13,6 +13,7 @@ import secrets
 import sqlite3
 import logging
 try:
+    from db import helpers as db_helpers
     import services.publication_service as publication_domain
     from services.whatsapp_service import enviar_whatsapp
     from services.fit_service import hash_file_sha256, parse_fit_metrics
@@ -35,6 +36,7 @@ try:
         obtener_entrenamiento_asignado_autorizado,
     )
 except ModuleNotFoundError:
+    from backend.db import helpers as db_helpers
     import backend.services.publication_service as publication_domain
     from backend.services.whatsapp_service import enviar_whatsapp
     from backend.services.fit_service import hash_file_sha256, parse_fit_metrics
@@ -56,16 +58,6 @@ except ModuleNotFoundError:
         obtener_atleta_autorizado,
         obtener_entrenamiento_asignado_autorizado,
     )
-
-try:
-    import mariadb  # type: ignore
-except ImportError:  # El paquete se instala sólo cuando se usa MariaDB
-    mariadb = None
-
-try:
-    import pymysql  # type: ignore
-except ImportError:
-    pymysql = None
 
 app = Flask(__name__, static_folder='../frontend/static')  # Configuración correcta de static_folder
 logger = logging.getLogger(__name__)
@@ -107,11 +99,7 @@ MARIADB_CONFIG = {
     "password": os.getenv("DB_PASSWORD", ""),
     "database": os.getenv("DB_NAME", "gestion_entrenamiento"),
 }
-DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError,)
-if mariadb:
-    DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError, mariadb.IntegrityError)
-elif pymysql:
-    DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError, pymysql.IntegrityError)
+DB_INTEGRITY_ERRORS = db_helpers.integrity_errors()
 
 
 def ensure_meta_columns():
@@ -387,114 +375,16 @@ def ensure_owner_columns():
         conn.close()
 
 
-class MariaDBConnectionWrapper:
-    """
-    Envuelve la conexión de MariaDB para ofrecer cursores en modo diccionario
-    y tolerar asignaciones a row_factory que hace el código legado.
-    """
-    def __init__(self, conn):
-        object.__setattr__(self, "_conn", conn)
-        object.__setattr__(self, "_row_factory", None)
-
-    def cursor(self):
-        return self._conn.cursor(dictionary=True)
-
-    def __getattr__(self, name):
-        return getattr(self._conn, name)
-
-    def __setattr__(self, name, value):
-        if name in ("_conn", "_row_factory"):
-            object.__setattr__(self, name, value)
-        elif name == "row_factory":
-            object.__setattr__(self, "_row_factory", value)
-        else:
-            setattr(self._conn, name, value)
-
-class PyMySQLCursorWrapper:
-    def __init__(self, cursor):
-        self._cursor = cursor
-
-    def execute(self, query, args=None):
-        if args is not None:
-            query = query.replace('?', '%s')
-        return self._cursor.execute(query, args)
-
-    def executemany(self, query, args=None):
-        if args is not None:
-            query = query.replace('?', '%s')
-        return self._cursor.executemany(query, args)
-
-    def __getattr__(self, name):
-        return getattr(self._cursor, name)
-
-
-class PyMySQLConnectionWrapper:
-    def __init__(self, conn):
-        object.__setattr__(self, '_conn', conn)
-        object.__setattr__(self, '_row_factory', None)
-
-    def cursor(self):
-        return PyMySQLCursorWrapper(self._conn.cursor())
-
-    def __getattr__(self, name):
-        return getattr(self._conn, name)
-
-    def __setattr__(self, name, value):
-        if name in ('_conn', '_row_factory'):
-            object.__setattr__(self, name, value)
-        elif name == 'row_factory':
-            object.__setattr__(self, '_row_factory', value)
-        else:
-            setattr(self._conn, name, value)
-
-
-
 def get_db():
-    """
-    Devuelve una conexión según el motor configurado (MariaDB por defecto).
-    """
-    if DB_ENGINE == "mariadb":
-        if mariadb:
-            conn = mariadb.connect(**MARIADB_CONFIG)
-            conn.autocommit = False
-            return MariaDBConnectionWrapper(conn)
-        if pymysql:
-            conn = pymysql.connect(
-                host=MARIADB_CONFIG["host"],
-                port=MARIADB_CONFIG["port"],
-                user=MARIADB_CONFIG["user"],
-                password=MARIADB_CONFIG["password"],
-                database=MARIADB_CONFIG["database"],
-                cursorclass=pymysql.cursors.DictCursor,
-            )
-            conn.autocommit(False)
-            return PyMySQLConnectionWrapper(conn)
-        raise RuntimeError("DB_ENGINE=mariadb pero no hay driver instalado (mariadb o pymysql)")
-
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return db_helpers.open_connection(DB_ENGINE, DATABASE, MARIADB_CONFIG)
 
 
 def query_db(query, args=(), one=False):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute(query, args)
-    rv = cur.fetchall()
-    cur.close()
-    conn.close()
-    return (rv[0] if rv else None) if one else rv
+    return db_helpers.query_db(get_db, query, args, one)
 
 
 def execute_db(query, args=()):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute(query, args)
-    conn.commit()
-    last_id = cur.lastrowid
-    cur.close()
-    conn.close()
-    return last_id
+    return db_helpers.execute_db(get_db, query, args)
 
 
 def upsert_km_realizados(cur, entrenamiento_asignado_id, km_planificados, km_realizados, fecha):
