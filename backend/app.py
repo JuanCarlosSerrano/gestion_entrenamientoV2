@@ -1,5 +1,4 @@
 from flask import Flask, jsonify, request, session
-from flask import redirect, url_for
 from flask_cors import CORS
 from flask_session import Session
 from datetime import datetime, timedelta
@@ -14,6 +13,7 @@ import sqlite3
 import logging
 try:
     from db import helpers as db_helpers
+    from routes.system import bp as system_bp
     import services.publication_service as publication_domain
     from services.whatsapp_service import enviar_whatsapp
     from services.fit_service import hash_file_sha256, parse_fit_metrics
@@ -37,6 +37,7 @@ try:
     )
 except ModuleNotFoundError:
     from backend.db import helpers as db_helpers
+    from backend.routes.system import bp as system_bp
     import backend.services.publication_service as publication_domain
     from backend.services.whatsapp_service import enviar_whatsapp
     from backend.services.fit_service import hash_file_sha256, parse_fit_metrics
@@ -90,6 +91,7 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"  # Recomendado por seguridad
 app.config["SESSION_COOKIE_SECURE"] = os.getenv("SESSION_COOKIE_SECURE", "0") in ("1", "true", "True")
 app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH", str(5 * 1024 * 1024)))
 Session(app)
+app.register_blueprint(system_bp)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE = os.getenv("DB_PATH", os.path.join(BASE_DIR, "atletas.db"))
 MARIADB_CONFIG = {
@@ -530,13 +532,6 @@ def login_rate_limited(ip):
     return False
 
 
-@app.route('/csrf-token', methods=['GET'])
-def get_csrf_token():
-    if 'csrf_token' not in session:
-        session['csrf_token'] = secrets.token_urlsafe(32)
-    return jsonify({'csrf_token': session['csrf_token']})
-
-
 @app.before_request
 def csrf_protect():
     # Sólo proteger métodos que modifican datos
@@ -557,7 +552,7 @@ def csrf_protect():
 def force_password_change_gate():
     if not session.get("user_id"):
         return
-    allowed = {"login_user", "get_csrf_token", "cambiar_password", "index", "static"}
+    allowed = {"login_user", "system.get_csrf_token", "cambiar_password", "system.index", "static"}
     if request.endpoint in allowed:
         return
     user = query_db(
@@ -7053,11 +7048,6 @@ def registrar_archivo_sesion(current_user, entrenamiento_id):
     finally:
         cur.close()
         conn.close()
-
-@app.route('/')
-def index():
-    return redirect(url_for('static', filename='login.html'))
-
 
 def format_segundos(seg):
     if seg is None:
