@@ -474,3 +474,90 @@ Ideas fuera del alcance de la V2:
 - Generar el aviso cuando el entrenamiento pasa a visible.
 - Registrar un único envío por entrenamiento asignado.
 - Mantener el mensaje corto y sin enlace.
+
+---
+
+# Módulo 15 · Configuración
+
+## MP-140 · Alta atleta
+
+**Prioridad:** MUST
+
+**Debe permitir:**
+
+- Crear atleta con datos básicos.
+- Asignar categoría, grupo y subgrupo.
+- Generar o introducir contraseña temporal.
+- Marcar `force_password_change`.
+
+## MP-141 · Edición de datos
+
+**Prioridad:** MUST
+
+**Debe permitir:**
+
+- Editar nombre, apellidos, email, teléfono, fecha de nacimiento y categoría.
+- Rechazar emails duplicados.
+- Mantener permisos entrenador-atleta.
+
+## MP-142 · Grupo y subgrupo
+
+**Prioridad:** MUST
+
+**Debe permitir:**
+
+- Cambiar grupo, subgrupo y categoría desde Configuración.
+- Reutilizar el modelo actual de `usuarios`.
+
+## MP-143 · Reset password
+
+**Prioridad:** MUST
+
+**Debe permitir:**
+
+- Generar contraseña temporal.
+- Guardar solo hash.
+- Activar cambio obligatorio de contraseña.
+
+## MP-144 · Histórico de zonas
+
+**Prioridad:** MUST
+
+**Debe permitir:**
+
+- Consultar configuraciones anteriores de zonas.
+- Ver VDOT, VAM, ritmos, FC, método y fechas.
+
+## MP-145 · Nueva configuración de zonas
+
+**Prioridad:** MUST
+
+**Debe permitir:**
+
+- Crear una configuración nueva.
+- Cerrar la configuración vigente anterior.
+- No sobrescribir históricos.
+
+## MP-146 · Archivado/desactivación
+
+**Prioridad:** MUST
+
+**Debe permitir:**
+
+- Desactivar atletas con historial.
+- Borrar físicamente solo atletas sin datos asociados.
+
+## MP-147 · Panel atleta V2
+
+**Prioridad:** MUST
+
+**Debe permitir:**
+
+- Ver entrenamiento visible del día.
+- Consultar planificación semanal visible.
+- Abrir el detalle del entrenamiento en solo lectura.
+- Completar feedback guiado.
+- Subir FIT opcional.
+- Consultar historial propio.
+- Consultar evolución básica.
+- Ver perfil y cambiar contraseña.

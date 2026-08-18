@@ -1,8 +1,10 @@
 import importlib
+import io
 import os
 import sqlite3
 
 import pytest
+from werkzeug.security import check_password_hash, generate_password_hash
 
 
 SCHEMA_SQL = """
@@ -12,6 +14,7 @@ CREATE TABLE usuarios (
     apellidos TEXT,
     email TEXT,
     telefono TEXT,
+    fecha_nacimiento TEXT,
     password_hash TEXT,
     rol TEXT,
     entrenador_id INTEGER,
@@ -19,7 +22,9 @@ CREATE TABLE usuarios (
     aprobado INTEGER DEFAULT 1,
     categoria TEXT,
     grupo TEXT,
-    subgrupo TEXT
+    subgrupo TEXT,
+    activo INTEGER DEFAULT 1,
+    foto_url TEXT
 );
 CREATE TABLE entrenamientos_asignados (
     id INTEGER PRIMARY KEY,
@@ -127,10 +132,10 @@ def _seed_data(db_path: str):
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
-            (1, "Coach", "Uno", "coach1@example.com", None, "", "entrenador", None),
-            (2, "Coach", "Dos", "coach2@example.com", None, "", "entrenador", None),
-            (3, "Athlete", "Uno", "athlete1@example.com", "+34 626 899 379", "", "atleta", 1),
-            (4, "Athlete", "Dos", "athlete2@example.com", "+34 600 000 000", "", "atleta", 2),
+            (1, "Coach", "Uno", "coach1@example.com", None, generate_password_hash("coach"), "entrenador", None),
+            (2, "Coach", "Dos", "coach2@example.com", None, generate_password_hash("coach"), "entrenador", None),
+            (3, "Athlete", "Uno", "athlete1@example.com", "+34 626 899 379", generate_password_hash("athlete"), "atleta", 1),
+            (4, "Athlete", "Dos", "athlete2@example.com", "+34 600 000 000", generate_password_hash("athlete"), "atleta", 2),
         ],
     )
     conn.execute(
@@ -189,6 +194,180 @@ def _set_session(client, user_id, rol):
     with client.session_transaction() as sess:
         sess["user_id"] = user_id
         sess["user_rol"] = rol
+
+
+def _csrf(client):
+    return client.get("/csrf-token").get_json()["csrf_token"]
+
+
+def test_registro_publico_no_permite_crear_admin_entrenador_ni_atleta(client):
+    for rol in ("admin", "entrenador", "atleta"):
+        resp = client.post(
+            "/register",
+            json={
+                "nombre": "Anon",
+                "apellidos": "User",
+                "email": f"anon-{rol}@example.com",
+                "password": "cambiame",
+                "rol": rol,
+            },
+        )
+        assert resp.status_code in (401, 403)
+
+
+def test_admin_crea_entrenador_con_password_temporal_no_fijo(client):
+    _set_session(client, user_id=1, rol="entrenador")
+    token = _csrf(client)
+    # El entrenador no puede usar el endpoint administrativo.
+    forbidden = client.post(
+        "/usuarios",
+        json={"nombre": "No", "apellidos": "Permiso", "email": "nop@example.com", "rol": "admin"},
+        headers={"X-CSRF-Token": token},
+    )
+    assert forbidden.status_code == 403
+
+    _set_session(client, user_id=99, rol="admin")
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    conn.execute(
+        "INSERT INTO usuarios (id, nombre, apellidos, email, password_hash, rol) VALUES (99, 'Admin', 'Root', 'admin@example.com', ?, 'admin')",
+        (generate_password_hash("admin"),),
+    )
+    conn.commit()
+    conn.close()
+    token = _csrf(client)
+
+    resp = client.post(
+        "/usuarios",
+        json={"nombre": "Coach", "apellidos": "Nuevo", "email": "coach-new@example.com", "rol": "entrenador", "password": "cambiame"},
+        headers={"X-CSRF-Token": token},
+    )
+    assert resp.status_code == 201
+    body = resp.get_json()
+    temp = body["temporary_password"]
+    assert temp
+    assert temp != "cambiame"
+    assert body["password_temporal"] == temp
+
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    password_hash, force = conn.execute(
+        "SELECT password_hash, force_password_change FROM usuarios WHERE email = 'coach-new@example.com'"
+    ).fetchone()
+    conn.close()
+    assert check_password_hash(password_hash, temp)
+    assert not check_password_hash(password_hash, "cambiame")
+    assert force == 1
+
+
+def test_entrenador_crea_atleta_propio_sin_aceptar_password_cliente(client):
+    _set_session(client, user_id=1, rol="entrenador")
+    resp = client.post(
+        "/configuracion/atletas",
+        json={
+            "nombre": "Nuevo",
+            "apellidos": "Seguro",
+            "email": "nuevo-seguro@example.com",
+            "entrenador_id": 2,
+            "password_temporal": "cambiame",
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert resp.status_code == 201
+    temp = resp.get_json()["temporary_password"]
+    assert temp != "cambiame"
+
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    entrenador_id, password_hash, force = conn.execute(
+        "SELECT entrenador_id, password_hash, force_password_change FROM usuarios WHERE email = 'nuevo-seguro@example.com'"
+    ).fetchone()
+    conn.close()
+    assert entrenador_id == 1
+    assert check_password_hash(password_hash, temp)
+    assert not check_password_hash(password_hash, "cambiame")
+    assert force == 1
+
+
+def test_reset_password_respeta_permisos_y_genera_temporal_distinta(client):
+    _set_session(client, user_id=1, rol="entrenador")
+    token = _csrf(client)
+    forbidden = client.post("/usuarios/4/reset-password", headers={"X-CSRF-Token": token})
+    assert forbidden.status_code == 403
+
+    resp = client.post("/usuarios/3/reset-password", headers={"X-CSRF-Token": token})
+    assert resp.status_code == 200
+    temp_1 = resp.get_json()["temporary_password"]
+
+    resp_2 = client.post("/usuarios/3/reset-password", headers={"X-CSRF-Token": token})
+    assert resp_2.status_code == 200
+    temp_2 = resp_2.get_json()["temporary_password"]
+    assert temp_1 != temp_2
+
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    password_hash, force = conn.execute("SELECT password_hash, force_password_change FROM usuarios WHERE id = 3").fetchone()
+    conn.close()
+    assert check_password_hash(password_hash, temp_2)
+    assert force == 1
+
+    _set_session(client, user_id=3, rol="atleta")
+    forbidden = client.post("/usuarios/3/reset-password", headers={"X-CSRF-Token": _csrf(client)})
+    assert forbidden.status_code == 403
+
+
+def test_force_password_change_bloquea_funciones_hasta_cambiar_password(client):
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    conn.execute("UPDATE usuarios SET force_password_change = 1 WHERE id = 3")
+    conn.commit()
+    conn.close()
+
+    _set_session(client, user_id=3, rol="atleta")
+    assert client.get("/atletas").status_code == 403
+
+    resp = client.post(
+        "/usuarios/password",
+        json={"current_password": "athlete", "new_password": "nueva-clave-segura"},
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert resp.status_code == 200
+
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    force = conn.execute("SELECT force_password_change FROM usuarios WHERE id = 3").fetchone()[0]
+    conn.close()
+    assert force == 0
+    assert client.get("/atletas").status_code == 200
+
+
+def test_login_no_imprime_password_en_stdout(client, capsys):
+    resp = client.post("/login", json={"email": "athlete1@example.com", "password": "athlete"})
+    assert resp.status_code == 200
+    captured = capsys.readouterr()
+    assert "athlete" not in captured.out
+    assert "password" not in captured.out.lower()
+
+
+def test_upload_foto_rechaza_extension_no_permitida(client):
+    _set_session(client, user_id=3, rol="atleta")
+    resp = client.post(
+        "/actualizar_perfil",
+        data={
+            "nombre": "Athlete",
+            "apellidos": "Uno",
+            "email": "athlete1@example.com",
+            "foto": (io.BytesIO(b"<svg></svg>"), "avatar.svg"),
+        },
+        content_type="multipart/form-data",
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert resp.status_code == 400
+
+
+def test_upload_fit_rechaza_extension_no_fit(client):
+    _set_session(client, user_id=3, rol="atleta")
+    resp = client.post(
+        "/sesiones/9/archivo",
+        data={"archivo": (io.BytesIO(b"not-fit"), "track.txt"), "origen": "manual"},
+        content_type="multipart/form-data",
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert resp.status_code == 400
 
 
 def test_entrenador_no_puede_ver_calendario_de_otro(client):

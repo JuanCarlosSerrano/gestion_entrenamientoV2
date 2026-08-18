@@ -3,148 +3,153 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Estadísticas | Entrenador</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+  <title>Historial · MindPace</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="../css/style.css">
+  <link rel="stylesheet" href="../css/atleta_planificacion.css">
+  <link rel="stylesheet" href="../css/historial_entrenador.css">
   <script src="../js/utils/csrf.js"></script>
   <script src="../js/script.js"></script>
-  <script src="../js/utils/partials.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="../js/entrenador/estadisticas.js" type="module"></script>
   <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
 </head>
-<body class="app-bg">
-  <div class="container app-container">
-    <div data-include="../partials/header.html" data-nav-active="estadisticas"></div>
+<body class="trainer-control history-page">
+  <div class="trainer-shell">
+    <aside class="trainer-sidebar" aria-label="Navegación del entrenador">
+      <a class="trainer-brand" href="index.html" aria-label="MindPace">
+        <img src="../img/logo_sin_fondo.png" alt="" class="trainer-brand__mark">
+        <span>MindPace</span>
+      </a>
 
-    <div class="page-context-bar page-context-bar--hero">
-      <div>
-        <p class="eyebrow eyebrow--subtle">Panel de entrenador</p>
-        <h1 class="page-context-title">Estadísticas</h1>
+      <nav class="trainer-nav">
+        <a class="trainer-nav__link" href="index.html"><span>⌂</span> Inicio</a>
+        <a class="trainer-nav__link" href="planificacion_semanal.html"><span>▦</span> Planificar</a>
+        <a class="trainer-nav__link" href="atletas.html"><span>👥</span> Atletas</a>
+        <a class="trainer-nav__link is-active" href="estadisticas.html"><span>↗</span> Historial</a>
+        <a class="trainer-nav__link" href="alertas.html"><span>!</span> Actividad</a>
+        <a class="trainer-nav__link" href="utilidades.html"><span>⚙</span> Configuración</a>
+      </nav>
+
+      <div class="trainer-sidebar__footer">
+        <div class="trainer-sidebar-user">
+          <span id="sidebar-trainer-initials">E</span>
+          <div>
+            <strong id="sidebar-trainer-name">Entrenador</strong>
+            <small>Entrenador</small>
+          </div>
+        </div>
+        <button class="trainer-logout" id="btn-logout" type="button">Salir</button>
+        <div class="trainer-version">
+          <img src="../img/logo_sin_fondo.png" alt="" class="trainer-version__icon">
+          <div>
+            <strong>MindPace V2</strong>
+            <span>Historial de atletas</span>
+          </div>
+        </div>
+        <div class="trainer-secondary-links" aria-label="Accesos secundarios">
+          <a href="entrenamientos.html">Entrenamientos</a>
+          <a href="calendario.html">Calendario</a>
+          <a href="feedback.html">Feedback</a>
+        </div>
       </div>
-    </div>
-    <div class="app-card">
-      <ul class="nav nav-tabs" id="estadisticasTabs" role="tablist">
-        <li class="nav-item" role="presentation">
-          <button class="nav-link active" id="tab-atletas-btn" data-bs-toggle="tab" data-bs-target="#tab-atletas" type="button" role="tab">
-            Atletas
-          </button>
-        </li>
-        <li class="nav-item" role="presentation">
-          <button class="nav-link" id="tab-resultados-btn" data-bs-toggle="tab" data-bs-target="#tab-resultados" type="button" role="tab">
-            Resultados
-          </button>
-        </li>
-      </ul>
-    </div>
+    </aside>
 
-    <div class="tab-content mt-3">
-      <div class="tab-pane fade show active" id="tab-atletas" role="tabpanel">
-        <div class="app-card">
-          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <main class="trainer-main history-main">
+      <header class="trainer-topbar history-topbar">
+        <div>
+          <h1>Historial</h1>
+          <p id="history-status">Selecciona un atleta para revisar su calendario de entrenamientos.</p>
+        </div>
+        <div class="trainer-topbar__meta">
+          <button class="btn btn-outline-secondary" id="btn-refresh-history" type="button">Actualizar</button>
+        </div>
+      </header>
+
+      <section class="history-layout">
+        <aside class="history-athletes-panel" aria-label="Selección de atleta">
+          <div class="history-panel-header">
             <div>
-              <h2 class="mb-1">Atletas del equipo</h2>
-              <p class="text-muted mb-0">Selecciona un atleta para analizar su evolución.</p>
+              <p class="planner-eyebrow">Paso 1</p>
+              <h2>Mis atletas</h2>
             </div>
-            <button class="btn btn-outline-brand btn-sm" id="btn-refrescar-atletas">Actualizar</button>
+            <strong id="history-athletes-count">0</strong>
           </div>
-          <div class="table-responsive mt-3">
-            <table class="table table-sm align-middle">
-              <thead class="table-light">
-                <tr>
-                  <th>Atleta</th>
-                  <th>Email</th>
-                  <th class="text-end">Acciones</th>
-                </tr>
-              </thead>
-              <tbody id="tabla-atletas-body"></tbody>
-            </table>
-            <p class="text-muted mb-0" id="tabla-atletas-vacia">Aún no hay atletas asignados.</p>
+
+          <div class="history-filters">
+            <input class="form-control" id="history-athlete-search" type="search" placeholder="Buscar atleta">
+            <select class="form-select" id="history-filter-group" aria-label="Grupo">
+              <option value="">Todos los grupos</option>
+            </select>
+            <select class="form-select" id="history-filter-subgroup" aria-label="Subgrupo">
+              <option value="">Todos los subgrupos</option>
+            </select>
+            <select class="form-select" id="history-filter-category" aria-label="Categoría">
+              <option value="">Todas las categorías</option>
+            </select>
           </div>
-        </div>
 
-      </div>
+          <div class="history-athlete-list" id="history-athlete-list" aria-live="polite"></div>
+        </aside>
 
-      <div class="tab-pane fade" id="tab-resultados" role="tabpanel">
-        <div class="app-card">
-          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <section class="history-calendar-panel" aria-label="Calendario histórico">
+          <div class="history-panel-header history-panel-header--calendar">
             <div>
-              <h3 class="mb-1">Resultados de entrenamientos</h3>
-              <p class="text-muted mb-0">Entrenamientos completados con todas las series reportadas.</p>
+              <p class="planner-eyebrow">Paso 2</p>
+              <h2 id="history-athlete-name">Calendario del atleta</h2>
             </div>
-            <div class="d-flex flex-wrap gap-2">
-              <div class="btn-group btn-group-sm" role="group" aria-label="Filtros resultados">
-                <button class="btn btn-outline-primary active" id="filtro-todos">Todos</button>
-                <button class="btn btn-outline-primary" id="filtro-alertas">Ver solo alertas</button>
-                <button class="btn btn-outline-primary" id="filtro-incompletos">Ver incompletos</button>
-                <button class="btn btn-outline-primary" id="filtro-sin-feedback">Ver sin feedback</button>
-              </div>
-              <button class="btn btn-outline-brand btn-sm" id="btn-refrescar-resultados">Actualizar</button>
+            <div class="history-legend" aria-label="Leyenda de estados">
+              <span><i class="history-dot history-dot--planned"></i>Planificado</span>
+              <span><i class="history-dot history-dot--done"></i>Realizado</span>
+              <span><i class="history-dot history-dot--feedback"></i>Feedback</span>
             </div>
           </div>
 
-          <div class="alert alert-info" id="alertas-resumen">
-            <div class="fw-semibold mb-2">Alertas recientes</div>
-            <div class="table-responsive">
-              <table class="table table-sm align-middle mb-0" id="alertas-tabla">
-                <thead class="table-light">
-                  <tr>
-                    <th>Atleta</th>
-                    <th>Entrenamiento</th>
-                    <th>Fecha</th>
-                    <th>RPE</th>
-                    <th>Sensación</th>
-                    <th>Fatiga</th>
-                    <th>Dolor</th>
-                    <th>Δ km</th>
-                  </tr>
-                </thead>
-                <tbody id="alertas-listado"></tbody>
-              </table>
+          <div class="history-kpis" aria-label="Resumen del mes">
+            <div>
+              <span>Planificados</span>
+              <strong id="history-kpi-planned">0</strong>
+            </div>
+            <div>
+              <span>Realizados</span>
+              <strong id="history-kpi-done">0</strong>
+            </div>
+            <div>
+              <span>Con feedback</span>
+              <strong id="history-kpi-feedback">0</strong>
+            </div>
+            <div>
+              <span>Sin feedback</span>
+              <strong id="history-kpi-missing">0</strong>
             </div>
           </div>
 
-          <div class="table-responsive">
-            <table class="table table-sm align-middle">
-              <thead class="table-light">
-                <tr>
-                  <th>Atleta</th>
-                  <th>Entrenamiento</th>
-                  <th>Fecha</th>
-                  <th>Estado</th>
-                  <th>Dist. objetivo</th>
-                  <th>Dist. real</th>
-                  <th>Δ</th>
-                  <th>RPE</th>
-                  <th>Sensación</th>
-                  <th>Fatiga</th>
-                  <th>Dolor</th>
-                </tr>
-              </thead>
-              <tbody id="tabla-resultados-body"></tbody>
-            </table>
+          <div class="month-toolbar history-month-toolbar">
+            <button class="btn btn-outline-secondary" id="history-prev-month" type="button" aria-label="Mes anterior">‹</button>
+            <div>
+              <h2 id="history-month-title">Mes</h2>
+              <button class="btn btn-sm btn-outline-brand" id="history-today-month" type="button">Mes actual</button>
+            </div>
+            <button class="btn btn-outline-secondary" id="history-next-month" type="button" aria-label="Mes siguiente">›</button>
           </div>
-          <div id="resultados-vacio" class="text-muted">Aún no hay entrenamientos finalizados.</div>
-        </div>
-      </div>
-    </div>
 
-    <div class="modal fade" id="modalDetalleResultado" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-lg modal-dialog-scrollable">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">Detalle del entrenamiento</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-          </div>
-          <div class="modal-body" id="detalle-resultado-body">
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div data-include="../partials/footer.html"></div>
+          <div class="monthly-calendar history-calendar" id="history-calendar" aria-live="polite"></div>
+        </section>
+      </section>
+    </main>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
+  <div class="modal fade history-detail-modal" id="historyDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Detalle del entrenamiento</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body" id="history-detail-body"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

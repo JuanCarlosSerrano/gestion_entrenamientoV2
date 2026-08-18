@@ -113,6 +113,11 @@ Gestionar los distintos perfiles del sistema.
 - Administradores
 - Entrenadores
 - Atletas
+- Alta de atletas desde Configuración
+- Edición de datos básicos
+- Gestión de grupo, subgrupo y categoría
+- Activación y desactivación
+- Reset de contraseña temporal con cambio obligatorio
 
 ## Debe conocer
 
@@ -132,6 +137,10 @@ Ninguna
 ## Estado
 
 🟡 Parcial
+
+## Avance V2
+
+Configuración gestiona el ciclo de vida básico del atleta sin borrar historial deportivo. Un atleta con entrenamientos, sesiones, feedback, zonas o envíos se archiva mediante `activo = 0`.
 
 ---
 
@@ -173,6 +182,33 @@ CAP-001
 🟡 Parcial
 
 Avance: muy avanzado.
+
+---
+
+# CAP-011 · Personalización deportiva
+
+## Objetivo
+
+Gestionar VDOT, VAM y zonas vigentes del atleta sin alterar entrenamientos históricos.
+
+## Debe permitir
+
+- Consultar configuración vigente.
+- Consultar histórico de zonas.
+- Crear nueva configuración desde Configuración.
+- Cerrar la configuración anterior con `fecha_fin`.
+- Conservar VDOT, VAM, ritmos, FC y método usados.
+
+## Utilizado por
+
+- Configuración
+- Planificación
+- Asignación
+- Historial
+
+## Estado
+
+🟡 Parcial
 
 ---
 
@@ -642,3 +678,17 @@ Todas las capacidades descritas en este documento deben funcionar de forma coord
 **Planificar → Comunicar → Ejecutar → Recordar → Analizar**
 
 Este ciclo representa la esencia del producto y servirá como referencia para cualquier evolución futura.
+
+# CAP-011 · Panel del atleta V2
+
+El atleta puede consultar planificación visible, visualizar entrenamiento personalizado, enviar feedback guiado, subir FIT, consultar historial propio, consultar evolución básica y ver su perfil.
+
+No puede modificar planificación, zonas, VDOT, grupo, categoría ni entrenador. Tampoco puede ver sesiones ocultas o programadas.
+
+# CAP-017 · Seguridad y ciclo de vida de usuarios
+
+MindPace no expone registro público. Las altas son controladas por rol: admin puede crear admin, entrenador y atleta; entrenador solo puede crear sus propios atletas; atleta no crea usuarios.
+
+Las contraseñas iniciales y resets son temporales, aleatorios, se guardan solo como hash y fuerzan cambio antes de usar funciones normales. Los secretos se leen desde entorno, CSRF protege escrituras, CORS usa orígenes explícitos y las cookies pueden marcarse `Secure` en producción HTTPS.
+
+Las subidas quedan restringidas por tipo: foto de perfil solo JPG, PNG o WEBP; actividad solo FIT. Un atleta con histórico se archiva mediante `activo = 0` en vez de borrarse físicamente.

@@ -510,3 +510,33 @@ Aviso WhatsApp preparado
 - El acceso al panel de publicación se hace desde el aviso existente `Pendientes de hoy -> Publicar`.
 - La publicación inmediata registra `publicado_en` y genera un único aviso WhatsApp.
 - La programación guarda `publicar_en` y mantiene el entrenamiento oculto hasta la fecha.
+---
+
+# Bloque · Configuración y gestión de atletas
+
+## Objetivo
+
+Centralizar la configuración operativa del entrenador sin mezclarla con planificación ni análisis.
+
+## Alcance
+
+- Alta guiada de atletas.
+- Edición de datos básicos.
+- Gestión de grupo, subgrupo y categoría.
+- Activación y desactivación de atletas.
+- Reset de contraseña temporal con cambio obligatorio.
+- Consulta del histórico de zonas.
+- Creación de nuevas configuraciones de VDOT, VAM y zonas.
+
+## Criterio de cierre
+
+- El entrenador solo gestiona sus propios atletas.
+- Los atletas con historial no se eliminan físicamente.
+- Las zonas anteriores se conservan al crear una nueva configuración.
+- La pantalla mantiene la estética V2 y el uso tablet-first.
+
+# Bloque funcional · Panel del atleta
+
+Objetivo: ofrecer una experiencia simple, móvil y guiada para que el atleta entienda qué debe entrenar y pueda informar cómo ha ido.
+
+Incluye Home, Mi planificación, detalle de entrenamiento, feedback guiado, FIT opcional, historial propio, evolución básica y perfil personal con campos deportivos en lectura.

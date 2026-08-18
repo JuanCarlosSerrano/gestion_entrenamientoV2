@@ -12,6 +12,23 @@ const authHeader = () =>
   "Basic " +
   btoa(`${localStorage.getItem("userEmail")}:${localStorage.getItem("userPassword")}`);
 
+const setupTrainerIdentity = () => {
+  const nameEl = document.getElementById("sidebar-trainer-name");
+  const initialsEl = document.getElementById("sidebar-trainer-initials");
+  if (!nameEl || !initialsEl) return;
+  const storedName = localStorage.getItem("userName") || localStorage.getItem("userEmail") || "Entrenador";
+  const displayName = storedName.includes("@") ? storedName.split("@")[0] : storedName;
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+  nameEl.textContent = displayName;
+  initialsEl.textContent = initials || "E";
+};
+
 const formatFechaCorta = (valor) => {
   const d = new Date(valor);
   if (Number.isNaN(d.getTime())) return valor || "";
@@ -101,6 +118,7 @@ const renderTablaBloques = (bloques = []) => {
 };
 
 document.addEventListener("DOMContentLoaded", async () => {
+  setupTrainerIdentity();
   async function cargarFeedbacks() {
     try {
       const res = await fetch(`${API}/feedbacks`, {

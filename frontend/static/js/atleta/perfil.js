@@ -12,6 +12,15 @@ const fotoPerfil = document.getElementById("foto-perfil");
 const zonasEmpty = document.getElementById("zonas-empty");
 const zonasTabla = document.getElementById("zonas-tabla");
 const zonasBody = document.getElementById("zonas-body");
+const perfilGrupo = document.getElementById("perfil-grupo");
+const perfilCategoria = document.getElementById("perfil-categoria");
+const perfilEntrenador = document.getElementById("perfil-entrenador");
+
+const pace = (value) => {
+  const total = Math.round(Number(value || 0) * 60);
+  if (!total) return "-";
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}/km`;
+};
 
 const renderZonas = (zonas) => {
   if (!zonas || typeof zonas !== "object") {
@@ -24,13 +33,12 @@ const renderZonas = (zonas) => {
     { clave: "z2", nombre: "Zona 2 · Fondo suave" },
     { clave: "z3", nombre: "Zona 3 · Fondo medio" },
     { clave: "z4", nombre: "Zona 4 · Umbral" },
-    { clave: "z5", nombre: "Zona 5 · VAM" },
-    { clave: "z6", nombre: "Zona 6 · VO₂max" }
+    { clave: "z5", nombre: "Zona 5 · VO2max" }
   ];
   const filas = definiciones
     .map(({ clave, nombre }) =>
       zonas[clave]
-        ? `<tr><td>${nombre}</td><td>${Number(zonas[clave]).toFixed(2)} min/km</td></tr>`
+        ? `<article class="athlete-metric-card"><span class="athlete-muted">${nombre}</span><strong>${pace(zonas[clave])}</strong></article>`
         : ""
     )
     .filter(Boolean)
@@ -59,6 +67,9 @@ const cargarPerfil = async () => {
     inputTelefono.value = perfil.telefono || "";
     inputFecha.value = perfil.fecha_nacimiento || "";
     if (perfil.foto_url && fotoPerfil) fotoPerfil.src = perfil.foto_url;
+    if (perfilGrupo) perfilGrupo.textContent = [perfil.grupo, perfil.subgrupo].filter(Boolean).join(" · ") || "-";
+    if (perfilCategoria) perfilCategoria.textContent = perfil.categoria || "-";
+    if (perfilEntrenador) perfilEntrenador.textContent = perfil.entrenador_nombre || perfil.entrenador_email || "-";
   } catch (err) {
     console.error("Error al cargar perfil:", err);
   }

@@ -178,7 +178,23 @@ const buildStepDescription = (step, zonas) => {
   return partes || "Sin detalles";
 };
 
-const renderBlock = (paso, index, zonas) => {
+const renderResultInputs = (paso, options) => {
+  if (!options?.editableResults || !paso?.id) return "";
+  return `
+    <div class="training-block-results" data-result-step="${paso.id}">
+      <label>
+        <span>Tiempo real</span>
+        <input class="form-control form-control-sm" type="text" inputmode="numeric" placeholder="mm:ss" data-result-time="${paso.id}">
+      </label>
+      <label>
+        <span>Km reales</span>
+        <input class="form-control form-control-sm" type="number" min="0" step="0.01" placeholder="0,00" data-result-km="${paso.id}">
+      </label>
+    </div>
+  `;
+};
+
+const renderBlock = (paso, index, zonas, options = {}) => {
   const meta = [
     `<span class="training-pill training-pill--index">Bloque ${index + 1}</span>`
   ];
@@ -193,7 +209,10 @@ const renderBlock = (paso, index, zonas) => {
       ? `<ul class="training-substeps-list">
             ${paso.subpasos
               .map(
-                (sub, idx) => `<li>${idx + 1}. ${buildStepDescription(sub, zonas)}</li>`
+                (sub, idx) => `<li>
+                  <span>${idx + 1}. ${buildStepDescription(sub, zonas)}</span>
+                  ${renderResultInputs(sub, options)}
+                </li>`
               )
               .join("")}
          </ul>`
@@ -208,16 +227,17 @@ const renderBlock = (paso, index, zonas) => {
       <div class="training-block-body">
         <div class="training-block-text">${buildStepDescription(paso, zonas)}</div>
         ${sublist}
+        ${renderResultInputs(paso, options)}
       </div>
     </div>
   `;
 };
 
-export const renderPasos = (pasos, zonas) => {
+export const renderPasos = (pasos, zonas, options = {}) => {
   if (!Array.isArray(pasos) || !pasos.length) {
     return '<p class="text-muted small mb-0">Sin bloques detallados.</p>';
   }
-  return (pasos || []).map((p, index) => renderBlock(p, index, zonas)).join("");
+  return (pasos || []).map((p, index) => renderBlock(p, index, zonas, options)).join("");
 };
 
 export const buildTreeFromFlat = (list) => {

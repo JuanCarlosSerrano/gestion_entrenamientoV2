@@ -3,393 +3,302 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Utilidades · MindPace</title>
+    <title>Configuración · MindPace</title>
     <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" />
     <link rel="stylesheet" href="../css/style.css" />
-    <link rel="stylesheet" href="../css/atletas.css" />
+    <link rel="stylesheet" href="../css/panel_entrenador.css" />
     <script src="../js/utils/csrf.js"></script>
     <script src="../js/script.js"></script>
-    <script src="../js/utils/partials.js"></script>
-    <script src="../js/entrenador/main.js" type="module"></script>
     <script type="module" src="../js/entrenador/utilidades.js"></script>
   </head>
-  <body class="app-bg">
-    <div class="container app-container">
-      <div data-include="../partials/header.html" data-nav-active="utilidades"></div>
-
-      <div class="page-context-bar page-context-bar--hero">
-        <div>
-          <p class="eyebrow eyebrow--subtle">Panel de entrenador</p>
-          <h1 class="page-context-title">Utilidades</h1>
-        </div>
-      </div>
-
-      <div class="app-card">
-        <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 mb-4">
-          <div>
-            <h2 class="h4 mb-1">Calculadora de ritmos</h2>
-            <p class="text-muted mb-0">Introduce la distancia y el tiempo objetivo para obtener el ritmo, la velocidad media y los parciales acumulados.</p>
-          </div>
-        </div>
-
-        <form id="form-calculadora-ritmo" class="row g-3">
-          <div class="col-md-4">
-            <label class="form-label">Distancia</label>
-            <select id="distancia-preset" class="form-select">
-              <option value="5">5 km</option>
-              <option value="10" selected>10 km</option>
-              <option value="21.097">Media maratón (21,097 km)</option>
-              <option value="42.195">Maratón (42,195 km)</option>
-              <option value="custom">Personalizada</option>
-            </select>
-            <div class="mt-2" id="distancia-custom-wrapper">
-              <div class="input-group">
-                <input type="number" step="0.001" min="0.1" class="form-control" id="distancia-custom" placeholder="Introduce la distancia" />
-                <select class="form-select" id="distancia-custom-unidad">
-                  <option value="km" selected>km</option>
-                  <option value="m">m</option>
-                </select>
-              </div>
-              <small class="text-muted">Puedes trabajar en kilómetros o metros; convertiremos automáticamente.</small>
-            </div>
-          </div>
-
-          <div class="col-md-2">
-            <label class="form-label">Horas</label>
-            <input type="number" min="0" class="form-control" id="tiempo-horas" value="0" />
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Minutos</label>
-            <input type="number" min="0" max="59" class="form-control" id="tiempo-minutos" value="45" />
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Segundos</label>
-            <input type="number" min="0" max="59" class="form-control" id="tiempo-segundos" value="0" />
-          </div>
-          <div class="col-12 d-flex flex-wrap gap-2 mt-3">
-            <button type="submit" class="btn btn-brand">Calcular</button>
-            <button type="button" class="btn btn-outline-secondary" id="btn-reset-calculadora">Limpiar</button>
-          </div>
-          <div class="col-12 pt-3 border-top">
-            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-              <div>
-                <label class="form-label mb-0">Parciales personalizados</label>
-                <p class="text-muted small mb-0">
-                  Opcional: define los puntos intermedios que quieres visualizar (en km). Ejemplo: 0.2, 0.4, 0.6, 0.8.
-                </p>
-              </div>
-              <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" role="switch" id="toggle-parciales-personalizados">
-                <label class="form-check-label" for="toggle-parciales-personalizados">Activar</label>
-              </div>
-            </div>
-            <div class="mt-3" id="parciales-custom-wrapper" style="display: none;">
-              <input type="text" class="form-control" id="parciales-personalizados" placeholder="Ej: 0.2, 0.4, 0.6, 0.8" />
-              <div class="text-muted small mt-2 d-flex flex-wrap gap-2 align-items-center">
-                <span>Atajos:</span>
-                <button type="button" class="btn btn-sm btn-outline-brand" data-splits="0.2,0.4,0.6,0.8">
-                  1000 m (200 / 400 / 600 / 800)
-                </button>
-                <button type="button" class="btn btn-sm btn-outline-brand" data-splits="0.4,0.8,1.2">
-                  1500 m (400 / 800 / 1200)
-                </button>
-              </div>
-              <div class="text-muted small mt-2">
-                <span>Agregar rápidamente parciales:</span>
-                <div class="d-flex flex-wrap gap-2 mt-2" id="parciales-quick-buttons">
-                  <button type="button" class="btn btn-outline-secondary btn-sm" data-split-value="0.1">100 m</button>
-                  <button type="button" class="btn btn-outline-secondary btn-sm" data-split-value="0.2">200 m</button>
-                  <button type="button" class="btn btn-outline-secondary btn-sm" data-split-value="0.4">400 m</button>
-                  <button type="button" class="btn btn-outline-secondary btn-sm" data-split-value="0.5">500 m</button>
-                  <button type="button" class="btn btn-outline-secondary btn-sm" data-split-value="0.8">800 m</button>
-                  <button type="button" class="btn btn-outline-secondary btn-sm" data-split-value="1">1 km</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </form>
-
-        <div class="row g-4 mt-4" id="resultados-ritmo" style="display: none;">
-          <div class="col-md-4">
-            <div class="tarjeta sombra-suave h-100">
-              <p class="eyebrow eyebrow--subtle mb-1">Ritmo medio</p>
-              <h3 class="mb-0" id="ritmo-promedio">-</h3>
-              <small class="text-muted">min/km</small>
-            </div>
-          </div>
-          <div class="col-md-4">
-            <div class="tarjeta sombra-suave h-100">
-              <p class="eyebrow eyebrow--subtle mb-1">Velocidad media</p>
-              <h3 class="mb-0" id="velocidad-media">-</h3>
-              <small class="text-muted">km/h</small>
-            </div>
-          </div>
-          <div class="col-md-4">
-            <div class="tarjeta sombra-suave h-100">
-              <p class="eyebrow eyebrow--subtle mb-1">Tiempo total</p>
-              <h3 class="mb-0" id="tiempo-total">-</h3>
-              <small class="text-muted" id="distancia-descripcion"></small>
-            </div>
-          </div>
-        </div>
-
-        <div class="mt-5" id="parciales-wrapper" style="display: none;">
-          <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <body class="trainer-control utilities-page config-page">
+    <div class="trainer-shell">
+      <aside class="trainer-sidebar" aria-label="Navegación del entrenador">
+        <a class="trainer-brand" href="index.html" aria-label="MindPace">
+          <img src="../img/logo_sin_fondo.png" alt="" class="trainer-brand__mark">
+          <span>MindPace</span>
+        </a>
+        <nav class="trainer-nav">
+          <a class="trainer-nav__link" href="index.html"><span>⌂</span> Inicio</a>
+          <a class="trainer-nav__link" href="planificacion_semanal.html"><span>▦</span> Planificar</a>
+          <a class="trainer-nav__link" href="atletas.html"><span>👥</span> Atletas</a>
+          <a class="trainer-nav__link" href="estadisticas.html"><span>↗</span> Historial</a>
+          <a class="trainer-nav__link" href="alertas.html"><span>!</span> Actividad</a>
+          <a class="trainer-nav__link is-active" href="utilidades.html"><span>⚙</span> Configuración</a>
+        </nav>
+        <div class="trainer-sidebar__footer">
+          <div class="trainer-sidebar-user">
+            <span id="sidebar-trainer-initials">E</span>
             <div>
-              <h3 class="h5 mb-1">Parciales acumulados</h3>
-              <p class="text-muted mb-0">Tabla de tiempos acumulados para cada kilómetro de la distancia seleccionada.</p>
+              <strong id="sidebar-trainer-name">Entrenador</strong>
+              <small>Entrenador</small>
             </div>
-            <button class="btn btn-outline-brand btn-sm" id="btn-copy-parciales">Copiar parciales</button>
           </div>
-          <div class="table-responsive">
-            <table class="table table-theme mb-0">
-              <thead>
-                <tr>
-                  <th>Kilómetro</th>
-                  <th>Tiempo acumulado</th>
-                </tr>
-              </thead>
-              <tbody id="tabla-parciales">
-                <tr>
-                  <td colspan="2" class="text-muted text-center">Calcula un ritmo para ver los parciales.</td>
-                </tr>
-              </tbody>
-            </table>
+          <button class="trainer-logout" id="btn-logout" type="button">Salir</button>
+          <div class="trainer-version">
+            <img src="../img/logo_sin_fondo.png" alt="" class="trainer-version__icon">
+            <div>
+              <strong>MindPace V2</strong>
+              <span>Configuración</span>
+            </div>
           </div>
         </div>
-      </div>
+      </aside>
 
-
-
-      <div class="app-card mt-4">
-        <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 mb-4">
+      <main class="trainer-main panel-page-main utilities-main">
+        <header class="trainer-topbar">
           <div>
-            <h2 class="h4 mb-1">Calculadora VDOT</h2>
-            <p class="text-muted mb-0">Introduce una marca de carrera para estimar VDOT y ritmos de entrenamiento.</p>
+            <h1>Configuración</h1>
+            <p>Gestiona atletas, zonas y accesos.</p>
           </div>
-        </div>
+          <button class="btn btn-outline-brand d-none" id="btn-config-back" type="button">Volver</button>
+        </header>
 
-        <form id="form-vdot" class="row g-3">
-          <div class="col-md-4">
-            <label class="form-label">Atleta</label>
-            <select id="vdot-atleta" class="form-select">
-              <option value="">Selecciona un atleta</option>
-            </select>
-            <small class="text-muted">Para guardar el VDOT en el perfil.</small>
+        <section class="config-home" id="config-home" aria-label="Configuración">
+          <button class="config-tile" type="button" data-config-view="atletas"><i class="bi bi-people config-tile__icon" aria-hidden="true"></i><strong>Gestión de atletas</strong><small>Atletas, grupos y datos</small></button>
+          <button class="config-tile" type="button" data-config-view="zonas"><i class="bi bi-bullseye config-tile__icon" aria-hidden="true"></i><strong>Ritmos y zonas</strong><small>VDOT, VAM y zonas</small></button>
+          <button class="config-tile" type="button" data-config-view="predictor"><i class="bi bi-trophy config-tile__icon" aria-hidden="true"></i><strong>Predicción de marcas</strong><small>Marcas y equivalencias</small></button>
+          <button class="config-tile" type="button" data-config-view="ritmos"><i class="bi bi-stopwatch config-tile__icon" aria-hidden="true"></i><strong>Calculadora de ritmos</strong><small>Distancia, tiempo y ritmo</small></button>
+          <button class="config-tile" type="button" data-config-view="accesos"><i class="bi bi-key config-tile__icon" aria-hidden="true"></i><strong>Accesos</strong><small>Usuarios y contraseñas</small></button>
+          <button class="config-tile" type="button" data-config-view="preferencias"><i class="bi bi-gear config-tile__icon" aria-hidden="true"></i><strong>Preferencias</strong><small>Preferencias personales</small></button>
+        </section>
+
+        <section class="panel-card config-view d-none" id="view-atletas">
+          <div class="panel-toolbar">
+            <div><p class="planner-eyebrow">Atletas</p><h2>Gestión de atletas</h2></div>
+            <button class="btn btn-brand" id="btn-new-athlete" type="button">Añadir atleta</button>
           </div>
-          <div class="col-md-4">
-            <label class="form-label">Distancia</label>
-            <select id="vdot-distancia" class="form-select">
-              <option value="5">5 km</option>
-              <option value="10" selected>10 km</option>
-              <option value="21.097">Media maratón (21,097 km)</option>
-              <option value="42.195">Maratón (42,195 km)</option>
-              <option value="custom">Personalizada</option>
-            </select>
-            <div class="mt-2" id="vdot-distancia-custom-wrapper" style="display:none;">
-              <div class="input-group">
-                <input type="number" step="0.001" min="0.1" class="form-control" id="vdot-distancia-custom" placeholder="Introduce la distancia" />
-                <span class="input-group-text">km</span>
-              </div>
+          <div class="config-filters">
+            <input class="form-control" id="config-search" type="search" placeholder="Buscar atleta">
+            <select class="form-select" id="config-filter-group"><option value="">Todos los grupos</option></select>
+            <select class="form-select" id="config-filter-subgroup"><option value="">Todos los subgrupos</option></select>
+            <select class="form-select" id="config-filter-category"><option value="">Todas las categorías</option></select>
+            <select class="form-select" id="config-filter-active"><option value="">Todos</option><option value="1">Activos</option><option value="0">Inactivos</option></select>
+          </div>
+          <div class="config-athlete-list" id="config-athlete-list"></div>
+        </section>
+
+        <section class="panel-card config-view d-none" id="view-athlete-detail">
+          <div class="panel-toolbar">
+            <div><p class="planner-eyebrow" id="athlete-detail-state">Atleta</p><h2 id="athlete-detail-title">Ficha de atleta</h2></div>
+            <button class="btn btn-outline-brand" id="btn-return-athletes" type="button">Lista</button>
+          </div>
+          <div class="panel-tabs" role="tablist">
+            <button class="panel-tab is-active" type="button" data-athlete-tab="datos">Datos</button>
+            <button class="panel-tab" type="button" data-athlete-tab="grupo">Grupo</button>
+            <button class="panel-tab" type="button" data-athlete-tab="zonas">Zonas</button>
+            <button class="panel-tab" type="button" data-athlete-tab="acceso">Acceso</button>
+          </div>
+          <form class="config-tab" id="tab-datos">
+            <div class="config-form-grid">
+              <label>Nombre<input class="form-control" id="athlete-nombre" required></label>
+              <label>Apellidos<input class="form-control" id="athlete-apellidos" required></label>
+              <label>Email<input class="form-control" id="athlete-email" type="email" required></label>
+              <label>Teléfono<input class="form-control" id="athlete-telefono"></label>
+              <label>Fecha nacimiento<input class="form-control" id="athlete-fecha" type="date"></label>
+              <label>Categoría<input class="form-control" id="athlete-categoria"></label>
+            </div>
+            <div class="config-actions"><button class="btn btn-brand" type="submit">Guardar datos</button></div>
+          </form>
+          <form class="config-tab d-none" id="tab-grupo">
+            <div class="config-form-grid">
+              <label>Grupo<input class="form-control" id="athlete-grupo"></label>
+              <label>Subgrupo<input class="form-control" id="athlete-subgrupo"></label>
+              <label>Categoría<input class="form-control" id="athlete-categoria-grupo"></label>
+            </div>
+            <div class="config-actions">
+              <button class="btn btn-brand" type="submit">Guardar grupo</button>
+              <button class="btn btn-outline-danger" id="btn-toggle-active" type="button">Desactivar atleta</button>
+              <button class="btn btn-outline-secondary" id="btn-delete-athlete" type="button">Eliminar si no tiene historial</button>
+            </div>
+          </form>
+          <div class="config-tab d-none" id="tab-zonas">
+            <div class="config-zone-summary" id="zone-current"></div>
+            <div class="config-zone-list" id="zone-history"></div>
+          </div>
+          <div class="config-tab d-none" id="tab-acceso">
+            <div class="config-access-card">
+              <div><span>Email/usuario</span><strong id="access-email">-</strong></div>
+              <div><span>Estado</span><strong id="access-state">-</strong></div>
+              <div><span>Cambio obligatorio</span><strong id="access-force">-</strong></div>
+            </div>
+            <div class="config-actions"><button class="btn btn-brand" id="btn-reset-password" type="button">Resetear contraseña</button></div>
+            <div class="config-temp-password d-none" id="temp-password-box">
+              <span>Contraseña temporal</span><strong id="temp-password-value"></strong>
+              <button class="btn btn-outline-brand btn-sm" id="btn-copy-password" type="button">Copiar</button>
             </div>
           </div>
-          <div class="col-md-2">
-            <label class="form-label">Horas</label>
-            <input type="number" min="0" class="form-control" id="vdot-horas" value="0" />
-          </div>
-          <div class="col-md-1">
-            <label class="form-label">Min</label>
-            <input type="number" min="0" max="59" class="form-control" id="vdot-minutos" value="40" />
-          </div>
-          <div class="col-md-1">
-            <label class="form-label">Seg</label>
-            <input type="number" min="0" max="59" class="form-control" id="vdot-segundos" value="0" />
-          </div>
-          <div class="col-12 d-flex flex-wrap gap-2 mt-3">
-            <button type="submit" class="btn btn-brand">Calcular VDOT</button>
-            <button type="button" class="btn btn-outline-secondary" id="vdot-reset">Limpiar</button>
-            <button type="button" class="btn btn-outline-brand" id="vdot-guardar" disabled>Guardar en perfil</button>
-          </div>
-        </form>
-          <div class="mt-4">
-          
-<h3 class="h5 mb-2">Zonas del atleta</h3>
-<p class="text-muted mb-3">Usa el VDOT calculado arriba para generar las zonas y guárdalas en el perfil.</p>
-<form id="form-zonas-utilidades" class="row g-3">
-  <div class="col-md-4">
-    <label class="form-label">Atleta</label>
-    <select id="zonas-atleta" class="form-select">
-      <option value="">Selecciona un atleta</option>
-    </select>
-  </div>
-  <div class="col-md-4">
-    <label class="form-label">FC máx (opcional)</label>
-    <input type="number" min="120" max="240" class="form-control" id="zonas-fc-max" placeholder="190" />
-  </div>
-  <div class="col-12 d-flex flex-wrap gap-2">
-    <button type="button" class="btn btn-outline-brand" id="zonas-guardar" disabled>Guardar zonas desde VDOT</button>
-  </div>
-</form>
+        </section>
 
-<div class="table-responsive mt-3">
-  <table class="table table-theme mb-0">
-    <thead>
-      <tr>
-        <th>Zona</th>
-        <th>Ritmo (min/km)</th>
-        <th>FC objetivo</th>
-      </tr>
-    </thead>
-    <tbody id="zonas-tabla">
-      <tr><td colspan="3" class="text-muted text-center">Calcula un VDOT para ver las zonas.</td></tr>
-    </tbody>
-  </table>
-</div>
-<small class="text-muted d-block mt-2" id="zonas-metodo-info">Zonas calculadas desde VDOT.</small>
-
-
-
-        <div id="vdot-resultados" class="mt-4" style="display:none;">
-          <div class="row g-3">
-            <div class="col-md-4">
-              <div class="tarjeta sombra-suave h-100">
-                <p class="eyebrow eyebrow--subtle mb-1">VDOT estimado</p>
-                <h3 class="mb-0" id="vdot-valor">-</h3>
-                <small class="text-muted" id="vdot-fecha"></small>
-              </div>
+        <section class="panel-card config-view d-none" id="view-new-athlete">
+          <div class="panel-toolbar"><div><p class="planner-eyebrow">Alta</p><h2>Nuevo atleta</h2></div></div>
+          <div class="config-stepper" id="new-athlete-steps"><span class="is-active">Datos</span><span>Clasificación</span><span>Acceso</span><span>Zonas</span></div>
+          <form id="new-athlete-form">
+            <div class="config-step" data-step="0"><div class="config-form-grid">
+              <label>Nombre<input class="form-control" name="nombre" required></label>
+              <label>Apellidos<input class="form-control" name="apellidos" required></label>
+              <label>Email<input class="form-control" name="email" type="email" required></label>
+              <label>Teléfono<input class="form-control" name="telefono"></label>
+              <label>Fecha nacimiento<input class="form-control" name="fecha_nacimiento" type="date"></label>
+            </div></div>
+            <div class="config-step d-none" data-step="1"><div class="config-form-grid">
+              <label>Categoría<input class="form-control" name="categoria"></label>
+              <label>Grupo<input class="form-control" name="grupo"></label>
+              <label>Subgrupo<input class="form-control" name="subgrupo"></label>
+            </div></div>
+            <div class="config-step d-none" data-step="2">
+              <div class="config-zone-note">La contraseña temporal se genera automáticamente y se mostrará una sola vez al crear el atleta.</div>
             </div>
-          </div>
-          <div class="mt-4">
-            <ul class="nav nav-tabs" id="vdot-tabs" role="tablist">
-              <li class="nav-item" role="presentation">
-                <button class="nav-link active" id="vdot-tab-race-btn" data-bs-toggle="tab" data-bs-target="#vdot-tab-race" type="button" role="tab">Tiempos de paso</button>
-              </li>
-              <li class="nav-item" role="presentation">
-                <button class="nav-link" id="vdot-tab-training-btn" data-bs-toggle="tab" data-bs-target="#vdot-tab-training" type="button" role="tab">Entrenamiento</button>
-              </li>
-              <li class="nav-item" role="presentation">
-                <button class="nav-link" id="vdot-tab-equivalent-btn" data-bs-toggle="tab" data-bs-target="#vdot-tab-equivalent" type="button" role="tab">Equivalencias</button>
-              </li>
-            </ul>
-            <div class="tab-content border border-top-0 rounded-bottom p-3" id="vdot-tab-content">
-              <div class="tab-pane fade show active" id="vdot-tab-race" role="tabpanel" aria-labelledby="vdot-tab-race-btn">
-                <div class="table-responsive">
-                  <table class="table table-theme mb-0">
-                    <thead>
-                      <tr>
-                        <th>Distancia</th>
-                        <th>Tiempo</th>
-                        <th>Ritmo 1 km</th>
-                        <th>Ritmo 1 mi</th>
-                      </tr>
-                    </thead>
-                    <tbody id="vdot-tabla-race">
-                      <tr><td colspan="4" class="text-muted text-center">Calcula un VDOT para ver los tiempos.</td></tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-              <div class="tab-pane fade" id="vdot-tab-training" role="tabpanel" aria-labelledby="vdot-tab-training-btn">
-                <div class="mb-3">
-                  <h3 class="h6 mb-2">Ritmos por zona</h3>
-                  <div class="table-responsive">
-                    <table class="table table-theme mb-0">
-                      <thead>
-                        <tr>
-                          <th>Tipo</th>
-                          <th>1 km</th>
-                          <th>1 mi</th>
-                        </tr>
-                      </thead>
-                      <tbody id="vdot-tabla-training-ritmos">
-                        <tr><td colspan="3" class="text-muted text-center">Calcula un VDOT para ver los ritmos.</td></tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                <div class="mb-3">
-                  <h3 class="h6 mb-2">Series 1200 / 800 / 600</h3>
-                  <div class="table-responsive">
-                    <table class="table table-theme mb-0">
-                      <thead>
-                        <tr>
-                          <th>Tipo</th>
-                          <th>1200 m</th>
-                          <th>800 m</th>
-                          <th>600 m</th>
-                        </tr>
-                      </thead>
-                      <tbody id="vdot-tabla-training-1200">
-                        <tr><td colspan="4" class="text-muted text-center">Calcula un VDOT para ver las series.</td></tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                <div>
-                  <h3 class="h6 mb-2">Series 400 / 300 / 200</h3>
-                  <div class="table-responsive">
-                    <table class="table table-theme mb-0">
-                      <thead>
-                        <tr>
-                          <th>Tipo</th>
-                          <th>400 m</th>
-                          <th>300 m</th>
-                          <th>200 m</th>
-                        </tr>
-                      </thead>
-                      <tbody id="vdot-tabla-training-400">
-                        <tr><td colspan="4" class="text-muted text-center">Calcula un VDOT para ver las series.</td></tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-              <div class="tab-pane fade" id="vdot-tab-equivalent" role="tabpanel" aria-labelledby="vdot-tab-equivalent-btn">
-                <div class="table-responsive">
-                  <table class="table table-theme mb-0">
-                    <thead>
-                      <tr>
-                        <th>Distancia</th>
-                        <th>Tiempo estimado</th>
-                        <th>Ritmo medio</th>
-                      </tr>
-                    </thead>
-                    <tbody id="vdot-tabla-equivalencias">
-                      <tr><td colspan="3" class="text-muted text-center">Calcula un VDOT para ver equivalencias.</td></tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+            <div class="config-step d-none" data-step="3"><div class="config-zone-note">Las zonas iniciales se pueden crear después desde Ritmos y zonas.</div></div>
+            <div class="config-actions">
+              <button class="btn btn-outline-brand" id="btn-new-prev" type="button">Anterior</button>
+              <button class="btn btn-brand" id="btn-new-next" type="button">Siguiente</button>
+              <button class="btn btn-brand d-none" id="btn-new-save" type="submit">Crear atleta</button>
             </div>
+          </form>
+        </section>
+
+        <section class="panel-card config-view d-none" id="view-zonas">
+          <div class="panel-toolbar"><div><p class="planner-eyebrow">Ritmos</p><h2>Ritmos y zonas</h2></div></div>
+          <div class="config-form-grid">
+            <label>Atleta<select class="form-select" id="zones-athlete"></select></label>
+            <label>Fecha inicio<input class="form-control" id="zones-start" type="date"></label>
+            <label>FC máx<input class="form-control" id="zones-fcmax" type="number" min="120" max="240"></label>
           </div>
-          <div class="mt-4">
-            <h3 class="h5 mb-2">Histórico de VDOT</h3>
-            <div class="table-responsive">
-              <table class="table table-theme mb-0">
-                <thead>
-                  <tr>
-                    <th>Fecha</th>
-                    <th>Distancia</th>
-                    <th>Tiempo</th>
-                    <th>VDOT</th>
-                  </tr>
-                </thead>
-                <tbody id="vdot-tabla-historial">
-                  <tr><td colspan="4" class="text-muted text-center">Sin historial.</td></tr>
-                </tbody>
-              </table>
+
+          <div class="panel-tabs config-zone-tabs" role="tablist">
+            <button class="panel-tab is-active" type="button" data-zone-method="vam">VAM</button>
+            <button class="panel-tab" type="button" data-zone-method="vdot">VDOT</button>
+            <button class="panel-tab" type="button" data-zone-method="manual">Manual</button>
+          </div>
+
+          <div class="zone-method-panel" id="zone-panel-vam">
+            <div class="config-form-grid">
+              <label>Test 2000 m<input class="form-control" id="vam-2000-time" type="text" inputmode="numeric" placeholder="07:50"></label>
             </div>
           </div>
 
-/div>
+          <div class="zone-method-panel d-none" id="zone-panel-vdot">
+            <div class="config-form-grid">
+              <label>Distancia<select class="form-select" id="vdot-race-distance">
+                <option value="1500">1500 m</option>
+                <option value="1609.34">1 milla</option>
+                <option value="3000">3000 m</option>
+                <option value="5000" selected>5K</option>
+                <option value="10000">10K</option>
+                <option value="21097.5">Media maratón</option>
+                <option value="42195">Maratón</option>
+              </select></label>
+              <label>Horas<input class="form-control" id="vdot-hours" type="number" min="0" max="9" placeholder="0"></label>
+              <label>Minutos<input class="form-control" id="vdot-minutes" type="number" min="0" max="59" placeholder="25"></label>
+              <label>Segundos<input class="form-control" id="vdot-seconds" type="number" min="0" max="59" placeholder="0"></label>
+            </div>
+          </div>
 
-        </div>
-      </div>
+          <div class="zone-method-panel d-none" id="zone-panel-manual">
+            <div class="config-manual-zones" id="manual-zones-grid">
+              <div class="manual-zone-row">
+                <strong>Z1</strong>
+                <input class="form-control" id="manual-z1" type="text" inputmode="numeric" placeholder="Ritmo 06:30">
+                <input class="form-control" id="manual-fc-z1" type="number" min="60" max="240" step="1" placeholder="FC ppm">
+              </div>
+              <div class="manual-zone-row">
+                <strong>Z2</strong>
+                <input class="form-control" id="manual-z2" type="text" inputmode="numeric" placeholder="Ritmo 05:45">
+                <input class="form-control" id="manual-fc-z2" type="number" min="60" max="240" step="1" placeholder="FC ppm">
+              </div>
+              <div class="manual-zone-row">
+                <strong>Z3</strong>
+                <input class="form-control" id="manual-z3" type="text" inputmode="numeric" placeholder="Ritmo 05:10">
+                <input class="form-control" id="manual-fc-z3" type="number" min="60" max="240" step="1" placeholder="FC ppm">
+              </div>
+              <div class="manual-zone-row">
+                <strong>Z4</strong>
+                <input class="form-control" id="manual-z4" type="text" inputmode="numeric" placeholder="Ritmo 04:45">
+                <input class="form-control" id="manual-fc-z4" type="number" min="60" max="240" step="1" placeholder="FC ppm">
+              </div>
+              <div class="manual-zone-row">
+                <strong>Z5</strong>
+                <input class="form-control" id="manual-z5" type="text" inputmode="numeric" placeholder="Ritmo 04:20">
+                <input class="form-control" id="manual-fc-z5" type="number" min="60" max="240" step="1" placeholder="FC ppm">
+              </div>
+            </div>
+          </div>
 
-      <div data-include="../partials/footer.html"></div>
+          <div class="config-actions">
+            <button class="btn btn-brand" id="btn-preview-zones" type="button">Calcular</button>
+          </div>
+          <div class="config-zone-summary" id="zones-preview"></div>
+          <div class="config-zone-list" id="zones-history-global"></div>
+        </section>
+
+        <section class="panel-card config-view d-none" id="view-accesos">
+          <div class="panel-toolbar"><div><p class="planner-eyebrow">Accesos</p><h2>Contraseñas y acceso</h2></div></div>
+          <div class="config-zone-note">Selecciona un atleta en Gestión de atletas para revisar su acceso.</div>
+        </section>
+
+        <section class="panel-card config-view d-none" id="view-predictor">
+          <div class="panel-toolbar">
+            <div><p class="planner-eyebrow">Carrera</p><h2>Previsión de carrera</h2></div>
+          </div>
+          <div class="config-zone-note">Introduce una marca reciente para calcular VDOT, equivalencias de carrera y ritmos de entrenamiento.</div>
+          <div class="config-form-grid utility-form-grid">
+            <label>Distancia<select class="form-select" id="predictor-distance">
+              <option value="1500">1500 m</option>
+              <option value="1609.34">1 milla</option>
+              <option value="3000">3000 m</option>
+              <option value="5000" selected>5K</option>
+              <option value="10000">10K</option>
+              <option value="21097.5">Media maratón</option>
+              <option value="42195">Maratón</option>
+            </select></label>
+            <label>Horas<input class="form-control" id="predictor-hours" type="number" min="0" max="9" placeholder="0"></label>
+            <label>Minutos<input class="form-control" id="predictor-minutes" type="number" min="0" max="59" placeholder="25"></label>
+            <label>Segundos<input class="form-control" id="predictor-seconds" type="number" min="0" max="59" placeholder="0"></label>
+          </div>
+          <div class="config-actions">
+            <button class="btn btn-brand" id="btn-predict-race" type="button">Calcular previsión</button>
+            <button class="btn btn-outline-secondary" id="btn-reset-predictor" type="button">Limpiar</button>
+          </div>
+          <div class="utility-results" id="predictor-results"></div>
+        </section>
+
+        <section class="panel-card config-view d-none" id="view-ritmos">
+          <div class="panel-toolbar">
+            <div><p class="planner-eyebrow">Ritmos</p><h2>Calculadora de ritmos</h2></div>
+          </div>
+          <div class="config-zone-note">Rellena dos campos entre distancia, tiempo y ritmo para calcular el tercero.</div>
+          <div class="utility-preset-row" aria-label="Distancias rápidas">
+            <button class="btn btn-outline-brand btn-sm" type="button" data-pace-distance="5">5K</button>
+            <button class="btn btn-outline-brand btn-sm" type="button" data-pace-distance="10">10K</button>
+            <button class="btn btn-outline-brand btn-sm" type="button" data-pace-distance="21.0975">Media</button>
+            <button class="btn btn-outline-brand btn-sm" type="button" data-pace-distance="42.195">Maratón</button>
+          </div>
+          <div class="config-form-grid utility-form-grid">
+            <label>Distancia km<input class="form-control" id="pace-distance-km" type="number" min="0.1" step="0.001" placeholder="10"></label>
+            <label>Horas<input class="form-control" id="pace-hours" type="number" min="0" max="24" placeholder="0"></label>
+            <label>Minutos<input class="form-control" id="pace-minutes" type="number" min="0" max="59" placeholder="45"></label>
+            <label>Segundos<input class="form-control" id="pace-seconds" type="number" min="0" max="59" placeholder="0"></label>
+            <label>Ritmo min/km<input class="form-control" id="pace-minutes-km" type="number" min="0" max="59" placeholder="4"></label>
+            <label>Ritmo seg/km<input class="form-control" id="pace-seconds-km" type="number" min="0" max="59" placeholder="30"></label>
+          </div>
+          <div class="config-actions">
+            <button class="btn btn-brand" id="btn-calc-pace" type="button">Calcular</button>
+            <button class="btn btn-outline-secondary" id="btn-reset-pace" type="button">Limpiar</button>
+          </div>
+          <div class="utility-results" id="pace-results"></div>
+        </section>
+
+        <section class="panel-card config-view d-none" id="view-preferencias">
+          <div class="panel-toolbar"><div><p class="planner-eyebrow">Preferencias</p><h2>Ajustes del entrenador</h2></div></div>
+          <div class="config-access-card">
+            <div><span>Nombre visible</span><strong id="trainer-visible-name">Entrenador</strong></div>
+            <div><span>Interfaz</span><strong>MindPace V2</strong></div>
+          </div>
+        </section>
+      </main>
     </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"></script>
   </body>
 </html>

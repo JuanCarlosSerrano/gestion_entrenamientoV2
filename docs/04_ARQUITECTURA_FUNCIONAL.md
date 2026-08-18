@@ -187,6 +187,48 @@ La biblioteca evita que el entrenador repita manualmente entrenamientos habitual
 
 ---
 
+## 4.X Configuración
+
+Configuración centraliza ajustes operativos del entrenador.
+
+No contiene planificación, análisis de rendimiento, FIT, RPE ni feedback.
+
+## Flujo · Gestionar atleta
+
+```text
+Configuración
+  ↓
+Gestión de atletas
+  ↓
+Seleccionar atleta
+  ↓
+Datos / Grupo / Zonas / Acceso
+```
+
+## Flujo · Actualizar zonas
+
+```text
+Configuración
+  ↓
+Ritmos y zonas
+  ↓
+Seleccionar atleta
+  ↓
+Nueva configuración
+  ↓
+Cerrar anterior
+  ↓
+Guardar histórico
+```
+
+## Reglas
+
+- El entrenador solo accede a sus atletas.
+- Resetear contraseña no modifica datos deportivos.
+- Crear zonas no modifica entrenamientos asignados ni sesiones realizadas.
+
+---
+
 ## 4.4 Planificación semanal
 
 La planificación semanal organiza entrenamientos por fechas.
@@ -735,3 +777,34 @@ Modificar planificación
 - Añadir una sesión clona una plantilla hacia una asignación del atleta.
 - Editar una sesión no modifica la plantilla original.
 - No se mezclan datos de ejecución, FIT, feedback, RPE, análisis ni estadísticas.
+
+# 12. Flujo funcional · Panel del atleta V2
+
+```text
+Entrenamiento publicado
+↓
+Atleta
+↓
+Ver entrenamiento
+↓
+Realizar
+↓
+Feedback
+↓
+FIT
+↓
+Procesamiento
+```
+
+El frontend del atleta consume únicamente entrenamientos asignados visibles. La edición de plantillas, asignaciones, zonas y publicación queda fuera del rol atleta.
+
+# 13. Seguridad funcional
+
+El backend centraliza las decisiones sensibles:
+
+- No existe auto-registro público operativo.
+- `/login` limpia la sesión antes de establecer `user_id`, `user_rol` y `user_email`.
+- Si `force_password_change = 1`, solo se permite obtener CSRF, cambiar contraseña y cargar estáticos.
+- Las altas y resets devuelven la contraseña temporal una sola vez y nunca guardan texto plano.
+- Los endpoints de gestión validan rol y pertenencia entrenador-atleta antes de leer o escribir.
+- Las subidas validan extensión y MIME, y los FIT se guardan con nombre generado por servidor.

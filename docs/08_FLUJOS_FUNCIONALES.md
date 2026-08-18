@@ -854,3 +854,112 @@ Volver al calendario
 - No se muestran FIT, RPE, feedback, sensaciones, dolor, comparación ni estadísticas.
 - Toda edición se realiza sobre `entrenamientos_asignados`.
 - Añadir desde biblioteca crea una copia independiente y oculta por defecto.
+
+---
+
+# Flujo 17 · Gestionar atleta
+
+## Objetivo
+
+Gestionar datos operativos del atleta desde Configuración.
+
+## Flujo
+
+```text
+Configuración
+  ↓
+Gestión de atletas
+  ↓
+Buscar / filtrar
+  ↓
+Seleccionar atleta
+  ↓
+Datos / Grupo / Zonas / Acceso
+```
+
+## Resultado
+
+El entrenador puede editar datos básicos, grupo, subgrupo, categoría, estado y contraseña sin entrar en planificación ni análisis.
+
+---
+
+# Flujo 18 · Actualizar zonas del atleta
+
+## Objetivo
+
+Crear una nueva configuración de zonas manteniendo histórico.
+
+## Flujo
+
+```text
+Configuración
+  ↓
+Ritmos y zonas
+  ↓
+Seleccionar atleta
+  ↓
+Nueva configuración
+  ↓
+Cerrar anterior
+  ↓
+Guardar histórico
+```
+
+## Resultado
+
+La configuración anterior conserva sus fechas y la nueva queda vigente desde `fecha_inicio`.
+
+# Flujo 19 · Atleta principal
+
+```text
+Inicio
+↓
+Entrenamiento de hoy
+↓
+Ver
+↓
+Completar
+↓
+Feedback
+↓
+FIT opcional
+↓
+Confirmación
+```
+
+# Flujo 20 · Historial atleta
+
+```text
+Historial
+↓
+Seleccionar sesión
+↓
+Ver entrenamiento + feedback + FIT
+```
+
+# Flujo 21 · Alta y reset seguro
+
+```text
+Admin/Entrenador autorizado
+↓
+Crear usuario o resetear contraseña
+↓
+Servidor genera contraseña temporal
+↓
+Guarda hash + force_password_change = 1
+↓
+Devuelve contraseña temporal una sola vez
+↓
+Usuario cambia contraseña antes de operar
+```
+
+# Flujo 22 · Archivado de atleta
+
+```text
+Solicitar baja de atleta
+↓
+Comprobar historial
+↓
+Con historial: activo = 0
+Sin historial: borrado físico permitido
+```

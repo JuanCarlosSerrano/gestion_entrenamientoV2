@@ -3,64 +3,101 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alertas</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+  <title>Alertas · MindPace</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="../css/style.css">
+  <link rel="stylesheet" href="../css/panel_entrenador.css">
   <script src="../js/utils/csrf.js"></script>
   <script src="../js/script.js"></script>
-  <script src="../js/utils/partials.js"></script>
   <script src="../js/entrenador/alertas.js" type="module"></script>
   <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
 </head>
-<body class="app-bg">
-  <div class="container app-container">
-    <div data-include="../partials/header.html" data-nav-active="alertas"></div>
+<body class="trainer-control alerts-page">
+  <div class="trainer-shell">
+    <aside class="trainer-sidebar" aria-label="Navegación del entrenador">
+      <a class="trainer-brand" href="index.html" aria-label="MindPace">
+        <img src="../img/logo_sin_fondo.png" alt="" class="trainer-brand__mark">
+        <span>MindPace</span>
+      </a>
+      <nav class="trainer-nav">
+        <a class="trainer-nav__link" href="index.html"><span>⌂</span> Inicio</a>
+        <a class="trainer-nav__link" href="planificacion_semanal.html"><span>▦</span> Planificar</a>
+        <a class="trainer-nav__link" href="atletas.html"><span>👥</span> Atletas</a>
+        <a class="trainer-nav__link" href="estadisticas.html"><span>↗</span> Historial</a>
+        <a class="trainer-nav__link is-active" href="alertas.html"><span>!</span> Actividad</a>
+        <a class="trainer-nav__link" href="utilidades.html"><span>⚙</span> Configuración</a>
+      </nav>
+      <div class="trainer-sidebar__footer">
+        <div class="trainer-sidebar-user">
+          <span id="sidebar-trainer-initials">E</span>
+          <div>
+            <strong id="sidebar-trainer-name">Entrenador</strong>
+            <small>Entrenador</small>
+          </div>
+        </div>
+        <button class="trainer-logout" id="btn-logout" type="button">Salir</button>
+        <div class="trainer-version">
+          <img src="../img/logo_sin_fondo.png" alt="" class="trainer-version__icon">
+          <div>
+            <strong>MindPace V2</strong>
+            <span>Centro de actividad</span>
+          </div>
+        </div>
+      </div>
+    </aside>
 
-    <div class="page-context-bar">
-      <div>
-        <p class="eyebrow eyebrow--subtle">Panel de entrenador</p>
-        <h1 class="page-context-title">Alertas</h1>
-      </div>
-      <div class="page-context-actions">
-        <select class="form-select form-select-sm me-2" id="filtro-tipo" style="min-width: 140px;">
-          <option value="">Todos los tipos</option>
-          <option value="danger">Críticas</option>
-          <option value="warning">Advertencias</option>
-          <option value="info">Info</option>
-        </select>
-        <select class="form-select form-select-sm me-2" id="filtro-estado" style="min-width: 150px;">
-          <option value="1">Solo activas</option>
-          <option value="0">Resueltas</option>
-          <option value="">Todas</option>
-        </select>
-        <button class="btn btn-outline-brand" id="btn-refrescar">Refrescar</button>
-      </div>
-    </div>
+    <main class="trainer-main panel-page-main">
+      <header class="trainer-topbar alerts-topbar">
+        <div>
+          <h1>Alertas</h1>
+          <p>Riesgos, incidencias y señales de carga detectadas en tus atletas.</p>
+        </div>
+      </header>
 
-    <div class="app-card">
-      <div class="table-responsive">
-        <table class="table align-middle">
-          <thead>
-            <tr>
-              <th>Fecha alerta</th>
-              <th>Atleta</th>
-              <th>Entrenamiento</th>
-              <th>Tipo</th>
-              <th>Mensaje</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="tabla-alertas"></tbody>
-        </table>
-      </div>
-      <div id="alertas-vacio" class="text-muted d-none">
-        No hay alertas registradas.
-      </div>
-    </div>
+      <section class="panel-card">
+        <div class="panel-toolbar">
+          <div>
+            <p class="planner-eyebrow">Filtros</p>
+            <h2>Actividad del equipo</h2>
+          </div>
+          <div class="panel-filters">
+          <select class="form-select" id="filtro-tipo" aria-label="Tipo de alerta">
+            <option value="">Todos los tipos</option>
+            <option value="danger">Críticas</option>
+            <option value="warning">Advertencias</option>
+            <option value="info">Info</option>
+          </select>
+          <select class="form-select" id="filtro-estado" aria-label="Estado">
+            <option value="1">Solo activas</option>
+            <option value="0">Resueltas</option>
+            <option value="">Todas</option>
+          </select>
+          <button class="btn btn-outline-brand" id="btn-refrescar" type="button">Refrescar</button>
+        </div>
+        </div>
 
-    <div data-include="../partials/footer.html"></div>
+        <div id="alertas-table-wrap" class="table-responsive">
+          <table class="table align-middle panel-table">
+            <thead>
+              <tr>
+                <th>Fecha alerta</th>
+                <th>Atleta</th>
+                <th>Entrenamiento</th>
+                <th>Tipo</th>
+                <th>Mensaje</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tabla-alertas"></tbody>
+          </table>
+        </div>
+        <div id="alertas-vacio" class="history-empty d-none">
+          No hay alertas registradas.
+        </div>
+      </section>
+    </main>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

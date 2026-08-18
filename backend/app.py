@@ -13,6 +13,7 @@ import json
 from werkzeug.utils import secure_filename
 import secrets
 import sqlite3
+import logging
 try:
     from services.whatsapp_service import (
         enviar_whatsapp,
@@ -37,11 +38,13 @@ except ImportError:
     pymysql = None
 
 app = Flask(__name__, static_folder='../frontend/static')  # Configuración correcta de static_folder
+logger = logging.getLogger(__name__)
+DB_ENGINE = os.getenv("DB_ENGINE", "mariadb").lower()  # mariadb | sqlite
 
 # Config CORS con soporte de credenciales y orígenes configurables
 _cors_origins = os.getenv(
     "CORS_ORIGINS",
-    "http://localhost:8080,http://127.0.0.1:8080,http://12.0.1.8:8080",
+    "http://127.0.0.1:5002,http://localhost:5002,http://localhost:8080,http://127.0.0.1:8080",
 )
 _cors_origins_list = [o.strip() for o in _cors_origins.split(",") if o.strip()]
 CORS(
@@ -52,15 +55,21 @@ CORS(
 app.config["SESSION_PERMANENT"] = False  # Las sesiones expiran cuando se cierra el navegador
 app.config["SESSION_TYPE"] = "filesystem"  # Almacena las sesiones en el sistema de archivos (para desarrollo)
 app.config["SESSION_FILE_DIR"] = "flask_session"  # Directorio para almacenar archivos de sesión
-app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "DEV_KEY_CAMBIALA")  # ¡Reemplaza con una clave segura!
+_secret_key = os.getenv("SECRET_KEY")
+if not _secret_key:
+    if DB_ENGINE == "sqlite" or os.getenv("PYTEST_CURRENT_TEST"):
+        _secret_key = secrets.token_urlsafe(32)
+    else:
+        raise RuntimeError("SECRET_KEY es obligatoria para arrancar MindPace fuera de tests.")
+app.config["SECRET_KEY"] = _secret_key
 app.config["SESSION_COOKIE_NAME"] = os.getenv("SESSION_COOKIE_NAME", "my_session_v2")  # Nombre de la cookie de sesión
 app.config["SESSION_COOKIE_HTTPONLY"] = True  # Recomendado por seguridad
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"  # Recomendado por seguridad
 app.config["SESSION_COOKIE_SECURE"] = os.getenv("SESSION_COOKIE_SECURE", "0") in ("1", "true", "True")
+app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH", str(5 * 1024 * 1024)))
 Session(app)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATABASE = os.getenv("DB_PATH", os.path.join(BASE_DIR, "atletas.db"))
-DB_ENGINE = os.getenv("DB_ENGINE", "mariadb").lower()  # mariadb | sqlite
 MARIADB_CONFIG = {
     "host": os.getenv("DB_HOST", "127.0.0.1"),
     "port": int(os.getenv("DB_PORT", "3306")),
@@ -102,6 +111,10 @@ def ensure_meta_columns():
                 cur.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS force_password_change TINYINT DEFAULT 0")
             except Exception:
                 pass
+            try:
+                cur.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS activo TINYINT DEFAULT 1")
+            except Exception:
+                pass
             for col, col_type in (
                 ("vdot_val", "DOUBLE"),
                 ("vdot_fecha", "DATE"),
@@ -123,7 +136,7 @@ def ensure_meta_columns():
                 except Exception:
                     pass
             
-            for col in ("fc_z1", "fc_z2", "fc_z3", "fc_z4", "fc_z5", "fc_z6", "metodo"):
+            for col in ("fc_z1", "fc_z2", "fc_z3", "fc_z4", "fc_z5", "fc_z6", "metodo", "vdot_val"):
                 try:
                     tipo = "VARCHAR(20)" if col == "metodo" else "DOUBLE"
                     cur.execute(f"ALTER TABLE zonas_entrenamiento ADD COLUMN IF NOT EXISTS {col} {tipo}")
@@ -207,6 +220,11 @@ def ensure_meta_columns():
                     cur.execute("ALTER TABLE usuarios ADD COLUMN force_password_change INTEGER DEFAULT 0")
                 except Exception:
                     pass
+            if not column_exists("usuarios", "activo"):
+                try:
+                    cur.execute("ALTER TABLE usuarios ADD COLUMN activo INTEGER DEFAULT 1")
+                except Exception:
+                    pass
 
             for col, col_type in (
                 ("vdot_val", "REAL"),
@@ -235,7 +253,7 @@ def ensure_meta_columns():
 
             
             # Zonas FC + método
-            for col in ("fc_z1", "fc_z2", "fc_z3", "fc_z4", "fc_z5", "fc_z6", "metodo"):
+            for col in ("fc_z1", "fc_z2", "fc_z3", "fc_z4", "fc_z5", "fc_z6", "metodo", "vdot_val"):
                 if not column_exists("zonas_entrenamiento", col):
                     try:
                         col_type = "TEXT" if col == "metodo" else "REAL"
@@ -537,27 +555,43 @@ def requires_roles(*roles):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             if "user_id" not in session:
-                print("requires_roles: sin user_id en sesión")
+                logger.info("Acceso sin sesión path=%s", request.path)
                 return jsonify({'error': 'Autenticación requerida'}), 401
 
             user = query_db(
-                'SELECT id, rol, email FROM usuarios WHERE id = ?',
+                'SELECT id, rol, email, force_password_change FROM usuarios WHERE id = ?',
                 (session["user_id"],), one=True
             )
 
             if not user:
-                print("requires_roles: usuario no encontrado en BD")
+                logger.info("Sesión con usuario inexistente user_id=%s", session.get("user_id"))
                 return jsonify({'error': 'Usuario no encontrado'}), 403
 
             if user['rol'] not in roles:
-                print(f"requires_roles: rol {user['rol']} no permitido para esta ruta")
+                logger.info("Acceso denegado user_id=%s rol=%s path=%s", user['id'], user['rol'], request.path)
                 return jsonify({'error': 'Acceso no autorizado'}), 403
 
-            print(f"requires_roles: OK user_id={user['id']} rol={user['rol']} en {request.path}")
             return f(user, *args, **kwargs)
 
         return decorated_function
     return wrapper
+
+
+LOGIN_ATTEMPTS = {}
+LOGIN_RATE_LIMIT_MAX = int(os.getenv("LOGIN_RATE_LIMIT_MAX", "5"))
+LOGIN_RATE_LIMIT_WINDOW = int(os.getenv("LOGIN_RATE_LIMIT_WINDOW", "60"))
+
+
+def login_rate_limited(ip):
+    now = time.time()
+    window_start = now - LOGIN_RATE_LIMIT_WINDOW
+    attempts = [ts for ts in LOGIN_ATTEMPTS.get(ip, []) if ts >= window_start]
+    if len(attempts) >= LOGIN_RATE_LIMIT_MAX:
+        LOGIN_ATTEMPTS[ip] = attempts
+        return True
+    attempts.append(now)
+    LOGIN_ATTEMPTS[ip] = attempts
+    return False
 
 
 @app.route('/csrf-token', methods=['GET'])
@@ -572,138 +606,64 @@ def csrf_protect():
     # Sólo proteger métodos que modifican datos
     if request.method in ('POST', 'PUT', 'DELETE'):
         # Endpoints EXENTOS (nombres de las funciones Python)
-        if request.endpoint in ('login_user', 'register_user'):
+        if request.endpoint in ('login_user',):
             return
 
         token_session = session.get('csrf_token')
         token_header = request.headers.get('X-CSRF-Token')
 
         if not token_session or not token_header or token_session != token_header:
-            print(f"CSRF bloqueado en {request.path}: sesión={token_session}, header={token_header}")
+            logger.warning("CSRF bloqueado path=%s user_id=%s", request.path, session.get("user_id"))
             return jsonify({'error': 'CSRF token inválido'}), 403
+
+
+@app.before_request
+def force_password_change_gate():
+    if not session.get("user_id"):
+        return
+    allowed = {"login_user", "get_csrf_token", "cambiar_password", "index", "static"}
+    if request.endpoint in allowed:
+        return
+    user = query_db(
+        "SELECT force_password_change FROM usuarios WHERE id = ?",
+        (session["user_id"],),
+        one=True,
+    )
+    force_flag = row_get(user, "force_password_change", 0) if user else 0
+    if int(force_flag or 0) == 1:
+        return jsonify({
+            "error": "Debes cambiar la contraseña temporal antes de continuar",
+            "force_password_change": 1,
+        }), 403
 
 # --- Rutas para Usuarios (Registro e Inicio de Sesión) ---
 @app.route('/register', methods=['POST'])
-def register_user():
-    data = request.get_json()
+@requires_roles('admin', 'entrenador')
+def register_user(current_user):
+    return jsonify({'error': 'El registro público está deshabilitado. Usa el alta desde administración o configuración.'}), 403
 
-    if not data:
-        return jsonify({'error': 'No se recibieron datos'}), 400
-
-    nombre = data.get('nombre', '').strip()
-    apellidos = data.get('apellidos', '').strip()
-    email = data.get('email', '').strip()
-    password = data.get('password')
-    rol = data.get('rol')
-
-    fecha_nacimiento = data.get('fecha_nacimiento')
-    telefono = data.get('telefono')
-    entrenador_id = data.get('entrenador_id')  # desde select
-    categoria = data.get('categoria')
-
-    # Validación básica
-    if not nombre or not apellidos or not email or not password or not rol:
-        return jsonify({'error': 'Todos los campos son obligatorios'}), 400
-
-    if rol not in ('admin', 'entrenador', 'atleta'):
-        return jsonify({'error': 'Rol inválido'}), 400
-
-    # Reglas específicas para atletas
-    if rol == 'atleta':
-        if not entrenador_id or entrenador_id == "":
-            return jsonify({'error': 'Debes seleccionar un entrenador'}), 400
-        if not categoria or categoria == "":
-            return jsonify({'error': 'Debes seleccionar una categoría'}), 400
-
-        # Convertir a int si viene como string
-        try:
-            entrenador_id = int(entrenador_id)
-        except ValueError:
-            return jsonify({'error': 'Entrenador seleccionado no es válido'}), 400
-    else:
-        # Otros roles no deben llevar estos campos
-        fecha_nacimiento = None
-        telefono = None
-        entrenador_id = None
-        categoria = None
-
-    # Comprobar si el email ya existe
-    existing_user = query_db(
-        'SELECT id FROM usuarios WHERE email = ?',
-        (email,),
-        one=True
-    )
-    if existing_user:
-        return jsonify({'error': 'El correo electrónico ya está registrado'}), 409
-
-    password_hash = generate_password_hash(password)
-
-    # Lógica de aprobado: ahora todos se marcan como aprobados al crearse.
-    aprobado = 1
-
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
-
-        cursor.execute(
-            '''
-            INSERT INTO usuarios (
-                nombre, apellidos, email, password_hash, rol,
-                fecha_nacimiento, telefono, entrenador_id, categoria,
-                aprobado
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''',
-            (
-                nombre,
-                apellidos,
-                email,
-                password_hash,
-                rol,
-                fecha_nacimiento if rol == 'atleta' else None,
-                telefono if rol == 'atleta' else None,
-                entrenador_id if rol == 'atleta' else None,
-                categoria if rol == 'atleta' else None,
-                aprobado
-            )
-        )
-
-        conn.commit()
-
-        mensaje = 'Usuario registrado correctamente'
-        if rol == 'atleta':
-            mensaje = ('Registro completado. Tu cuenta de atleta queda pendiente de '
-                       'aprobación por tu entrenador.')
-
-        return jsonify({'message': mensaje}), 201
-
-    except DB_INTEGRITY_ERRORS as e:
-        print("Error de integridad al registrar:", e)
-        return jsonify({'error': 'Error al registrar el usuario (integridad de datos)'}), 500
-
-    except Exception as e:
-        print("Error general al registrar:", e)
-        return jsonify({'error': 'Error interno del servidor al registrar el usuario'}), 500
 
 @app.route('/login', methods=['POST'])
 def login_user():
     data = request.get_json()
-    email = data.get('email')
+    data = data or {}
+    email = (data.get('email') or '').strip().lower()
     password = data.get('password')
 
-    print(f'Solicitud a /login: {data}')
-    print(f'Email: {email}')
-    print(f'Password: {password}')
-
     if not email or not password:
-        print('Email o password faltantes')
+        logger.info("Login incompleto email=%s", email or "-")
         return jsonify({'error': 'Correo electrónico y contraseña son obligatorios'}), 400
 
+    if login_rate_limited(request.remote_addr or "unknown"):
+        logger.warning("Login bloqueado por rate limit email=%s ip=%s", email, request.remote_addr)
+        return jsonify({'error': 'Demasiados intentos. Inténtalo de nuevo en un minuto.'}), 429
+
     user = query_db('SELECT id, rol, email, password_hash, force_password_change FROM usuarios WHERE email = ?', (email,), one=True)
-    print(f'Usuario recuperado: {user}')
 
     if user and check_password_hash(user['password_hash'], password):
-        print(f'Inicio de sesión exitoso. Rol: {user["rol"]}')
+        logger.info("Login correcto user_id=%s rol=%s", user["id"], user["rol"])
+        LOGIN_ATTEMPTS.pop(request.remote_addr or "unknown", None)
+        session.clear()
         session["user_id"] = user["id"]
         session["user_rol"] = user["rol"]
         session["user_email"] = user["email"]
@@ -726,7 +686,7 @@ def login_user():
 
         return jsonify(response), 200
 
-    print("Credenciales inválidas")
+    logger.info("Login fallido email=%s", email)
     return jsonify({'error': 'Credenciales inválidas'}), 401
 
 # --- Rutas para Usuarios (Gestión - Solo para Admin) ---
@@ -750,31 +710,39 @@ def get_user(current_user, id):
 @app.route('/usuarios', methods=['POST'])
 @requires_roles('admin')
 def create_user(current_user):
-    data = request.get_json()
-    nombre = data.get('nombre')
-    apellidos = data.get('apellidos')
-    email = data.get('email')
-    password = data.get('password')
+    data = request.get_json() or {}
+    nombre = (data.get('nombre') or '').strip()
+    apellidos = (data.get('apellidos') or '').strip()
+    email = (data.get('email') or '').strip().lower()
     rol = data.get('rol')
+    entrenador_id = data.get('entrenador_id')
 
-    if not nombre or not apellidos or not email or not password or not rol:
+    if not nombre or not apellidos or not email or not rol:
         return jsonify({'error': 'Todos los campos son obligatorios'}), 400
 
     if rol not in ('admin', 'entrenador', 'atleta'):
         return jsonify({'error': 'Rol inválido'}), 400
+    if rol == "atleta" and entrenador_id is not None:
+        try:
+            entrenador_id = int(entrenador_id)
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Entrenador inválido'}), 400
 
     existing_user = query_db('SELECT * FROM usuarios WHERE email = ?', (email,), one=True)
     if existing_user:
         return jsonify({'error': 'El correo electrónico ya está registrado'}), 409
 
-    password_hash = generate_password_hash(password)
+    password_temporal = generar_password_temporal()
 
     try:
         execute_db(
-            'INSERT INTO usuarios (nombre, apellidos, email, password_hash, rol, force_password_change) VALUES (?, ?, ?, ?, ?, 0)',
-            (nombre, apellidos, email, password_hash, rol)
+            'INSERT INTO usuarios (nombre, apellidos, email, password_hash, rol, entrenador_id, force_password_change) VALUES (?, ?, ?, ?, ?, ?, 1)',
+            (nombre, apellidos, email, generate_password_hash(password_temporal), rol, entrenador_id if rol == "atleta" else None)
         )
-        return jsonify({'message': 'Usuario creado exitosamente'}), 201
+        return jsonify({
+            'message': 'Usuario creado exitosamente',
+            **temporary_password_response(password_temporal),
+        }), 201
     except DB_INTEGRITY_ERRORS:
         return jsonify({'error': 'Error al crear el usuario'}), 500
 
@@ -853,9 +821,6 @@ def crear_atleta_desde_entrenador(current_user):
     grupo = (data.get('grupo') or '').strip() or None
     subgrupo = (data.get('subgrupo') or '').strip() or None
 
-    # Contraseña temporal fija
-    password = "cambiame"
-
     # --- Validaciones básicas ---
     if not nombre or not apellidos or not email:
         return jsonify({'error': 'Nombre, apellidos y email son obligatorios'}), 400
@@ -869,8 +834,8 @@ def crear_atleta_desde_entrenador(current_user):
     if existente:
         return jsonify({'error': 'Ya existe un usuario con ese email'}), 400
 
-    # Hash de contraseña
-    password_hash = generate_password_hash(password)
+    password_temporal = generar_password_temporal()
+    password_hash = generate_password_hash(password_temporal)
 
     try:
         # Por si tu tabla tiene más campos, ajusta la lista de columnas
@@ -899,7 +864,8 @@ def crear_atleta_desde_entrenador(current_user):
 
         return jsonify({
             'message': 'Atleta creado correctamente',
-            'atleta_id': nuevo_id
+            'atleta_id': nuevo_id,
+            **temporary_password_response(password_temporal),
         }), 201
 
     except Exception as e:
@@ -923,12 +889,16 @@ def delete_atleta(current_user, id):
         return jsonify({'error': 'No tienes permiso para eliminar este atleta'}), 403
 
     try:
-        # Opcional: borrar también entrenamientos_asignados, feedbacks, etc. para ese atleta
-        execute_db('DELETE FROM entrenamientos_asignados WHERE atleta_id = ?', (id,))
-        execute_db('DELETE FROM feedbacks WHERE atleta_id = ?', (id,))
+        if atleta_tiene_historial(id):
+            execute_db('UPDATE usuarios SET activo = 0 WHERE id = ?', (id,))
+            return jsonify({
+                'message': 'Atleta archivado correctamente',
+                'archivado': True,
+                'eliminado': False
+            }), 200
 
         execute_db('DELETE FROM usuarios WHERE id = ?', (id,))
-        return jsonify({'message': 'Atleta eliminado correctamente'}), 200
+        return jsonify({'message': 'Atleta eliminado correctamente', 'eliminado': True}), 200
     except Exception as e:
         print("Error al eliminar atleta:", e)
         return jsonify({'error': 'Error al eliminar atleta'}), 500
@@ -950,7 +920,8 @@ def update_user(current_user, id):
         return jsonify({'error': 'Rol inválido'}), 400
 
     if password:
-        password_hash = generate_password_hash(password)
+        password_temporal = generar_password_temporal()
+        password_hash = generate_password_hash(password_temporal)
         # Al cambiar contraseña desde admin forzamos que el usuario la renueve
         execute_db(
             '''
@@ -960,6 +931,10 @@ def update_user(current_user, id):
             ''',
             (nombre, apellidos, email, rol, password_hash, id)
         )
+        return jsonify({
+            'message': 'Usuario actualizado exitosamente',
+            **temporary_password_response(password_temporal),
+        }), 200
     else:
         execute_db(
             'UPDATE usuarios SET nombre = ?, apellidos = ?, email = ?, rol = ? WHERE id = ?',
@@ -968,9 +943,40 @@ def update_user(current_user, id):
     return jsonify({'message': 'Usuario actualizado exitosamente'}), 200
 
 
+@app.route('/usuarios/<int:id>/reset-password', methods=['POST'])
+@requires_roles('admin', 'entrenador')
+def reset_user_password(current_user, id):
+    user = query_db(
+        'SELECT id, rol, entrenador_id FROM usuarios WHERE id = ?',
+        (id,),
+        one=True,
+    )
+    if not user:
+        return jsonify({'error': 'Usuario no encontrado'}), 404
+    if current_user['rol'] == 'entrenador':
+        if user['rol'] != 'atleta' or user['entrenador_id'] != current_user['id']:
+            return jsonify({'error': 'No tienes permiso para resetear este usuario'}), 403
+
+    password_temporal = generar_password_temporal()
+    execute_db(
+        "UPDATE usuarios SET password_hash = ?, force_password_change = 1 WHERE id = ?",
+        (generate_password_hash(password_temporal), id),
+    )
+    return jsonify({
+        "message": "Contraseña temporal generada",
+        **temporary_password_response(password_temporal),
+    }), 200
+
+
 @app.route('/usuarios/<int:id>', methods=['DELETE'])
 @requires_roles('admin')
 def delete_user(current_user, id):
+    user = query_db('SELECT id, rol FROM usuarios WHERE id = ?', (id,), one=True)
+    if not user:
+        return jsonify({'error': 'Usuario no encontrado'}), 404
+    if user['rol'] == 'atleta' and atleta_tiene_historial(id):
+        execute_db('UPDATE usuarios SET activo = 0 WHERE id = ?', (id,))
+        return jsonify({'message': 'Atleta archivado correctamente', 'archivado': True, 'eliminado': False}), 200
     execute_db('DELETE FROM usuarios WHERE id = ?', (id,))
     return jsonify({'message': 'Usuario eliminado exitosamente'}), 200
 
@@ -1048,8 +1054,10 @@ def get_atletas(current_user):
 @app.route('/atletas/<int:id>', methods=['GET'])
 @requires_roles('admin', 'entrenador', 'atleta')
 def get_atleta(current_user, id):
-    if session.get("user_rol") == 'admin' or session.get("user_rol") == 'entrenador':
+    if session.get("user_rol") == 'admin':
         atleta = query_db('SELECT * FROM usuarios WHERE id = ?', (id,), one=True)
+    elif session.get("user_rol") == 'entrenador':
+        atleta = query_db('SELECT * FROM usuarios WHERE id = ? AND entrenador_id = ?', (id, current_user["id"]), one=True)
     else:  # 'atleta'
         if session.get("user_id") != id:
             return jsonify({'error': 'Acceso no autorizado'}), 403
@@ -1065,8 +1073,10 @@ def obtener_perfil_atleta(current_user, atleta_id):
         query = '''
             SELECT u.id, u.nombre, u.apellidos, u.email, u.foto_url, u.telefono,
                    u.fecha_nacimiento, u.categoria, u.grupo, u.subgrupo, u.entrenador_id, u.rol,
-                   u.vdot_val, u.vdot_fecha, u.vdot_distancia_m, u.vdot_tiempo_seg
+                   u.vdot_val, u.vdot_fecha, u.vdot_distancia_m, u.vdot_tiempo_seg,
+                   e.nombre AS entrenador_nombre, e.email AS entrenador_email
             FROM usuarios u
+            LEFT JOIN usuarios e ON e.id = u.entrenador_id
             WHERE u.id = ?
         '''
         resultado = query_db(query, (atleta_id,), one=True)
@@ -1210,18 +1220,16 @@ def actualizar_perfil(current_user):
             return jsonify({"error": "Ese correo ya está en uso"}), 409
 
         if foto:
-            # Carpeta de destino
-            print("Nombre del archivo recibido:", foto.filename)
+            if not is_allowed_image_upload(foto):
+                return jsonify({"error": "Formato de imagen no permitido. Usa JPG, PNG o WEBP."}), 400
             carpeta_destino = os.path.join('..', 'frontend','static', 'img', 'perfiles')
             os.makedirs(carpeta_destino, exist_ok=True)
 
             # Guardar imagen con nombre único
-            extension = os.path.splitext(foto.filename)[1]
+            extension = os.path.splitext(secure_filename(foto.filename))[1].lower()
             nombre_archivo = f"perfil_{usuario_id}{extension}"
             ruta_archivo = os.path.join(carpeta_destino, secure_filename(nombre_archivo))
             foto.save(ruta_archivo)
-            print(f"Imagen guardada en: {ruta_archivo}")
-
 
             foto_url = f"/static/img/perfiles/{nombre_archivo}"
 
@@ -2228,17 +2236,26 @@ def obtener_entrenamientos_asignados(current_user, atleta_id):
         # Si es atleta, sólo puede ver los suyos
         if session.get("user_rol") == "atleta" and session.get("user_id") != atleta_id:
             return jsonify({'error': 'Acceso no autorizado'}), 403
+        where = ["atleta_id = ?"]
+        params = [atleta_id]
+        if current_user["rol"] == "atleta":
+            where.append("COALESCE(visible, 0) = 1")
 
         entrenamientos = query_db(
             """
             SELECT *
             FROM entrenamientos_asignados 
-            WHERE atleta_id = ?
+            WHERE {where}
             ORDER BY fecha ASC
-            """,
-            (atleta_id,)
+            """.format(where=" AND ".join(where)),
+            tuple(params)
         )
-        return jsonify([dict(e) for e in entrenamientos]), 200
+        items = []
+        for e in entrenamientos:
+            item = dict(e)
+            item["fecha"] = fecha_iso(item.get("fecha"))
+            items.append(item)
+        return jsonify(items), 200
     except Exception as e:
         print("Error al obtener entrenamientos asignados:", e)
         return jsonify({'error': 'Error al obtener entrenamientos asignados'}), 500
@@ -2255,14 +2272,18 @@ def obtener_entrenamiento_asignado(current_user, id):
     cur = conn.cursor()
 
     # Cabecera del entrenamiento asignado
-    cur.execute(
-        "SELECT * FROM entrenamientos_asignados WHERE id = ?",
-        (id,)
-    )
+    cur.execute("SELECT * FROM entrenamientos_asignados WHERE id = ?", (id,))
     entrenamiento = cur.fetchone()
 
     if not entrenamiento:
         return jsonify({'error': 'Entrenamiento no encontrado'}), 404
+    if current_user['rol'] == 'atleta':
+        if current_user['id'] != entrenamiento['atleta_id']:
+            return jsonify({'error': 'No tienes permiso para ver este entrenamiento'}), 403
+        if int(entrenamiento['visible'] or 0) != 1:
+            return jsonify({'error': 'Entrenamiento no disponible'}), 404
+    if current_user['rol'] == 'entrenador' and not atleta_pertenece_a_entrenador(entrenamiento['atleta_id'], current_user['id']):
+        return jsonify({'error': 'No tienes permiso para ver este entrenamiento'}), 403
 
     # Detalle de pasos
     cur.execute(
@@ -2482,6 +2503,91 @@ def obtener_filtros_atletas_entrenador(current_user):
             if valor:
                 filtros[destino].add(valor)
     return {k: sorted(v) for k, v in filtros.items()}
+
+
+def generar_password_temporal(longitud=12):
+    return secrets.token_urlsafe(longitud)
+
+
+def temporary_password_response(password_temporal):
+    return {
+        "temporary_password": password_temporal,
+        "password_temporal": password_temporal,
+        "force_password_change": 1,
+    }
+
+
+def is_allowed_image_upload(file_storage):
+    if not file_storage or not file_storage.filename:
+        return False
+    filename = secure_filename(file_storage.filename)
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
+        return False
+    mimetype = (file_storage.mimetype or "").lower()
+    return mimetype in {"image/jpeg", "image/png", "image/webp"}
+
+
+def is_allowed_fit_upload(file_storage):
+    if not file_storage or not file_storage.filename:
+        return False
+    filename = secure_filename(file_storage.filename)
+    ext = os.path.splitext(filename)[1].lower()
+    if ext != ".fit":
+        return False
+    mimetype = (file_storage.mimetype or "").lower()
+    return mimetype in {"", "application/octet-stream", "application/vnd.ant.fit"}
+
+
+def row_get(row, key, default=None):
+    if row is None:
+        return default
+    try:
+        return row.get(key, default)
+    except AttributeError:
+        try:
+            return row[key]
+        except Exception:
+            return default
+
+
+def obtener_atleta_configurable(current_user, atleta_id):
+    atleta = query_db(
+        'SELECT * FROM usuarios WHERE id = ? AND rol = "atleta"',
+        (atleta_id,),
+        one=True,
+    )
+    if not atleta:
+        return None, (jsonify({"error": "Atleta no encontrado"}), 404)
+    if current_user["rol"] == "entrenador" and row_get(atleta, "entrenador_id") != current_user["id"]:
+        return None, (jsonify({"error": "No tienes permiso para gestionar este atleta"}), 403)
+    if current_user["rol"] == "atleta" and current_user["id"] != atleta_id:
+        return None, (jsonify({"error": "Acceso no autorizado"}), 403)
+    return atleta, None
+
+
+def atleta_tiene_historial(atleta_id):
+    comprobaciones = (
+        ("entrenamientos_asignados", "atleta_id"),
+        ("feedbacks", "atleta_id"),
+        ("sesiones_realizadas", "atleta_id"),
+        ("zonas_entrenamiento", "atleta_id"),
+        ("entrenamientos_envios", "atleta_id"),
+        ("alertas_entrenamientos", "atleta_id"),
+    )
+    for tabla, columna in comprobaciones:
+        try:
+            fila = query_db(
+                f"SELECT COUNT(*) AS total FROM {tabla} WHERE {columna} = ?",
+                (atleta_id,),
+                one=True,
+            )
+            total = fila.get("total") if isinstance(fila, dict) else fila[0]
+            if total:
+                return True
+        except Exception:
+            pass
+    return False
 
 
 def obtener_zonas_snapshot(cur, atleta_id, fecha):
@@ -2925,6 +3031,190 @@ def planificacion_atletas(current_user):
     return jsonify({
         "atletas": [dict(a) for a in atletas],
         "filtros": obtener_filtros_atletas_entrenador(current_user),
+    }), 200
+
+
+@app.route('/configuracion/atletas', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def configuracion_listar_atletas(current_user):
+    busqueda = (request.args.get("q") or "").strip()
+    grupo = (request.args.get("grupo") or "").strip()
+    subgrupo = (request.args.get("subgrupo") or "").strip()
+    categoria = (request.args.get("categoria") or "").strip()
+    activo = (request.args.get("activo") or "").strip()
+
+    where = ['rol = "atleta"']
+    params = []
+    if current_user["rol"] == "entrenador":
+        where.append("entrenador_id = ?")
+        params.append(current_user["id"])
+    if busqueda:
+        where.append("(nombre LIKE ? OR apellidos LIKE ? OR email LIKE ?)")
+        like = f"%{busqueda}%"
+        params.extend([like, like, like])
+    if grupo:
+        where.append("grupo = ?")
+        params.append(grupo)
+    if subgrupo:
+        where.append("subgrupo = ?")
+        params.append(subgrupo)
+    if categoria:
+        where.append("categoria = ?")
+        params.append(categoria)
+    if activo in ("0", "1"):
+        where.append("COALESCE(activo, 1) = ?")
+        params.append(int(activo))
+
+    atletas = query_db(
+        f"""
+        SELECT id, nombre, apellidos, email, telefono, fecha_nacimiento, categoria,
+               grupo, subgrupo, entrenador_id, foto_url, force_password_change,
+               COALESCE(activo, 1) AS activo, vdot_val, vdot_fecha
+        FROM usuarios
+        WHERE {' AND '.join(where)}
+        ORDER BY COALESCE(activo, 1) DESC, apellidos, nombre, id
+        """,
+        tuple(params),
+    )
+    return jsonify({
+        "atletas": [dict(a) for a in atletas],
+        "filtros": obtener_filtros_atletas_entrenador(current_user),
+    }), 200
+
+
+@app.route('/configuracion/atletas', methods=['POST'])
+@requires_roles('admin', 'entrenador')
+def configuracion_crear_atleta(current_user):
+    data = request.get_json(silent=True) or {}
+    nombre = (data.get("nombre") or "").strip()
+    apellidos = (data.get("apellidos") or "").strip()
+    email = (data.get("email") or "").strip().lower()
+    telefono = (data.get("telefono") or "").strip() or None
+    fecha_nacimiento = (data.get("fecha_nacimiento") or "").strip() or None
+    categoria = (data.get("categoria") or "").strip() or None
+    grupo = (data.get("grupo") or "").strip() or None
+    subgrupo = (data.get("subgrupo") or "").strip() or None
+    password_temporal = generar_password_temporal()
+    entrenador_id = current_user["id"] if current_user["rol"] == "entrenador" else data.get("entrenador_id")
+
+    if not nombre or not apellidos or not email:
+        return jsonify({"error": "Nombre, apellidos y email son obligatorios"}), 400
+    if entrenador_id is not None:
+        try:
+            entrenador_id = int(entrenador_id)
+        except (TypeError, ValueError):
+            return jsonify({"error": "Entrenador inválido"}), 400
+    if query_db("SELECT id FROM usuarios WHERE email = ?", (email,), one=True):
+        return jsonify({"error": "Ese correo ya está en uso"}), 409
+
+    try:
+        nuevo_id = execute_db(
+            """
+            INSERT INTO usuarios (
+                nombre, apellidos, email, password_hash, telefono, fecha_nacimiento,
+                categoria, grupo, subgrupo, rol, entrenador_id, aprobado,
+                force_password_change, activo
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'atleta', ?, 1, 1, 1)
+            """,
+            (
+                nombre,
+                apellidos,
+                email,
+                generate_password_hash(password_temporal),
+                telefono,
+                fecha_nacimiento,
+                categoria,
+                grupo,
+                subgrupo,
+                entrenador_id,
+            ),
+        )
+        return jsonify({
+            "message": "Atleta creado correctamente",
+            "atleta_id": nuevo_id,
+            **temporary_password_response(password_temporal),
+        }), 201
+    except Exception as e:
+        print("Error al crear atleta desde configuración:", e)
+        return jsonify({"error": "No se pudo crear el atleta"}), 500
+
+
+@app.route('/configuracion/atletas/<int:atleta_id>', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def configuracion_obtener_atleta(current_user, atleta_id):
+    atleta, error = obtener_atleta_configurable(current_user, atleta_id)
+    if error:
+        return error
+    data = dict(atleta)
+    data["activo"] = row_get(atleta, "activo", 1)
+    data["tiene_historial"] = atleta_tiene_historial(atleta_id)
+    data.pop("password_hash", None)
+    return jsonify(data), 200
+
+
+@app.route('/configuracion/atletas/<int:atleta_id>', methods=['PUT'])
+@requires_roles('admin', 'entrenador')
+def configuracion_actualizar_atleta(current_user, atleta_id):
+    atleta, error = obtener_atleta_configurable(current_user, atleta_id)
+    if error:
+        return error
+    data = request.get_json(silent=True) or {}
+    nombre = (data.get("nombre") or "").strip()
+    apellidos = (data.get("apellidos") or "").strip()
+    email = (data.get("email") or "").strip().lower()
+    telefono = (data.get("telefono") or "").strip() or None
+    fecha_nacimiento = (data.get("fecha_nacimiento") or "").strip() or None
+    categoria = (data.get("categoria") or "").strip() or None
+    grupo = (data.get("grupo") or "").strip() or None
+    subgrupo = (data.get("subgrupo") or "").strip() or None
+
+    if not nombre or not apellidos or not email:
+        return jsonify({"error": "Nombre, apellidos y email son obligatorios"}), 400
+    if query_db("SELECT id FROM usuarios WHERE email = ? AND id != ?", (email, atleta_id), one=True):
+        return jsonify({"error": "Ese correo ya está en uso"}), 409
+
+    execute_db(
+        """
+        UPDATE usuarios
+        SET nombre = ?, apellidos = ?, email = ?, telefono = ?, fecha_nacimiento = ?,
+            categoria = ?, grupo = ?, subgrupo = ?
+        WHERE id = ?
+        """,
+        (nombre, apellidos, email, telefono, fecha_nacimiento, categoria, grupo, subgrupo, atleta_id),
+    )
+    return jsonify({"message": "Atleta actualizado correctamente"}), 200
+
+
+@app.route('/configuracion/atletas/<int:atleta_id>/estado', methods=['PUT'])
+@requires_roles('admin', 'entrenador')
+def configuracion_estado_atleta(current_user, atleta_id):
+    atleta, error = obtener_atleta_configurable(current_user, atleta_id)
+    if error:
+        return error
+    data = request.get_json(silent=True) or {}
+    activo = 1 if data.get("activo") in (True, 1, "1", "true", "activo") else 0
+    execute_db("UPDATE usuarios SET activo = ? WHERE id = ?", (activo, atleta_id))
+    return jsonify({
+        "message": "Atleta activado" if activo else "Atleta desactivado",
+        "activo": activo,
+    }), 200
+
+
+@app.route('/configuracion/atletas/<int:atleta_id>/reset-password', methods=['POST'])
+@requires_roles('admin', 'entrenador')
+def configuracion_reset_password_atleta(current_user, atleta_id):
+    atleta, error = obtener_atleta_configurable(current_user, atleta_id)
+    if error:
+        return error
+    password_temporal = generar_password_temporal()
+    execute_db(
+        "UPDATE usuarios SET password_hash = ?, force_password_change = 1 WHERE id = ?",
+        (generate_password_hash(password_temporal), atleta_id),
+    )
+    return jsonify({
+        "message": "Contraseña temporal generada",
+        **temporary_password_response(password_temporal),
     }), 200
 
 
@@ -4024,7 +4314,7 @@ def enviar_feedback(current_user):
         conn = get_db()
         cur = conn.cursor()
         cur.execute(
-            "SELECT id FROM entrenamientos_asignados WHERE id = ? AND atleta_id = ?",
+            "SELECT id FROM entrenamientos_asignados WHERE id = ? AND atleta_id = ? AND COALESCE(visible, 0) = 1",
             (entrenamiento_id, atleta_id),
         )
         if not cur.fetchone():
@@ -4747,6 +5037,149 @@ def detalle_resultado_entrenador(current_user, asignado_id):
     except Exception as e:
         print("Error obteniendo detalle de resultado:", e)
         return jsonify({'error': 'No se pudo obtener el detalle del entrenamiento'}), 500
+
+
+@app.route('/historial/entrenador/atletas/<int:atleta_id>/calendario', methods=['GET'])
+@requires_roles('entrenador', 'admin')
+def historial_calendario_atleta(current_user, atleta_id):
+    mes = (request.args.get("mes") or datetime.now().strftime("%Y-%m")).strip()
+    try:
+        inicio = datetime.strptime(f"{mes}-01", "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"error": "Mes inválido"}), 400
+    fin = inicio.replace(year=inicio.year + 1, month=1) if inicio.month == 12 else inicio.replace(month=inicio.month + 1)
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT id, nombre, apellidos, email, entrenador_id, rol
+            FROM usuarios
+            WHERE id = ?
+            """,
+            (atleta_id,),
+        )
+        atleta = cur.fetchone()
+        if not atleta or atleta["rol"] != "atleta":
+            return jsonify({"error": "Atleta no encontrado"}), 404
+        if current_user["rol"] == "entrenador" and atleta["entrenador_id"] != current_user["id"]:
+            return jsonify({"error": "No tienes permiso para ver este atleta"}), 403
+
+        cur.execute(
+            """
+            SELECT
+                ea.id, ea.fecha, ea.nombre, ea.objetivo, ea.notas, ea.visible,
+                ea.estado_envio, ea.publicar_en, ea.publicado_en, ea.km_previstos,
+                kre.km_planificados, kre.km_realizados,
+                sr.id AS sesion_realizada_id, sr.km_real, sr.duracion_real_seg, sr.origen_datos,
+                f.id AS feedback_id, f.fecha AS feedback_fecha, f.rpe AS feedback_rpe,
+                f.sensacion AS feedback_sensacion, f.fatiga AS feedback_fatiga,
+                f.dolor AS feedback_dolor, f.zona_dolor AS feedback_zona_dolor,
+                f.completado AS feedback_completado,
+                (
+                  SELECT COUNT(*)
+                  FROM resultados_entrenamientos re
+                  WHERE re.entrenamiento_asignado_id = ea.id
+                ) AS resultados_count,
+                (
+                  SELECT ead.tipo_paso
+                  FROM entrenamientos_asignados_detalle ead
+                  WHERE ead.entrenamiento_asignado_id = ea.id
+                  ORDER BY
+                    CASE WHEN ead.tipo_paso IN ('warmup', 'cooldown') THEN 1 ELSE 0 END,
+                    ead.parent_id IS NOT NULL, ead.orden, ead.id
+                  LIMIT 1
+                ) AS tipo_principal
+            FROM entrenamientos_asignados ea
+            LEFT JOIN km_realizados_entrenamientos kre ON kre.entrenamiento_asignado_id = ea.id
+            LEFT JOIN sesiones_realizadas sr ON sr.entrenamiento_asignado_id = ea.id
+            LEFT JOIN feedbacks f
+              ON f.id = (
+                SELECT id
+                FROM feedbacks fb
+                WHERE fb.entrenamiento_asignado_id = ea.id
+                ORDER BY fb.fecha DESC
+                LIMIT 1
+              )
+            WHERE ea.atleta_id = ?
+              AND DATE(ea.fecha) >= DATE(?)
+              AND DATE(ea.fecha) < DATE(?)
+            ORDER BY ea.fecha, ea.id
+            """,
+            (atleta_id, inicio.isoformat(), fin.isoformat()),
+        )
+        sesiones = []
+        for row in cur.fetchall():
+            item = dict(row)
+            resultados_count = int(item.get("resultados_count") or 0)
+            tiene_realizado = bool(
+                item.get("sesion_realizada_id")
+                or resultados_count
+                or item.get("km_realizados") is not None
+                or item.get("km_real") is not None
+            )
+            feedback_id = item.get("feedback_id")
+            feedback_completado = item.get("feedback_completado")
+            if not feedback_id:
+                feedback_estado = "sin_feedback"
+            elif feedback_completado in (0, False, "0"):
+                feedback_estado = "no_completado"
+            else:
+                feedback_estado = "completado"
+            sesiones.append(
+                {
+                    "id": item["id"],
+                    "fecha": fecha_iso(item.get("fecha")),
+                    "nombre": item.get("nombre") or "Entrenamiento",
+                    "objetivo": item.get("objetivo"),
+                    "notas": item.get("notas"),
+                    "visible": item.get("visible"),
+                    "estado_envio": item.get("estado_envio"),
+                    "publicar_en": item.get("publicar_en"),
+                    "publicado_en": item.get("publicado_en"),
+                    "km_previstos": item.get("km_previstos"),
+                    "km_planificados": item.get("km_planificados"),
+                    "km_realizados": item.get("km_realizados") if item.get("km_realizados") is not None else item.get("km_real"),
+                    "duracion_real_seg": item.get("duracion_real_seg"),
+                    "origen_datos": item.get("origen_datos"),
+                    "tipo_principal": item.get("tipo_principal") or "custom",
+                    "estado_ejecucion": "realizado" if tiene_realizado else "planificado",
+                    "resultados_count": resultados_count,
+                    "feedback": {
+                        "id": feedback_id,
+                        "estado": feedback_estado,
+                        "fecha": item.get("feedback_fecha"),
+                        "rpe": item.get("feedback_rpe"),
+                        "sensacion": item.get("feedback_sensacion"),
+                        "fatiga": item.get("feedback_fatiga"),
+                        "dolor": item.get("feedback_dolor"),
+                        "zona_dolor": item.get("feedback_zona_dolor"),
+                        "completado": feedback_completado,
+                    },
+                }
+            )
+
+        return jsonify(
+            {
+                "atleta": {
+                    "id": atleta["id"],
+                    "nombre": atleta["nombre"],
+                    "apellidos": atleta.get("apellidos"),
+                    "email": atleta.get("email"),
+                },
+                "mes": mes,
+                "sesiones": sesiones,
+            }
+        ), 200
+    except Exception as e:
+        print("Error cargando historial calendario atleta:", e)
+        return jsonify({"error": "No se pudo cargar el historial del atleta"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
 @app.route('/feedbacks', methods=['GET'])
 @requires_roles('entrenador')
 def obtener_todos_los_feedbacks(current_user):
@@ -4824,9 +5257,13 @@ def entrenamientos_proximos(current_user):
         return jsonify({'error': 'No se pudieron obtener los entrenamientos'}), 500
 
 @app.route('/calcular_zonas/<int:atleta_id>', methods=['POST'])
-@requires_roles('entrenador')
+@requires_roles('entrenador', 'admin')
 def calcular_zonas(current_user, atleta_id):
     try:
+        _, error = obtener_atleta_configurable(current_user, atleta_id)
+        if error:
+            return error
+
         data = request.get_json()
         minutos = int(data['minutos'])
         segundos = int(data['segundos'])
@@ -4889,7 +5326,7 @@ def calcular_zonas(current_user, atleta_id):
         return jsonify({'error': 'No se pudieron calcular las zonas'}), 500
 
 @app.route('/guardar_zonas', methods=['POST'])
-@requires_roles('entrenador')
+@requires_roles('entrenador', 'admin')
 def guardar_zonas(current_user):
     try:
         data = request.get_json()
@@ -4907,11 +5344,16 @@ def guardar_zonas(current_user):
         fc_z4 = data.get("fc_z4")
         fc_z5 = data.get("fc_z5")
         fc_z6 = data.get("fc_z6")
+        vdot_val = data.get("vdot_val")
         metodo = (data.get("metodo") or "vam").strip().lower()
         fecha_inicio = data.get("fecha_inicio") or datetime.utcnow().date().isoformat()
 
-        if not all([atleta_id, vam, z1, z2, z3, z4, z5, z6]):
+        if not all([atleta_id, vam, z1, z2, z3, z4, z5]):
             return jsonify({"error": "Datos incompletos"}), 400
+
+        _, error = obtener_atleta_configurable(current_user, int(atleta_id))
+        if error:
+            return error
 
         try:
             fin_anterior = (datetime.fromisoformat(fecha_inicio) - timedelta(days=1)).date().isoformat()
@@ -4925,10 +5367,10 @@ def guardar_zonas(current_user):
 
         execute_db(
             '''
-            INSERT INTO zonas_entrenamiento (atleta_id, vam, z1, z2, z3, z4, z5, z6, fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6, fecha_inicio, metodo)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO zonas_entrenamiento (atleta_id, vam, vdot_val, z1, z2, z3, z4, z5, z6, fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6, fecha_inicio, metodo)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
-            (atleta_id, vam, z1, z2, z3, z4, z5, z6, fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6, fecha_inicio, metodo)
+            (atleta_id, vam, vdot_val, z1, z2, z3, z4, z5, z6, fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6, fecha_inicio, metodo)
         )
 
         return jsonify({"message": "Zonas guardadas correctamente"}), 200
@@ -5102,7 +5544,7 @@ def obtener_detalle_entrenamiento_asignado(current_user, asignado_id):
     """
     # Comprobamos que el entrenamiento asignado existe
     ent = query_db(
-        "SELECT atleta_id FROM entrenamientos_asignados WHERE id = ?",
+        "SELECT atleta_id, visible FROM entrenamientos_asignados WHERE id = ?",
         (asignado_id,),
         one=True
     )
@@ -5112,6 +5554,8 @@ def obtener_detalle_entrenamiento_asignado(current_user, asignado_id):
     # Si es atleta, sólo puede ver los suyos
     if current_user['rol'] == 'atleta' and current_user['id'] != ent['atleta_id']:
         return jsonify({'error': 'No tienes permiso para ver este entrenamiento'}), 403
+    if current_user['rol'] == 'atleta' and int(ent['visible'] or 0) != 1:
+        return jsonify({'error': 'Entrenamiento no disponible'}), 404
     if current_user['rol'] == 'entrenador' and not atleta_pertenece_a_entrenador(ent['atleta_id'], current_user['id']):
         return jsonify({'error': 'No tienes permiso para ver este entrenamiento'}), 403
 
@@ -5249,12 +5693,16 @@ def actualizar_pasos_entrenamiento_asignado(current_user, id):
 @requires_roles('entrenador', 'atleta')
 def obtener_zonas_atleta(current_user, atleta_id):
     try:
+        _, error = obtener_atleta_configurable(current_user, atleta_id)
+        if error:
+            return error
+
         fecha_ref = request.args.get("fecha")
         params = [atleta_id]
         if fecha_ref:
             params.extend([fecha_ref, fecha_ref])
             query = '''
-                SELECT vam, z1, z2, z3, z4, z5, z6, fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6, metodo, fecha_inicio, fecha_fin
+                SELECT vam, vdot_val, z1, z2, z3, z4, z5, z6, fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6, metodo, fecha_inicio, fecha_fin
                 FROM zonas_entrenamiento
                 WHERE atleta_id = ?
                   AND fecha_inicio <= ?
@@ -5264,7 +5712,7 @@ def obtener_zonas_atleta(current_user, atleta_id):
             '''
         else:
             query = '''
-                SELECT vam, z1, z2, z3, z4, z5, z6, fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6, metodo, fecha_inicio, fecha_fin
+                SELECT vam, vdot_val, z1, z2, z3, z4, z5, z6, fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6, metodo, fecha_inicio, fecha_fin
                 FROM zonas_entrenamiento
                 WHERE atleta_id = ?
                 ORDER BY fecha_inicio DESC
@@ -5275,8 +5723,8 @@ def obtener_zonas_atleta(current_user, atleta_id):
             data = dict(resultado)
             vdot_row = query_db("SELECT vdot_val, vdot_fecha FROM usuarios WHERE id = ?", (atleta_id,), one=True)
             if vdot_row:
-                data["vdot_val"] = vdot_row.get("vdot_val")
-                data["vdot_fecha"] = vdot_row.get("vdot_fecha")
+                data["vdot_val"] = data.get("vdot_val") or row_get(vdot_row, "vdot_val")
+                data["vdot_fecha"] = row_get(vdot_row, "vdot_fecha")
             return jsonify(data), 200
         else:
             return jsonify({'message': 'No hay zonas guardadas para este atleta'}), 404
@@ -5323,16 +5771,16 @@ def obtener_historial_zonas_atleta(current_user, atleta_id):
             (atleta_id,),
             one=True,
         )
-        if not atleta or atleta.get('rol') != 'atleta':
+        if not atleta or row_get(atleta, 'rol') != 'atleta':
             return jsonify({'error': 'Atleta no encontrado'}), 404
         if current_user['rol'] == 'atleta' and current_user['id'] != atleta_id:
             return jsonify({'error': 'Acceso no autorizado'}), 403
-        if current_user['rol'] == 'entrenador' and atleta.get('entrenador_id') not in (None, current_user['id']):
+        if current_user['rol'] == 'entrenador' and row_get(atleta, 'entrenador_id') not in (None, current_user['id']):
             return jsonify({'error': 'No tienes permiso'}), 403
 
         filas = query_db(
             '''
-            SELECT vam, z1, z2, z3, z4, z5, z6,
+            SELECT vam, vdot_val, z1, z2, z3, z4, z5, z6,
                    fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6,
                    metodo, fecha_inicio, fecha_fin
             FROM zonas_entrenamiento
@@ -6218,7 +6666,7 @@ def obtener_resultados_entrenamiento(current_user, entrenamiento_id):
     cur = conn.cursor()
     try:
         cur.execute("""
-            SELECT ea.atleta_id
+            SELECT ea.atleta_id, ea.visible
             FROM entrenamientos_asignados ea
             WHERE ea.id = ?
         """ , (entrenamiento_id,))
@@ -6228,6 +6676,9 @@ def obtener_resultados_entrenamiento(current_user, entrenamiento_id):
         atleta_id = ent['atleta_id'] if isinstance(ent, dict) else ent[0]
         if current_user['rol'] == 'atleta' and current_user['id'] != atleta_id:
             return jsonify({'error': 'No tienes permiso para ver este entrenamiento'}), 403
+        visible = ent['visible'] if isinstance(ent, dict) else ent[1]
+        if current_user['rol'] == 'atleta' and int(visible or 0) != 1:
+            return jsonify({'error': 'Entrenamiento no disponible'}), 404
 
         cur.execute("""
             SELECT paso_detalle_id, repeticion, tiempo_real_seg, fecha
@@ -6557,7 +7008,7 @@ def guardar_resultados_series(current_user, entrenamiento_id):
     # ---------------- Comprobar que el entrenamiento pertenece al atleta actual ----------------
     cur.execute(
         """
-        SELECT ea.id, ea.atleta_id, ea.km_previstos, ea.fecha
+        SELECT ea.id, ea.atleta_id, ea.km_previstos, ea.fecha, ea.visible
         FROM entrenamientos_asignados ea
         WHERE ea.id = ?
         """,
@@ -6575,9 +7026,11 @@ def guardar_resultados_series(current_user, entrenamiento_id):
         km_previstos_asignado = None
 
     # Si tienes current_user["atleta_id"] o similar, comprueba propiedad
-    atleta_id_usuario = user_data.get("atleta_id")
-    if atleta_id_usuario and atleta["atleta_id"] != atleta_id_usuario:
+    atleta_id_usuario = user_data.get("atleta_id") or user_data.get("id")
+    if atleta["atleta_id"] != atleta_id_usuario:
         return jsonify({"error": "No tienes permiso para modificar este entrenamiento."}), 403
+    if int(atleta["visible"] or 0) != 1:
+        return jsonify({"error": "Entrenamiento no disponible."}), 404
 
     # ---------------- Cache de pasos para saber distancia ----------------
     pasos_cache = {}
@@ -6720,23 +7173,24 @@ def guardar_resultados_series(current_user, entrenamiento_id):
     elif km_real_suma > 0:
         km_total_guardar = km_real_suma
 
-    if km_total_guardar is not None:
+    fecha_entrenamiento = None
+    try:
+        fecha_entrenamiento = atleta["fecha"]
+    except Exception:
         fecha_entrenamiento = None
-        try:
-            fecha_entrenamiento = atleta["fecha"]
-        except Exception:
-            fecha_entrenamiento = None
-        if not fecha_entrenamiento:
-            cur.execute(
-                "SELECT fecha FROM entrenamientos_asignados WHERE id = ?",
-                (entrenamiento_id,)
-            )
-            fila_fecha = cur.fetchone()
-            if fila_fecha:
-                try:
-                    fecha_entrenamiento = fila_fecha["fecha"]
-                except Exception:
-                    fecha_entrenamiento = None
+    if not fecha_entrenamiento:
+        cur.execute(
+            "SELECT fecha FROM entrenamientos_asignados WHERE id = ?",
+            (entrenamiento_id,)
+        )
+        fila_fecha = cur.fetchone()
+        if fila_fecha:
+            try:
+                fecha_entrenamiento = fila_fecha["fecha"]
+            except Exception:
+                fecha_entrenamiento = None
+
+    if km_total_guardar is not None:
         upsert_km_realizados(
             cur,
             entrenamiento_id,
@@ -6745,28 +7199,27 @@ def guardar_resultados_series(current_user, entrenamiento_id):
             fecha_entrenamiento or now_ts,
         )
 
-        # Guardar sesion_realizada (V2)
+    # Guardar sesion_realizada (V2)
+    duracion_real = None
+    try:
+        tiempos = [r.get('tiempo_real_seg') for r in registros if r.get('tiempo_real_seg') is not None]
+        if tiempos:
+            duracion_real = int(sum(tiempos))
+    except Exception:
         duracion_real = None
-        try:
-            tiempos = [r.get('tiempo_real_seg') for r in registros if r.get('tiempo_real_seg') is not None]
-            if tiempos:
-                duracion_real = int(sum(tiempos))
-        except Exception:
-            duracion_real = None
-        fecha_real = fecha_entrenamiento or now_ts
+    if km_total_guardar is not None or duracion_real is not None:
         upsert_sesion_realizada(
             conn,
             entrenamiento_asignado_id=entrenamiento_id,
             atleta_id=atleta["atleta_id"],
-            fecha_real=fecha_real,
+            fecha_real=fecha_entrenamiento or now_ts,
             km_real=km_total_guardar,
             duracion_real_seg=duracion_real,
             origen_datos='manual',
         )
-    
-        conn.commit()
-    
-        return jsonify({"status": "ok"}), 200
+
+    conn.commit()
+    return jsonify({"status": "ok", "resultados": len(registros), "km_realizados": km_total_guardar}), 200
 
 
 
@@ -7004,9 +7457,11 @@ def registrar_archivo_sesion(current_user, entrenamiento_id):
 
     if not archivo or not archivo.filename:
         return jsonify({'error': 'Archivo FIT requerido'}), 400
+    if not is_allowed_fit_upload(archivo):
+        return jsonify({'error': 'Formato de archivo no permitido. Solo se aceptan .fit'}), 400
 
     asignado = query_db(
-        "SELECT id, atleta_id, fecha, km_previstos FROM entrenamientos_asignados WHERE id = ?",
+        "SELECT id, atleta_id, fecha, km_previstos, visible FROM entrenamientos_asignados WHERE id = ?",
         (entrenamiento_id,),
         one=True,
     )
@@ -7014,13 +7469,15 @@ def registrar_archivo_sesion(current_user, entrenamiento_id):
         return jsonify({'error': 'Entrenamiento asignado no encontrado'}), 404
     if asignado['atleta_id'] != current_user['id']:
         return jsonify({'error': 'No tienes permiso para este entrenamiento'}), 403
+    if int(asignado['visible'] or 0) != 1:
+        return jsonify({'error': 'Entrenamiento no disponible'}), 404
 
     base_dir = os.path.join(os.path.dirname(__file__), 'uploads', 'fit')
     os.makedirs(base_dir, exist_ok=True)
 
     original_name = secure_filename(archivo.filename)
     stamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-    stored_name = f"{current_user['id']}_{entrenamiento_id}_{stamp}_{original_name}"
+    stored_name = f"{current_user['id']}_{entrenamiento_id}_{stamp}_{secrets.token_hex(8)}.fit"
     stored_path = os.path.join(base_dir, stored_name)
 
     try:
@@ -8131,7 +8588,7 @@ def upsert_sesion_realizada(conn, *, entrenamiento_asignado_id, atleta_id, fecha
                 '''
                 INSERT INTO sesiones_realizadas (
                     entrenamiento_asignado_id, atleta_id, fecha_real, km_real, duracion_real_seg, origen_datos
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     atleta_id = VALUES(atleta_id),
                     fecha_real = VALUES(fecha_real),
@@ -8167,7 +8624,7 @@ def actualizar_sesion_feedback(conn, *, entrenamiento_asignado_id, atleta_id, co
                 '''
                 INSERT INTO sesiones_realizadas (
                     entrenamiento_asignado_id, atleta_id, comentario, rpe, sensacion, fatiga, dolor, zona_dolor, completado
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     comentario = VALUES(comentario),
                     rpe = VALUES(rpe),
@@ -8184,7 +8641,7 @@ def actualizar_sesion_feedback(conn, *, entrenamiento_asignado_id, atleta_id, co
                 '''
                 INSERT INTO sesiones_realizadas (
                     entrenamiento_asignado_id, atleta_id, comentario, rpe, sensacion, fatiga, dolor, zona_dolor, completado
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(entrenamiento_asignado_id) DO UPDATE SET
                     comentario = excluded.comentario,
                     rpe = excluded.rpe,

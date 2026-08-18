@@ -88,6 +88,8 @@ Es la tabla base de identidad, roles y relaciones entrenador-atleta.
 - `categoria`
 - `grupo`
 - `subgrupo`
+- `activo`
+- `force_password_change`
 - `vdot_val`
 - `vdot_fecha`
 - `vdot_distancia_m`
@@ -362,6 +364,7 @@ Entrenamiento asignado:
 
 - `atleta_id`
 - `vam`
+- `vdot_val`
 - `z1`
 - `z2`
 - `z3`
@@ -375,11 +378,19 @@ Entrenamiento asignado:
 - `fc_z5`
 - `fc_z6`
 - `metodo`
+- `fecha_inicio`
+- `fecha_fin`
 - `fecha_creacion`
 
 ### Relaciones principales
 
 Pertenece a `usuarios` cuando `rol = atleta`.
+
+### Reglas V2
+
+Cada nueva configuración de zonas crea un registro nuevo. La configuración anterior vigente se cierra actualizando `fecha_fin`.
+
+Los entrenamientos históricos no se recalculan al crear zonas nuevas.
 
 ### Estado
 

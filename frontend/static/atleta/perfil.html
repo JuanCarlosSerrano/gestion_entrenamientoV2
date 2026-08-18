@@ -1,113 +1,74 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Mi perfil</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet"/>
-  <link rel="stylesheet" href="../css/style.css"/>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Perfil · Atleta</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link rel="stylesheet" href="../css/style.css" />
+  <link rel="stylesheet" href="../css/atleta_panel.css" />
   <script src="../js/utils/csrf.js"></script>
   <script src="../js/script.js"></script>
   <script src="../js/utils/partials.js"></script>
-  <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon"/>
+  <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon" />
 </head>
-<body class="app-bg">
-  <div class="container app-container">
+<body class="athlete-panel">
+  <div class="athlete-shell">
     <div data-include="../partials/header_atleta.html" data-nav-active="perfil"></div>
-
-    <div class="page-context-bar page-context-bar--hero">
-      <div>
-        <p class="eyebrow eyebrow--subtle">Panel del atleta</p>
-        <h1 class="page-context-title">Mi perfil</h1>
-        <p class="text-muted mb-0">Actualiza tus datos y consulta tus zonas de entrenamiento.</p>
-      </div>
-    </div>
-
-    <section class="app-card mb-4">
-      <div class="d-flex align-items-center gap-3 mb-3">
-        <img id="foto-perfil" src="../img/default-avatar.jpg" alt="Foto de perfil" class="rounded-circle" style="width:80px;height:80px;object-fit:cover;">
+    <main class="athlete-main">
+      <header class="athlete-topbar">
         <div>
-          <h2 class="h4 mb-1">Datos personales</h2>
-          <p class="text-muted mb-0">Se mostrarán al entrenador para personalizar tu plan.</p>
+          <h1>Perfil</h1>
+          <p>Tus datos personales y configuración visible.</p>
         </div>
-      </div>
-      <form id="form-perfil" class="row g-3">
-        <div class="col-md-6">
-          <label class="form-label">Nombre</label>
-          <input type="text" class="form-control" id="input-nombre" required />
+      </header>
+      <section class="athlete-detail-layout">
+        <article class="athlete-card">
+          <div class="d-flex align-items-center gap-3 mb-3">
+            <img id="foto-perfil" src="../img/default-avatar.jpg" alt="Foto de perfil" class="rounded-circle" style="width:82px;height:82px;object-fit:cover;">
+            <div>
+              <p class="athlete-eyebrow">Datos</p>
+              <h2 class="h4 mb-0">Datos personales</h2>
+            </div>
+          </div>
+          <form id="form-perfil" class="row g-3">
+            <div class="col-md-6"><label class="form-label">Nombre<input type="text" class="form-control" id="input-nombre" required></label></div>
+            <div class="col-md-6"><label class="form-label">Apellidos<input type="text" class="form-control" id="input-apellidos" required></label></div>
+            <div class="col-md-6"><label class="form-label">Correo electrónico<input type="email" class="form-control" id="input-email" required></label></div>
+            <div class="col-md-6"><label class="form-label">Teléfono<input type="tel" class="form-control" id="input-telefono" placeholder="+34 600 000 000"></label></div>
+            <div class="col-md-6"><label class="form-label">Fecha de nacimiento<input type="date" class="form-control" id="input-fecha"></label></div>
+            <div class="col-md-6"><label class="form-label">Foto<input type="file" class="form-control" id="input-foto" accept="image/*"></label></div>
+            <div class="col-12"><button class="btn btn-brand" type="submit">Guardar cambios</button></div>
+          </form>
+        </article>
+        <aside class="athlete-card">
+          <p class="athlete-eyebrow">Entrenador</p>
+          <div class="athlete-metric-grid mb-3" style="grid-template-columns:1fr;">
+            <div class="athlete-metric-card"><span class="athlete-muted">Grupo</span><strong id="perfil-grupo">-</strong></div>
+            <div class="athlete-metric-card"><span class="athlete-muted">Categoría</span><strong id="perfil-categoria">-</strong></div>
+            <div class="athlete-metric-card"><span class="athlete-muted">Entrenador</span><strong id="perfil-entrenador">-</strong></div>
+          </div>
+        </aside>
+      </section>
+      <section class="athlete-card">
+        <p class="athlete-eyebrow">Seguridad</p>
+        <h2 class="h5 mb-3">Cambiar contraseña</h2>
+        <form id="form-password" class="row g-3">
+          <div class="col-md-4"><label class="form-label">Contraseña actual<input type="password" class="form-control" id="input-pass-actual" required></label></div>
+          <div class="col-md-4"><label class="form-label">Nueva contraseña<input type="password" class="form-control" id="input-pass-nueva" required></label></div>
+          <div class="col-md-4"><label class="form-label">Confirmar nueva<input type="password" class="form-control" id="input-pass-confirm" required></label></div>
+          <div class="col-12"><button class="btn btn-outline-brand" type="submit">Actualizar contraseña</button></div>
+        </form>
+      </section>
+      <section class="athlete-card">
+        <p class="athlete-eyebrow">Zonas</p>
+        <div id="zonas-empty" class="athlete-muted">Todavía no se han registrado zonas.</div>
+        <div id="zonas-tabla" class="athlete-metric-grid d-none">
+          <div id="zonas-body" class="athlete-metric-grid" style="grid-column:1/-1;"></div>
         </div>
-        <div class="col-md-6">
-          <label class="form-label">Apellidos</label>
-          <input type="text" class="form-control" id="input-apellidos" required />
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Correo electrónico</label>
-          <input type="email" class="form-control" id="input-email" required />
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Teléfono</label>
-          <input type="tel" class="form-control" id="input-telefono" placeholder="+34 600 000 000" />
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Fecha de nacimiento</label>
-          <input type="date" class="form-control" id="input-fecha" />
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Foto</label>
-          <input type="file" class="form-control" id="input-foto" accept="image/*" />
-        </div>
-        <div class="col-12">
-          <button class="btn btn-brand" type="submit">Guardar cambios</button>
-        </div>
-      </form>
-    </section>
-
-    <section class="app-card mb-4">
-      <h2 class="h5 mb-3">Cambiar contraseña</h2>
-      <form id="form-password" class="row g-3">
-        <div class="col-md-6">
-          <label class="form-label">Contraseña actual</label>
-          <input type="password" class="form-control" id="input-pass-actual" required />
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Nueva contraseña</label>
-          <input type="password" class="form-control" id="input-pass-nueva" required />
-        </div>
-        <div class="col-md-6">
-          <label class="form-label">Confirmar nueva</label>
-          <input type="password" class="form-control" id="input-pass-confirm" required />
-        </div>
-        <div class="col-12">
-          <button class="btn btn-outline-brand" type="submit">Actualizar contraseña</button>
-        </div>
-      </form>
-    </section>
-
-    <section class="app-card">
-      <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-        <div>
-          <h2 class="h5 mb-1">Zonas de entrenamiento</h2>
-          <p class="text-muted mb-0 small">Valores en min/km según tus pruebas más recientes.</p>
-        </div>
-      </div>
-      <div id="zonas-empty" class="text-muted">Todavía no se han registrado zonas.</div>
-      <div id="zonas-tabla" class="table-responsive d-none">
-        <table class="table table-sm table-striped">
-          <thead>
-            <tr>
-              <th>Zona</th>
-              <th>Ritmo recomendado (min/km)</th>
-            </tr>
-          </thead>
-          <tbody id="zonas-body"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <div data-include="../partials/footer.html" class="mt-4"></div>
+      </section>
+    </main>
   </div>
-
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"></script>
   <script src="../js/atleta/perfil.js" type="module"></script>
 </body>
 </html>

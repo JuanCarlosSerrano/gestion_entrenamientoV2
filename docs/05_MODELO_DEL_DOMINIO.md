@@ -103,6 +103,16 @@ Un entrenador puede gestionar muchos atletas.
 
 Un atleta pertenece a un único entrenador.
 
+## Ciclo de vida del atleta
+
+Un atleta puede estar activo o archivado.
+
+Archivar no elimina historial. Si el atleta tiene entrenamientos asignados, sesiones realizadas, feedback, FIT, zonas históricas o estadísticas, no debe borrarse físicamente.
+
+El borrado físico solo es válido para altas creadas por error y sin datos asociados.
+
+Resetear una contraseña solo modifica credenciales y obliga al siguiente cambio; no modifica datos deportivos.
+
 ---
 
 # Entrenamiento (Plantilla)
@@ -189,9 +199,14 @@ Son una propiedad del atleta.
 ## Contienen
 
 - VDOT
+- VAM
 - Ritmos
 - Tiempos
 - Zonas
+- FC por zona si existe
+- Fecha de inicio
+- Fecha de fin
+- Método
 - Previsiones
 
 ## Función
@@ -205,6 +220,14 @@ en
 6 × 800 @ 2:28
 
 para un atleta concreto.
+
+## Histórico
+
+Las zonas son históricas.
+
+Crear una nueva configuración cierra la configuración anterior mediante `fecha_fin` y crea un nuevo registro. No se sobrescriben zonas anteriores.
+
+Modificar zonas no cambia entrenamientos ya asignados, sesiones realizadas ni históricos.
 
 ---
 
@@ -767,3 +790,13 @@ Historial y rendimiento responde:
 ```text
 Qué realizó el atleta y cómo respondió.
 ```
+
+## RN-015 · Consumo del entrenamiento por atleta
+
+El atleta consume una copia de `entrenamientos_asignados` cuando está visible. Nunca modifica la plantilla ni la planificación. El feedback pertenece a un único entrenamiento asignado y el FIT pertenece a la sesión realizada asociada a ese entrenamiento.
+
+## RN-016 · Seguridad de usuario
+
+`usuarios.activo` define si un usuario participa en los flujos operativos. Un atleta con histórico no se elimina físicamente: pasa a `activo = 0` y conserva entrenamientos, feedback, sesiones, archivos y zonas.
+
+No existe auto-registro. Las altas y resets generan una contraseña temporal aleatoria, almacenan únicamente `password_hash` y establecen `force_password_change = 1` hasta que el usuario cambie la contraseña.

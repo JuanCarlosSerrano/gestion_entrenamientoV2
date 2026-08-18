@@ -1,34 +1,23 @@
-<header class="page-heading page-heading--minimal">
-  <img src="../img/logo_sin_fondo.png" alt="MindPace" class="brand-logo">
-  <img src="../img/letra_sin_fondo.png" alt="MindPace" class="brand-wordmark">
-</header>
-<nav class="navbar navbar-expand-lg navbar-dark app-nav">
-  <div class="container-fluid px-0">
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNavAtleta" aria-controls="navbarNavAtleta" aria-expanded="false" aria-label="Toggle navigation">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-    <div class="collapse navbar-collapse" id="navbarNavAtleta">
-      <ul class="navbar-nav me-auto mb-2 mb-lg-0 gap-2 flex-wrap">
-        <li class="nav-item">
-          <a class="nav-link" data-nav-target="inicio" href="index.html">Inicio</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" data-nav-target="entrenamientos" href="entrenamientos.html">Entrenamientos</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" data-nav-target="historial" href="historial.html">Historial</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" data-nav-target="feedbacks" href="feedbacks.html">Feedbacks</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" data-nav-target="perfil" href="perfil.html">Mi perfil</a>
-        </li>
-        <li class="nav-item">
-          <a class="nav-link" data-nav-target="utilidades" href="utilidades.html">Utilidades</a>
-        </li>
-      </ul>
-      <button class="btn btn-outline-brand ms-lg-3" id="btn-logout">Salir</button>
+<aside class="athlete-sidebar" aria-label="Navegación del atleta">
+  <a class="athlete-brand" href="index.html" aria-label="MindPace">
+    <img src="../img/logo_sin_fondo.png" alt="">
+    <span>MindPace</span>
+  </a>
+  <nav class="athlete-nav">
+    <a class="athlete-nav__link" data-nav-target="inicio" href="index.html"><span>⌂</span> Inicio</a>
+    <a class="athlete-nav__link" data-nav-target="entrenamientos" href="entrenamientos.html"><span>▦</span> Mi planificación</a>
+    <a class="athlete-nav__link" data-nav-target="historial" href="historial.html"><span>↗</span> Historial</a>
+    <a class="athlete-nav__link" data-nav-target="feedbacks" href="feedbacks.html"><span>◉</span> Mi evolución</a>
+    <a class="athlete-nav__link" data-nav-target="perfil" href="perfil.html"><span>●</span> Perfil</a>
+  </nav>
+  <div class="athlete-sidebar__footer">
+    <div class="athlete-user-card">
+      <span class="athlete-user-card__avatar" id="athlete-sidebar-initials">A</span>
+      <div>
+        <strong id="athlete-sidebar-name">Atleta</strong>
+        <small>Atleta</small>
+      </div>
     </div>
+    <button class="athlete-logout" id="btn-logout" type="button">Salir</button>
   </div>
-</nav>
+</aside>

@@ -501,3 +501,19 @@ La aplicación debe ser:
 * centrada en el entrenador;
 * cómoda para el atleta;
 * orientada al historial y al rendimiento.
+
+# Experiencia atleta V2
+
+La experiencia del atleta se resume en:
+
+```text
+Recibir
+↓
+Entender
+↓
+Entrenar
+↓
+Informar
+```
+
+El atleta no gestiona planificación ni configuración. Entra, ve el entrenamiento visible del día, consulta su semana, abre el detalle de la sesión y completa feedback guiado con FIT opcional.
