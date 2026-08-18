@@ -393,6 +393,7 @@ CREATE TABLE resultados_entrenamientos (
     paso_detalle_id INTEGER NOT NULL,
     repeticion INTEGER,
     tiempo_real_seg INTEGER NOT NULL,
+    km_realizados REAL,
     fecha TEXT DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (entrenamiento_asignado_id) REFERENCES entrenamientos_asignados(id) ON DELETE CASCADE,
     FOREIGN KEY (paso_detalle_id) REFERENCES entrenamientos_asignados_detalle(id) ON DELETE CASCADE

@@ -391,6 +391,7 @@ CREATE TABLE resultados_entrenamientos (
     paso_detalle_id INT NOT NULL,
     repeticion INT,
     tiempo_real_seg INT NOT NULL,
+    km_realizados DOUBLE,
     fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_resultado_entrenamiento FOREIGN KEY (entrenamiento_asignado_id) REFERENCES entrenamientos_asignados(id) ON DELETE CASCADE,
     CONSTRAINT fk_resultado_paso FOREIGN KEY (paso_detalle_id) REFERENCES entrenamientos_asignados_detalle(id) ON DELETE CASCADE

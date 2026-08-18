@@ -3,10 +3,8 @@ from flask import redirect, url_for
 from flask_cors import CORS
 from flask_session import Session
 from datetime import datetime, timedelta
-from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import os
-import hashlib
 import time
 import re
 import json
@@ -15,16 +13,48 @@ import secrets
 import sqlite3
 import logging
 try:
-    from services.whatsapp_service import (
-        enviar_whatsapp,
-        generar_mensaje_entrenamiento,
-        normalizar_telefono_whatsapp,
+    import services.publication_service as publication_domain
+    from services.whatsapp_service import enviar_whatsapp
+    from services.fit_service import hash_file_sha256, parse_fit_metrics
+    from services.auth_service import (
+        cambiar_password_usuario,
+        crear_hash_password,
+        generar_password_temporal,
+        resetear_password_usuario,
+        temporary_password_response,
+        verificar_password,
+    )
+    from services.publication_service import (
+        estado_visibilidad_asignado,
+    )
+    from security.uploads import is_allowed_fit_upload, is_allowed_image_upload
+    from security.permissions import (
+        atleta_pertenece_a_entrenador as permissions_atleta_pertenece_a_entrenador,
+        entrenador_puede_acceder_atleta,
+        obtener_atleta_autorizado,
+        obtener_entrenamiento_asignado_autorizado,
     )
 except ModuleNotFoundError:
-    from backend.services.whatsapp_service import (
-        enviar_whatsapp,
-        generar_mensaje_entrenamiento,
-        normalizar_telefono_whatsapp,
+    import backend.services.publication_service as publication_domain
+    from backend.services.whatsapp_service import enviar_whatsapp
+    from backend.services.fit_service import hash_file_sha256, parse_fit_metrics
+    from backend.services.auth_service import (
+        cambiar_password_usuario,
+        crear_hash_password,
+        generar_password_temporal,
+        resetear_password_usuario,
+        temporary_password_response,
+        verificar_password,
+    )
+    from backend.services.publication_service import (
+        estado_visibilidad_asignado,
+    )
+    from backend.security.uploads import is_allowed_fit_upload, is_allowed_image_upload
+    from backend.security.permissions import (
+        atleta_pertenece_a_entrenador as permissions_atleta_pertenece_a_entrenador,
+        entrenador_puede_acceder_atleta,
+        obtener_atleta_autorizado,
+        obtener_entrenamiento_asignado_autorizado,
     )
 
 try:
@@ -499,6 +529,22 @@ def upsert_km_realizados(cur, entrenamiento_asignado_id, km_planificados, km_rea
         )
 
 
+def ensure_resultados_km_column(cur):
+    """
+    Asegura la columna de km por bloque en bases existentes.
+    """
+    try:
+        if DB_ENGINE == "mariadb":
+            cur.execute("ALTER TABLE resultados_entrenamientos ADD COLUMN IF NOT EXISTS km_realizados DOUBLE")
+        else:
+            cur.execute("PRAGMA table_info(resultados_entrenamientos)")
+            cols = {row[1] for row in cur.fetchall()}
+            if "km_realizados" not in cols:
+                cur.execute("ALTER TABLE resultados_entrenamientos ADD COLUMN km_realizados REAL")
+    except Exception as e:
+        print("Aviso: no se pudo asegurar km_realizados en resultados_entrenamientos", e)
+
+
 def init_db():
     schema_file = "schema_mariadb.sql" if DB_ENGINE == "mariadb" else "schema.sql"
     schema_path = os.path.join(BASE_DIR, schema_file)
@@ -660,7 +706,7 @@ def login_user():
 
     user = query_db('SELECT id, rol, email, password_hash, force_password_change FROM usuarios WHERE email = ?', (email,), one=True)
 
-    if user and check_password_hash(user['password_hash'], password):
+    if user and verificar_password(user['password_hash'], password):
         logger.info("Login correcto user_id=%s rol=%s", user["id"], user["rol"])
         LOGIN_ATTEMPTS.pop(request.remote_addr or "unknown", None)
         session.clear()
@@ -737,7 +783,7 @@ def create_user(current_user):
     try:
         execute_db(
             'INSERT INTO usuarios (nombre, apellidos, email, password_hash, rol, entrenador_id, force_password_change) VALUES (?, ?, ?, ?, ?, ?, 1)',
-            (nombre, apellidos, email, generate_password_hash(password_temporal), rol, entrenador_id if rol == "atleta" else None)
+            (nombre, apellidos, email, crear_hash_password(password_temporal), rol, entrenador_id if rol == "atleta" else None)
         )
         return jsonify({
             'message': 'Usuario creado exitosamente',
@@ -801,8 +847,6 @@ def update_atleta(current_user, id):
         print("Error al actualizar atleta:", e)
         return jsonify({'error': 'Error al actualizar atleta'}), 500
 
-from werkzeug.security import generate_password_hash
-
 @app.route('/entrenadores/atletas', methods=['POST'])
 @requires_roles('entrenador', 'admin')
 def crear_atleta_desde_entrenador(current_user):
@@ -835,7 +879,7 @@ def crear_atleta_desde_entrenador(current_user):
         return jsonify({'error': 'Ya existe un usuario con ese email'}), 400
 
     password_temporal = generar_password_temporal()
-    password_hash = generate_password_hash(password_temporal)
+    password_hash = crear_hash_password(password_temporal)
 
     try:
         # Por si tu tabla tiene más campos, ajusta la lista de columnas
@@ -921,7 +965,7 @@ def update_user(current_user, id):
 
     if password:
         password_temporal = generar_password_temporal()
-        password_hash = generate_password_hash(password_temporal)
+        password_hash = crear_hash_password(password_temporal)
         # Al cambiar contraseña desde admin forzamos que el usuario la renueve
         execute_db(
             '''
@@ -957,11 +1001,17 @@ def reset_user_password(current_user, id):
         if user['rol'] != 'atleta' or user['entrenador_id'] != current_user['id']:
             return jsonify({'error': 'No tienes permiso para resetear este usuario'}), 403
 
-    password_temporal = generar_password_temporal()
-    execute_db(
-        "UPDATE usuarios SET password_hash = ?, force_password_change = 1 WHERE id = ?",
-        (generate_password_hash(password_temporal), id),
-    )
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        password_temporal = resetear_password_usuario(cur, id)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
     return jsonify({
         "message": "Contraseña temporal generada",
         **temporary_password_response(password_temporal),
@@ -1005,17 +1055,13 @@ def cambiar_password(current_user):
 
         # Si hay contraseña actual, validamos. Si no hay y hay flag de cambio forzado, permitimos.
         if password_actual:
-            if not check_password_hash(stored_hash, password_actual):
+            if not verificar_password(stored_hash, password_actual):
                 return jsonify({'error': 'Contraseña actual incorrecta'}), 400
         else:
             if not force_flag:
                 return jsonify({'error': 'Debes indicar tu contraseña actual'}), 400
 
-        new_hash = generate_password_hash(password_nueva)
-        cur.execute(
-            "UPDATE usuarios SET password_hash = ?, force_password_change = 0 WHERE id = ?",
-            (new_hash, current_user['id'])
-        )
+        cambiar_password_usuario(cur, current_user['id'], password_nueva)
         conn.commit()
         return jsonify({'message': 'Contraseña actualizada'}), 200
     except Exception as e:
@@ -1878,18 +1924,13 @@ def eliminar_entrenamiento(current_user, id):
 
 
 def atleta_pertenece_a_entrenador(atleta_id, entrenador_id):
-    resultado = query_db(
-        """
-        SELECT 1
-        FROM usuarios
-        WHERE id = ?
-          AND entrenador_id = ?
-          AND rol = 'atleta'
-        """,
-        (atleta_id, entrenador_id),
-        one=True
-    )
-    return resultado is not None
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        return permissions_atleta_pertenece_a_entrenador(cur, atleta_id, entrenador_id)
+    finally:
+        cur.close()
+        conn.close()
 
 
 @app.route('/calendario/<int:atleta_id>', methods=['GET'])
@@ -2505,40 +2546,6 @@ def obtener_filtros_atletas_entrenador(current_user):
     return {k: sorted(v) for k, v in filtros.items()}
 
 
-def generar_password_temporal(longitud=12):
-    return secrets.token_urlsafe(longitud)
-
-
-def temporary_password_response(password_temporal):
-    return {
-        "temporary_password": password_temporal,
-        "password_temporal": password_temporal,
-        "force_password_change": 1,
-    }
-
-
-def is_allowed_image_upload(file_storage):
-    if not file_storage or not file_storage.filename:
-        return False
-    filename = secure_filename(file_storage.filename)
-    ext = os.path.splitext(filename)[1].lower()
-    if ext not in {".jpg", ".jpeg", ".png", ".webp"}:
-        return False
-    mimetype = (file_storage.mimetype or "").lower()
-    return mimetype in {"image/jpeg", "image/png", "image/webp"}
-
-
-def is_allowed_fit_upload(file_storage):
-    if not file_storage or not file_storage.filename:
-        return False
-    filename = secure_filename(file_storage.filename)
-    ext = os.path.splitext(filename)[1].lower()
-    if ext != ".fit":
-        return False
-    mimetype = (file_storage.mimetype or "").lower()
-    return mimetype in {"", "application/octet-stream", "application/vnd.ant.fit"}
-
-
 def row_get(row, key, default=None):
     if row is None:
         return default
@@ -2552,18 +2559,16 @@ def row_get(row, key, default=None):
 
 
 def obtener_atleta_configurable(current_user, atleta_id):
-    atleta = query_db(
-        'SELECT * FROM usuarios WHERE id = ? AND rol = "atleta"',
-        (atleta_id,),
-        one=True,
-    )
-    if not atleta:
-        return None, (jsonify({"error": "Atleta no encontrado"}), 404)
-    if current_user["rol"] == "entrenador" and row_get(atleta, "entrenador_id") != current_user["id"]:
-        return None, (jsonify({"error": "No tienes permiso para gestionar este atleta"}), 403)
-    if current_user["rol"] == "atleta" and current_user["id"] != atleta_id:
-        return None, (jsonify({"error": "Acceso no autorizado"}), 403)
-    return atleta, None
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        atleta, error = obtener_atleta_autorizado(cur, current_user, atleta_id)
+        if error:
+            return None, (jsonify({"error": error["error"]}), error["status"])
+        return atleta, None
+    finally:
+        cur.close()
+        conn.close()
 
 
 def atleta_tiene_historial(atleta_id):
@@ -2605,309 +2610,34 @@ def obtener_zonas_snapshot(cur, atleta_id, fecha):
 
 
 def puede_gestionar_atleta(current_user, atleta_id):
-    if current_user["rol"] == "admin":
-        return True
-    if current_user["rol"] == "entrenador":
-        return atleta_pertenece_a_entrenador(atleta_id, current_user["id"])
-    return current_user["rol"] == "atleta" and current_user["id"] == atleta_id
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        return entrenador_puede_acceder_atleta(cur, current_user, atleta_id)
+    finally:
+        cur.close()
+        conn.close()
 
 
 def obtener_asignado_seguro(cur, current_user, asignado_id, *, escritura=False):
-    cur.execute(
-        """
-        SELECT ea.*, u.entrenador_id, u.telefono AS atleta_telefono
-        FROM entrenamientos_asignados ea
-        JOIN usuarios u ON u.id = ea.atleta_id
-        WHERE ea.id = ?
-        """,
-        (asignado_id,),
-    )
-    row = cur.fetchone()
-    if not row:
-        return None, (jsonify({"error": "Entrenamiento asignado no encontrado"}), 404)
-    data = dict(row)
-    if escritura and current_user["rol"] == "atleta":
-        return None, (jsonify({"error": "No autorizado"}), 403)
-    if current_user["rol"] == "entrenador" and data.get("entrenador_id") != current_user["id"]:
-        return None, (jsonify({"error": "No autorizado"}), 403)
-    if current_user["rol"] == "atleta" and data.get("atleta_id") != current_user["id"]:
-        return None, (jsonify({"error": "No autorizado"}), 403)
-    return data, None
-
-
-def estado_visibilidad_asignado(row):
-    publicar_en = row.get("publicar_en") if isinstance(row, dict) else None
-    visible = int(row.get("visible") or 0) if isinstance(row, dict) else 0
-    if visible == 1:
-        return "visible"
-    if publicar_en:
-        try:
-            publicar_dt = datetime.fromisoformat(str(publicar_en).replace("Z", "+00:00"))
-            if publicar_dt > datetime.now(publicar_dt.tzinfo):
-                return "programado"
-        except Exception:
-            return "programado"
-    return "oculto"
-
-
-def normalizar_datetime_publicacion(valor):
-    texto = (valor or "").strip()
-    if not texto:
-        return None
-    try:
-        return datetime.fromisoformat(texto.replace("Z", "+00:00")).replace(tzinfo=None)
-    except Exception:
-        return None
-
-
-def formato_fecha_whatsapp(valor):
-    try:
-        fecha = datetime.fromisoformat(str(valor).replace("Z", "+00:00"))
-    except Exception:
-        return str(valor or "")
-    return fecha.strftime("%A %d").capitalize()
-
-
-def resumen_whatsapp_entrenamiento(cur, asignado):
-    cur.execute(
-        """
-        SELECT tipo_paso, objetivo_valor, unidad, zona, recuperacion_valor,
-               recuperacion_unidad, descripcion
-        FROM entrenamientos_asignados_detalle
-        WHERE entrenamiento_asignado_id = ?
-        ORDER BY
-          CASE WHEN tipo_paso IN ('warmup', 'cooldown') THEN 1 ELSE 0 END,
-          parent_id IS NOT NULL, orden, id
-        LIMIT 1
-        """,
-        (asignado["id"],),
-    )
-    paso = cur.fetchone()
-    paso = dict(paso) if paso else None
-    resumen = ""
-    if paso:
-        partes = []
-        if paso.get("descripcion"):
-            partes.append(str(paso["descripcion"]))
-        elif paso.get("objetivo_valor") and paso.get("unidad"):
-            partes.append(f"{paso['objetivo_valor']}{paso['unidad']}")
-        if paso.get("zona"):
-            partes.append(str(paso["zona"]))
-        if paso.get("recuperacion_valor"):
-            rec_unidad = paso.get("recuperacion_unidad") or ""
-            partes.append(f"Rec {paso['recuperacion_valor']}{rec_unidad}")
-        resumen = " · ".join(partes)
-    return resumen
-
-
-def generar_mensaje_whatsapp_entrenamiento(cur, asignado):
-    return generar_mensaje_entrenamiento(
-        formato_fecha_whatsapp(asignado.get("fecha")),
-        asignado.get("nombre") or "Entrenamiento",
-        resumen_whatsapp_entrenamiento(cur, asignado),
-    )
-
-
-def registrar_envio_publicacion(cur, asignado, current_user, now):
-    cur.execute(
-        """
-        SELECT id, mensaje_generado, estado, provider_message_id, error
-        FROM entrenamientos_envios
-        WHERE entrenamiento_asignado_id = ? AND canal = 'whatsapp'
-          AND estado = 'enviado' AND provider_message_id IS NOT NULL
-        ORDER BY id ASC
-        LIMIT 1
-        """,
-        (asignado["id"],),
-    )
-    exitoso = cur.fetchone()
-    if exitoso:
-        envio = dict(exitoso)
-        envio["idempotente"] = True
-        return envio
-
-    mensaje = generar_mensaje_whatsapp_entrenamiento(cur, asignado)
-    telefono = normalizar_telefono_whatsapp(asignado.get("atleta_telefono"))
-    resultado = enviar_whatsapp(telefono, mensaje)
-    if resultado.get("ok"):
-        estado = "enviado"
-        sent_at = now
-        error = None
-        app.logger.info(
-            "WhatsApp enviado entrenamiento_asignado_id=%s provider_message_id=%s",
-            asignado["id"],
-            resultado.get("provider_message_id"),
-        )
-    elif resultado.get("disabled"):
-        estado = "deshabilitado"
-        sent_at = None
-        error = resultado.get("error")
-    else:
-        estado = "error"
-        sent_at = None
-        error = resultado.get("error")
-        app.logger.warning(
-            "Error WhatsApp entrenamiento_asignado_id=%s status=%s",
-            asignado["id"],
-            resultado.get("status_code"),
-        )
-
-    response_payload = resultado.get("response")
-    if response_payload is not None:
-        try:
-            response_payload = json.dumps(response_payload, ensure_ascii=False)
-        except TypeError:
-            response_payload = str(response_payload)
-
-    cur.execute(
-        """
-        SELECT id
-        FROM entrenamientos_envios
-        WHERE entrenamiento_asignado_id = ? AND canal = 'whatsapp'
-        ORDER BY id ASC
-        LIMIT 1
-        """,
-        (asignado["id"],),
-    )
-    existente = cur.fetchone()
-    if existente:
-        envio_id = dict(existente)["id"]
-        cur.execute(
-            """
-            UPDATE entrenamientos_envios
-            SET atleta_id = ?, entrenador_id = ?, telefono_destino = ?,
-                mensaje_generado = ?, estado = ?, provider_message_id = ?,
-                error = ?, url_publica = ?, sent_at = ?
-            WHERE id = ?
-            """,
-            (
-                asignado["atleta_id"],
-                current_user["id"],
-                telefono,
-                mensaje,
-                estado,
-                resultado.get("provider_message_id"),
-                error,
-                response_payload,
-                sent_at,
-                envio_id,
-            ),
-        )
-    else:
-        cur.execute(
-            """
-            INSERT INTO entrenamientos_envios (
-                entrenamiento_asignado_id, atleta_id, entrenador_id, canal,
-                telefono_destino, mensaje_generado, estado, provider_message_id,
-                error, url_publica, created_at, sent_at
-            ) VALUES (?, ?, ?, 'whatsapp', ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                asignado["id"],
-                asignado["atleta_id"],
-                current_user["id"],
-                telefono,
-                mensaje,
-                estado,
-                resultado.get("provider_message_id"),
-                error,
-                response_payload,
-                now,
-                sent_at,
-            ),
-        )
-        envio_id = cur.lastrowid
-    return {
-        "id": envio_id,
-        "mensaje_generado": mensaje,
-        "estado": estado,
-        "provider_message_id": resultado.get("provider_message_id"),
-        "error": error,
-        "disabled": bool(resultado.get("disabled")),
-    }
+    asignado, error = obtener_entrenamiento_asignado_autorizado(cur, current_user, asignado_id, escritura=escritura)
+    if error:
+        return None, (jsonify({"error": error["error"]}), error["status"])
+    return asignado, None
 
 
 def publicar_asignado(cur, current_user, asignado_id, now=None):
-    now = now or datetime.now().isoformat(" ")
-    asignado, error = obtener_asignado_seguro(cur, current_user, asignado_id, escritura=True)
-    if error:
-        return None, error
-
-    if int(asignado.get("visible") or 0) != 1 or not asignado.get("publicado_en"):
-        cur.execute(
-            """
-            UPDATE entrenamientos_asignados
-            SET visible = 1, publicar_en = NULL, publicado_en = COALESCE(publicado_en, ?),
-                canal_comunicacion = 'whatsapp', updated_at = ?
-            WHERE id = ?
-            """,
-            (now, now, asignado_id),
-        )
-        asignado["visible"] = 1
-        asignado["publicado_en"] = asignado.get("publicado_en") or now
-    envio = registrar_envio_publicacion(cur, asignado, current_user, now)
-    cur.execute(
-        """
-        UPDATE entrenamientos_asignados
-        SET estado_envio = ?, fecha_envio = COALESCE(fecha_envio, ?), updated_at = ?
-        WHERE id = ?
-        """,
-        (envio.get("estado"), now if envio.get("estado") == "enviado" else None, now, asignado_id),
-    )
-    return {
-        "id": asignado_id,
-        "estado": "visible",
-        "envio": envio,
-    }, None
+    publication_domain.enviar_whatsapp = enviar_whatsapp
+    return publication_domain.publicar_asignado(cur, current_user, asignado_id, now=now)
 
 
 def programar_asignado(cur, current_user, asignado_id, publicar_en):
-    publicar_dt = normalizar_datetime_publicacion(publicar_en)
-    if not publicar_dt:
-        return None, (jsonify({"error": "Fecha/hora de publicación inválida"}), 400)
-    _, error = obtener_asignado_seguro(cur, current_user, asignado_id, escritura=True)
-    if error:
-        return None, error
-    now = datetime.now().isoformat(" ")
-    cur.execute(
-        """
-        UPDATE entrenamientos_asignados
-        SET visible = 0, publicar_en = ?, estado_envio = 'pendiente',
-            fecha_envio = NULL, updated_at = ?
-        WHERE id = ?
-        """,
-        (publicar_dt.isoformat(" "), now, asignado_id),
-    )
-    return {
-        "id": asignado_id,
-        "estado": "programado",
-        "publicar_en": publicar_dt.isoformat(" "),
-    }, None
+    return publication_domain.programar_asignado(cur, current_user, asignado_id, publicar_en)
 
 
 def procesar_programadas_vencidas(cur, current_user):
-    now = datetime.now().isoformat(" ")
-    params = [now]
-    where = ["COALESCE(ea.visible, 0) = 0", "ea.publicar_en IS NOT NULL", "ea.publicar_en <= ?"]
-    if current_user["rol"] == "entrenador":
-        where.append("u.entrenador_id = ?")
-        params.append(current_user["id"])
-    cur.execute(
-        f"""
-        SELECT ea.*
-        FROM entrenamientos_asignados ea
-        JOIN usuarios u ON u.id = ea.atleta_id
-        WHERE {' AND '.join(where)}
-        ORDER BY ea.publicar_en, ea.id
-        """,
-        tuple(params),
-    )
-    procesadas = []
-    for row in cur.fetchall():
-        result, error = publicar_asignado(cur, current_user, row["id"], now=now)
-        if not error and result:
-            procesadas.append(result)
-    return procesadas
+    publication_domain.enviar_whatsapp = enviar_whatsapp
+    return publication_domain.procesar_programadas_vencidas(cur, current_user)
 
 
 def fecha_iso(valor):
@@ -3121,7 +2851,7 @@ def configuracion_crear_atleta(current_user):
                 nombre,
                 apellidos,
                 email,
-                generate_password_hash(password_temporal),
+                crear_hash_password(password_temporal),
                 telefono,
                 fecha_nacimiento,
                 categoria,
@@ -3207,11 +2937,17 @@ def configuracion_reset_password_atleta(current_user, atleta_id):
     atleta, error = obtener_atleta_configurable(current_user, atleta_id)
     if error:
         return error
-    password_temporal = generar_password_temporal()
-    execute_db(
-        "UPDATE usuarios SET password_hash = ?, force_password_change = 1 WHERE id = ?",
-        (generate_password_hash(password_temporal), atleta_id),
-    )
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        password_temporal = resetear_password_usuario(cur, atleta_id)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
     return jsonify({
         "message": "Contraseña temporal generada",
         **temporary_password_response(password_temporal),
@@ -4881,6 +4617,7 @@ def detalle_resultado_entrenador(current_user, asignado_id):
     try:
         conn = get_db()
         cur = conn.cursor()
+        ensure_resultados_km_column(cur)
 
         cur.execute(
             """
@@ -4929,6 +4666,7 @@ def detalle_resultado_entrenador(current_user, asignado_id):
                 paso_detalle_id,
                 repeticion,
                 tiempo_real_seg,
+                km_realizados,
                 fecha
             FROM resultados_entrenamientos
             WHERE entrenamiento_asignado_id = ?
@@ -6665,6 +6403,7 @@ def obtener_resultados_entrenamiento(current_user, entrenamiento_id):
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     try:
+        ensure_resultados_km_column(cur)
         cur.execute("""
             SELECT ea.atleta_id, ea.visible
             FROM entrenamientos_asignados ea
@@ -6681,7 +6420,7 @@ def obtener_resultados_entrenamiento(current_user, entrenamiento_id):
             return jsonify({'error': 'Entrenamiento no disponible'}), 404
 
         cur.execute("""
-            SELECT paso_detalle_id, repeticion, tiempo_real_seg, fecha
+            SELECT paso_detalle_id, repeticion, tiempo_real_seg, km_realizados, fecha
             FROM resultados_entrenamientos
             WHERE entrenamiento_asignado_id = ?
             ORDER BY fecha
@@ -7004,6 +6743,7 @@ def guardar_resultados_series(current_user, entrenamiento_id):
             )
     except Exception as e:
         print("Aviso: no se pudo asegurar la tabla km_realizados_entrenamientos", e)
+    ensure_resultados_km_column(cur)
 
     # ---------------- Comprobar que el entrenamiento pertenece al atleta actual ----------------
     cur.execute(
@@ -7090,6 +6830,7 @@ def guardar_resultados_series(current_user, entrenamiento_id):
     for item in resultados or []:
         paso_id = item.get("repeticion_id") or item.get("paso_detalle_id")
         tiempo_real_seg = item.get("tiempo_real_seg")
+        km_realizado_bloque = item.get("km_realizados")
 
         # Si no hay paso, asumimos que es un entrenamiento sin intervalos; se manejará más abajo
         if not paso_id:
@@ -7103,16 +6844,28 @@ def guardar_resultados_series(current_user, entrenamiento_id):
         if tiempo_real_seg is None:
             tiempo_real_seg = None
 
+        try:
+            km_realizado_bloque = float(km_realizado_bloque)
+        except (TypeError, ValueError):
+            km_realizado_bloque = None
+        if km_realizado_bloque is not None and km_realizado_bloque < 0:
+            km_realizado_bloque = None
+
         registros.append(
             {
                 "paso_id": paso_id,
                 "tiempo_real_seg": tiempo_real_seg,
                 "repeticion": repeticion,
                 "km_plan": km_plan,
+                "km_realizados": km_realizado_bloque,
             }
         )
 
     km_real_total_val = km_real_total if isinstance(km_real_total, (int, float)) else None
+    if km_real_total_val is None:
+        km_por_bloques = [r["km_realizados"] for r in registros if r["km_realizados"] is not None]
+        if km_por_bloques:
+            km_real_total_val = sum(km_por_bloques)
 
     # Si hay registros por paso, no escalamos: usamos los km planificados por paso.
     # El total de km_real_total se usa solo para el resumen de kms (tabla km_realizados_entrenamientos).
@@ -7140,9 +6893,13 @@ def guardar_resultados_series(current_user, entrenamiento_id):
 
     for registro in registros:
         km_realizados = (
-            registro["km_plan"] * factor
-            if km_real_total_val is not None
-            else registro["km_plan"]
+            registro["km_realizados"]
+            if registro["km_realizados"] is not None
+            else (
+                registro["km_plan"] * factor
+                if km_real_total_val is not None
+                else registro["km_plan"]
+            )
         )
         km_real_suma += km_realizados
 
@@ -7153,15 +6910,17 @@ def guardar_resultados_series(current_user, entrenamiento_id):
                 paso_detalle_id,
                 repeticion,
                 tiempo_real_seg,
+                km_realizados,
                 fecha
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 entrenamiento_id,
                 registro["paso_id"] or paso_fallback_id,
                 registro["repeticion"],
                 registro["tiempo_real_seg"],
+                km_realizados,
                 now_ts,
             ),
         )
@@ -7223,232 +6982,6 @@ def guardar_resultados_series(current_user, entrenamiento_id):
 
 
 
-def _parse_fit_metrics_fitparse(file_path):
-    try:
-        from fitparse import FitFile  # type: ignore
-    except Exception as exc:
-        raise RuntimeError('fitparse no está instalado') from exc
-
-    fit = FitFile(file_path)
-
-    def _get_value(msg, name):
-        try:
-            return msg.get_value(name)
-        except Exception:
-            return None
-
-    metrics = {
-        'duracion_seg': None,
-        'distancia_m': None,
-        'ritmo_medio_seg_km': None,
-        'fc_media': None,
-        'fc_max': None,
-        'cadencia_media': None,
-    }
-
-    session_msg = None
-    for msg in fit.get_messages('session'):
-        session_msg = msg
-        break
-
-    if session_msg is not None:
-        duracion = _get_value(session_msg, 'total_timer_time')
-        distancia = _get_value(session_msg, 'total_distance')
-        avg_speed = _get_value(session_msg, 'avg_speed')
-        fc_media = _get_value(session_msg, 'avg_heart_rate')
-        fc_max = _get_value(session_msg, 'max_heart_rate')
-        cadencia = _get_value(session_msg, 'avg_cadence')
-
-        if duracion is not None:
-            metrics['duracion_seg'] = float(duracion)
-        if distancia is not None:
-            metrics['distancia_m'] = float(distancia)
-        if avg_speed:
-            try:
-                avg_speed = float(avg_speed)
-                if avg_speed > 0:
-                    metrics['ritmo_medio_seg_km'] = 1000.0 / avg_speed
-            except Exception:
-                pass
-        if fc_media is not None:
-            metrics['fc_media'] = float(fc_media)
-        if fc_max is not None:
-            metrics['fc_max'] = float(fc_max)
-        if cadencia is not None:
-            metrics['cadencia_media'] = float(cadencia)
-
-    needs_fallback = any(metrics[k] is None for k in ('duracion_seg', 'distancia_m', 'fc_media', 'fc_max', 'cadencia_media'))
-    if needs_fallback:
-        timestamps = []
-        distances = []
-        hr_values = []
-        cad_values = []
-        for msg in fit.get_messages('record'):
-            ts = _get_value(msg, 'timestamp')
-            dist = _get_value(msg, 'distance')
-            hr = _get_value(msg, 'heart_rate')
-            cad = _get_value(msg, 'cadence')
-            if ts is not None:
-                timestamps.append(ts)
-            if dist is not None:
-                distances.append(dist)
-            if hr is not None:
-                hr_values.append(hr)
-            if cad is not None:
-                cad_values.append(cad)
-
-        if metrics['duracion_seg'] is None and len(timestamps) >= 2:
-            try:
-                metrics['duracion_seg'] = (max(timestamps) - min(timestamps)).total_seconds()
-            except Exception:
-                pass
-        if metrics['distancia_m'] is None and distances:
-            try:
-                metrics['distancia_m'] = float(max(distances))
-            except Exception:
-                pass
-        if metrics['fc_media'] is None and hr_values:
-            metrics['fc_media'] = float(sum(hr_values) / len(hr_values))
-        if metrics['fc_max'] is None and hr_values:
-            metrics['fc_max'] = float(max(hr_values))
-        if metrics['cadencia_media'] is None and cad_values:
-            metrics['cadencia_media'] = float(sum(cad_values) / len(cad_values))
-
-        if metrics['ritmo_medio_seg_km'] is None:
-            dist = metrics['distancia_m']
-            dur = metrics['duracion_seg']
-            if dist and dur and dist > 0:
-                metrics['ritmo_medio_seg_km'] = float(dur) / (float(dist) / 1000.0)
-
-    return metrics
-
-
-def _parse_fit_metrics_fitdecode(file_path):
-    try:
-        from fitdecode import FitReader  # type: ignore
-        from fitdecode.records import FitDataMessage  # type: ignore
-    except Exception as exc:
-        raise RuntimeError('fitdecode no está instalado') from exc
-
-    import warnings
-
-    metrics = {
-        'duracion_seg': None,
-        'distancia_m': None,
-        'ritmo_medio_seg_km': None,
-        'fc_media': None,
-        'fc_max': None,
-        'cadencia_media': None,
-    }
-
-    def _get_value(msg, name):
-        try:
-            return msg.get_value(name)
-        except Exception:
-            return None
-
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore')
-        session_msg = None
-        records = []
-        with FitReader(file_path) as fit:
-            for frame in fit:
-                if not isinstance(frame, FitDataMessage):
-                    continue
-                if frame.name == 'session' and session_msg is None:
-                    session_msg = frame
-                if frame.name == 'record':
-                    records.append(frame)
-
-        if session_msg is not None:
-            duracion = _get_value(session_msg, 'total_timer_time')
-            distancia = _get_value(session_msg, 'total_distance')
-            avg_speed = _get_value(session_msg, 'avg_speed')
-            fc_media = _get_value(session_msg, 'avg_heart_rate')
-            fc_max = _get_value(session_msg, 'max_heart_rate')
-            cadencia = _get_value(session_msg, 'avg_cadence')
-
-            if duracion is not None:
-                metrics['duracion_seg'] = float(duracion)
-            if distancia is not None:
-                metrics['distancia_m'] = float(distancia)
-            if avg_speed:
-                try:
-                    avg_speed = float(avg_speed)
-                    if avg_speed > 0:
-                        metrics['ritmo_medio_seg_km'] = 1000.0 / avg_speed
-                except Exception:
-                    pass
-            if fc_media is not None:
-                metrics['fc_media'] = float(fc_media)
-            if fc_max is not None:
-                metrics['fc_max'] = float(fc_max)
-            if cadencia is not None:
-                metrics['cadencia_media'] = float(cadencia)
-
-        needs_fallback = any(metrics[k] is None for k in ('duracion_seg', 'distancia_m', 'fc_media', 'fc_max', 'cadencia_media'))
-        if needs_fallback and records:
-            timestamps = []
-            distances = []
-            hr_values = []
-            cad_values = []
-            for rec in records:
-                ts = _get_value(rec, 'timestamp')
-                dist = _get_value(rec, 'distance')
-                hr = _get_value(rec, 'heart_rate')
-                cad = _get_value(rec, 'cadence')
-                if ts is not None:
-                    timestamps.append(ts)
-                if dist is not None:
-                    distances.append(dist)
-                if hr is not None:
-                    hr_values.append(hr)
-                if cad is not None:
-                    cad_values.append(cad)
-
-            if metrics['duracion_seg'] is None and len(timestamps) >= 2:
-                try:
-                    metrics['duracion_seg'] = (max(timestamps) - min(timestamps)).total_seconds()
-                except Exception:
-                    pass
-            if metrics['distancia_m'] is None and distances:
-                try:
-                    metrics['distancia_m'] = float(max(distances))
-                except Exception:
-                    pass
-            if metrics['fc_media'] is None and hr_values:
-                metrics['fc_media'] = float(sum(hr_values) / len(hr_values))
-            if metrics['fc_max'] is None and hr_values:
-                metrics['fc_max'] = float(max(hr_values))
-            if metrics['cadencia_media'] is None and cad_values:
-                metrics['cadencia_media'] = float(sum(cad_values) / len(cad_values))
-
-            if metrics['ritmo_medio_seg_km'] is None:
-                dist = metrics['distancia_m']
-                dur = metrics['duracion_seg']
-                if dist and dur and dist > 0:
-                    metrics['ritmo_medio_seg_km'] = float(dur) / (float(dist) / 1000.0)
-
-    return metrics
-
-
-def _parse_fit_metrics(file_path):
-    try:
-        return _parse_fit_metrics_fitparse(file_path)
-    except Exception as exc_fitparse:
-        try:
-            return _parse_fit_metrics_fitdecode(file_path)
-        except Exception as exc_fitdecode:
-            raise RuntimeError(f"fitparse: {exc_fitparse}; fitdecode: {exc_fitdecode}")
-
-
-def _hash_file_sha256(file_path):
-    h = hashlib.sha256()
-    with open(file_path, 'rb') as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b''):
-            h.update(chunk)
-    return h.hexdigest()
-
 @app.route('/sesiones/<int:entrenamiento_id>/archivo', methods=['POST'])
 @requires_roles('atleta')
 def registrar_archivo_sesion(current_user, entrenamiento_id):
@@ -7483,14 +7016,14 @@ def registrar_archivo_sesion(current_user, entrenamiento_id):
     try:
         archivo.save(stored_path)
         tamano = os.path.getsize(stored_path)
-        hash_sha256 = _hash_file_sha256(stored_path)
+        hash_sha256 = hash_file_sha256(stored_path)
     except Exception as e:
         return jsonify({'error': 'No se pudo guardar el archivo', 'details': str(e)}), 500
 
     metrics = {}
     parse_error = None
     try:
-        metrics = _parse_fit_metrics(stored_path)
+        metrics = parse_fit_metrics(stored_path)
     except Exception as e:
         parse_error = str(e)
 

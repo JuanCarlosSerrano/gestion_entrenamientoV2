@@ -267,16 +267,17 @@ const collectWorkoutResults = () => {
       paso_detalle_id: stepId,
       repeticion: 1,
       tiempo_real_seg: seconds,
+      km_realizados: km,
     });
   }
 
   return hasData ? { series, km_realizados: kmTotal || null } : null;
 };
 
-const sendWorkoutResults = async () => {
+const sendWorkoutResults = async (payload = null) => {
   if (!state.selected) return;
-  const payload = collectWorkoutResults();
-  if (!payload) return;
+  const data = payload || collectWorkoutResults();
+  if (!data) return;
   const csrf = await getCsrfToken();
   await fetchJSON(`${API}/entrenamientos_asignados/${state.selected.id}/resultados`, {
     method: "POST",
@@ -284,13 +285,21 @@ const sendWorkoutResults = async () => {
       "Content-Type": "application/json",
       ...(csrf ? { "X-CSRF-Token": csrf } : {}),
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(data),
   });
 };
 
 const finishFeedback = async () => {
   if (!state.selected) return;
-  await sendWorkoutResults();
+  const workoutResults = collectWorkoutResults();
+  const hasResults = Boolean(workoutResults);
+  const confirmMessage = state.fitFile
+    ? "Se guardará tu feedback, los datos introducidos por bloque y el archivo FIT seleccionado. ¿Quieres enviarlo ahora?"
+    : hasResults
+      ? "Se guardará tu feedback y los datos introducidos por bloque. ¿Quieres enviarlo ahora?"
+      : "Se guardará tu feedback del entrenamiento. ¿Quieres enviarlo ahora?";
+  if (!window.confirm(confirmMessage)) return;
+  await sendWorkoutResults(workoutResults);
   const completedMap = { si: true, parcial: false, no: false };
   const comentario = [state.feedback.comentario, state.feedback.comentario_dolor].filter(Boolean).join(" · ");
   const payload = {
@@ -317,8 +326,19 @@ const finishFeedback = async () => {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || "No se pudo guardar el feedback");
-  await sendFit();
+  let fitStatus = "";
+  if (state.fitFile) {
+    try {
+      await sendFit();
+      fitStatus = " Archivo FIT guardado.";
+    } catch (err) {
+      fitStatus = " El feedback se guardó, pero el archivo FIT no pudo subirse.";
+      alert(fitStatus);
+    }
+  }
   $("#feedback-wizard").classList.add("athlete-hidden");
+  const success = $("#feedback-confirmation .config-success");
+  if (success) success.textContent = `Entrenamiento registrado correctamente.${fitStatus}`;
   $("#feedback-confirmation").classList.remove("athlete-hidden");
 };
 

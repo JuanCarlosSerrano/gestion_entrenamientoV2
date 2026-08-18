@@ -71,7 +71,12 @@ const openDetail = async (id) => {
     resultados = await fetchJSON(`${API}/entrenamientos_asignados/${id}/resultados`);
   } catch {}
   const fb = state.feedbacks.get(Number(id));
-  const km = Array.isArray(resultados) ? resultados.reduce((sum, item) => sum + (Number(item.km_realizados) || 0), 0) : 0;
+  const kmPorBloque = Array.isArray(resultados)
+    ? resultados.filter((item) => item.km_realizados != null).map((item) => Number(item.km_realizados) || 0)
+    : [];
+  const km = kmPorBloque.length
+    ? kmPorBloque.reduce((sum, value) => sum + value, 0)
+    : Number(resultados?.[0]?.km_realizados_total || 0);
   $("#history-detail-body").innerHTML = `
     <div class="mb-3">${renderPasos(pasos, state.zonas)}</div>
     <div class="athlete-metric-grid mb-3">

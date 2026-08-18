@@ -81,8 +81,16 @@ const renderNews = (items, feedbackSet) => {
     })
     .slice(0, 2);
   const rows = [
-    ...recent.map((ent) => ({ title: "Nuevo entrenamiento disponible", text: ent.nombre || "Entrenamiento" })),
-    ...pending.map((ent) => ({ title: "Pendiente de informar", text: ent.nombre || "Entrenamiento" })),
+    ...recent.map((ent) => ({
+      title: "Nuevo entrenamiento disponible",
+      text: ent.nombre || "Entrenamiento",
+      href: `entrenamientos.html#entreno-${ent.id}`,
+    })),
+    ...pending.map((ent) => ({
+      title: "Pendiente de informar",
+      text: ent.nombre || "Entrenamiento",
+      href: `entrenamientos.html#entreno-${ent.id}`,
+    })),
   ];
   if (!rows.length) {
     box.innerHTML = '<div class="athlete-muted">No hay novedades pendientes.</div>';
@@ -92,7 +100,7 @@ const renderNews = (items, feedbackSet) => {
     <div class="athlete-history-row">
       <span class="athlete-status athlete-status--pending">Aviso</span>
       <div><strong>${row.title}</strong><div class="athlete-muted">${row.text}</div></div>
-      <a class="btn btn-sm btn-outline-brand" href="entrenamientos.html">Ver</a>
+      <a class="btn btn-sm btn-outline-brand" href="${row.href}">Ver</a>
     </div>
   `).join("");
 };

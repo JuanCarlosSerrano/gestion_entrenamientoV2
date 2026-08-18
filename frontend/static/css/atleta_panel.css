@@ -16,12 +16,12 @@
   color: #fff;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
   height: 100vh;
   margin: 0;
   max-height: 100vh;
   overflow-y: auto;
-  padding: 24px 14px 18px;
+  padding: 22px 14px 18px;
   position: sticky;
   top: 0;
 }
@@ -30,7 +30,7 @@
   align-items: center;
   color: #fff;
   display: flex;
-  font-size: 1.55rem;
+  font-size: 1.45rem;
   font-weight: 750;
   gap: 10px;
   padding: 0 10px;
@@ -47,7 +47,7 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   display: grid;
   flex: 0 0 auto;
-  gap: 12px;
+  gap: 8px;
   margin-top: 0;
   padding-bottom: 18px;
   padding-top: 10px;
@@ -58,10 +58,9 @@
   border-radius: 8px;
   color: rgba(255, 255, 255, 0.84);
   display: flex;
-  font-size: 0.98rem;
-  font-size: 0.98rem;
+  font-size: 0.95rem;
   gap: 14px;
-  min-height: 54px;
+  min-height: 46px;
   padding: 0 13px;
   text-decoration: none;
   transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
@@ -79,8 +78,8 @@
   align-items: center;
   color: #fff;
   display: inline-flex;
-  font-size: 1.1rem;
-  height: 28px;
+  font-size: 1rem;
+  height: 24px;
   justify-content: center;
   line-height: 1;
   width: 28px;
@@ -143,7 +142,7 @@
   display: grid;
   gap: 14px;
   min-width: 0;
-  padding: 26px clamp(22px, 2.1vw, 34px) 34px;
+  padding: 24px clamp(20px, 2vw, 32px) 32px;
 }
 
 .athlete-topbar {
@@ -151,13 +150,13 @@
   display: grid;
   gap: 20px;
   grid-template-columns: minmax(0, 1fr) auto;
-  margin-bottom: 22px;
-  min-height: 74px;
+  margin-bottom: 12px;
+  min-height: 58px;
 }
 
 .athlete-topbar h1 {
   color: #111827;
-  font-size: clamp(1.75rem, 2.15vw, 2.2rem);
+  font-size: clamp(1.65rem, 2vw, 2.05rem);
   font-weight: 850;
   letter-spacing: 0;
   line-height: 1.1;
@@ -175,12 +174,12 @@
   border: 1px solid #e3e8f0;
   border-radius: 8px;
   box-shadow: 0 12px 34px rgba(15, 23, 42, 0.07);
-  padding: 18px;
+  padding: 16px;
 }
 
 .athlete-card--hero {
   border-color: #b8e4eb;
-  min-height: 190px;
+  min-height: 160px;
 }
 
 .athlete-card h2 {
@@ -230,7 +229,7 @@
   border-radius: 8px;
   display: grid;
   gap: 8px;
-  max-width: 620px;
+  max-width: 560px;
   padding: 12px;
 }
 
@@ -310,7 +309,7 @@
 }
 
 .athlete-week-grid {
-  grid-template-columns: repeat(7, minmax(104px, 1fr));
+  grid-template-columns: repeat(7, minmax(112px, 1fr));
   overflow-x: auto;
   padding-bottom: 4px;
 }
@@ -321,7 +320,7 @@
   border-radius: 8px;
   display: grid;
   gap: 8px;
-  min-height: 124px;
+  min-height: 112px;
   padding: 10px;
 }
 
@@ -362,7 +361,8 @@
 .athlete-detail-layout {
   display: grid;
   gap: 14px;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.42fr);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.4fr);
+  align-items: start;
 }
 
 .athlete-detail-panel,
@@ -405,6 +405,7 @@
   display: grid;
   gap: 8px;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 100%;
 }
 
 .training-block-results label {
@@ -435,11 +436,11 @@
 .athlete-choice-grid {
   display: grid;
   gap: 8px;
-  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
 }
 
 .athlete-choice-grid--rpe {
-  grid-template-columns: repeat(5, minmax(42px, 1fr));
+  grid-template-columns: repeat(5, minmax(44px, 1fr));
 }
 
 .athlete-choice {
@@ -448,6 +449,7 @@
   color: #111827;
   font-size: 0.9rem;
   line-height: 1.15;
+  min-height: 38px;
   min-width: 0;
   padding: 0 8px;
   text-align: center;
@@ -471,10 +473,12 @@
   background: #fff;
   border: 1px solid #e3e8f0;
   border-radius: 8px;
+  color: #111827;
   display: grid;
   gap: 10px;
   grid-template-columns: 110px minmax(0, 1fr) auto;
   padding: 10px 12px;
+  text-align: left;
 }
 
 .athlete-status {
@@ -541,17 +545,15 @@
 
   .athlete-sidebar {
     align-items: center;
-    margin: 10px 0 10px 10px;
+    margin: 0;
     padding-left: 10px;
     padding-right: 10px;
   }
 
   .athlete-brand span,
-  .athlete-nav__link,
   .athlete-user-card,
   .athlete-logout {
     display: none;
-    font-size: 0;
   }
 
   .athlete-brand {
@@ -559,9 +561,15 @@
   }
 
   .athlete-nav__link {
+    font-size: 0;
+    gap: 0;
     justify-content: center;
     padding: 0;
     width: 54px;
+  }
+
+  .athlete-nav__link span {
+    font-size: 1.05rem;
   }
 
   .athlete-main {
@@ -577,7 +585,7 @@
 
   .athlete-choice-grid,
   .athlete-choice-grid--rpe {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .athlete-history-row {
@@ -593,9 +601,11 @@
   .athlete-sidebar {
     align-items: stretch;
     border-radius: 0;
+    height: auto;
     margin: 0;
     max-height: none;
-    padding: 14px;
+    min-height: 0;
+    padding: 12px;
     position: static;
   }
 
@@ -607,23 +617,94 @@
   }
 
   .athlete-user-card {
-    display: flex;
+    display: none;
     font-size: inherit;
+  }
+
+  .athlete-sidebar__footer {
+    display: none;
   }
 
   .athlete-nav {
     display: flex;
+    gap: 8px;
     overflow-x: auto;
     padding-bottom: 2px;
+    scrollbar-width: thin;
   }
 
   .athlete-nav__link {
     flex: 0 0 auto;
-    padding: 0 12px;
+    font-size: 0.88rem;
+    gap: 8px;
+    min-height: 38px;
+    padding: 0 10px;
     width: auto;
   }
 
+  .athlete-nav__link span {
+    font-size: 0.95rem;
+    height: 20px;
+    width: 20px;
+  }
+
   .athlete-main {
-    padding: 18px 14px 28px;
+    padding: 16px 12px 26px;
+  }
+
+  .athlete-topbar {
+    display: block;
+    margin-bottom: 6px;
+    min-height: 0;
+  }
+
+  .athlete-topbar h1 {
+    font-size: 1.55rem;
+  }
+
+  .athlete-card {
+    padding: 14px;
+  }
+
+  .athlete-week-grid {
+    grid-template-columns: 1fr;
+    overflow-x: visible;
+  }
+
+  .athlete-day {
+    min-height: auto;
+  }
+
+  .training-block-results {
+    grid-template-columns: 1fr;
+  }
+
+  .athlete-choice-grid,
+  .athlete-choice-grid--rpe {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .athlete-choice-grid--rpe {
+    grid-template-columns: repeat(5, minmax(38px, 1fr));
+  }
+
+  .athlete-choice {
+    font-size: 0.82rem;
+    padding: 0 6px;
+  }
+}
+
+@media (max-width: 420px) {
+  .athlete-choice-grid--rpe {
+    grid-template-columns: repeat(5, minmax(32px, 1fr));
+  }
+
+  .athlete-choice-grid:not(.athlete-choice-grid--rpe) {
+    grid-template-columns: 1fr;
+  }
+
+  .athlete-week-header .btn {
+    flex: 1 1 0;
+    min-width: 0;
   }
 }
