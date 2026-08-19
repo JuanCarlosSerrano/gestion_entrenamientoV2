@@ -36,7 +36,7 @@ def create_auth_blueprint(
             return jsonify({'error': 'Demasiados intentos. Inténtalo de nuevo en un minuto.'}), 429
 
         user = query_db(
-            'SELECT id, rol, email, password_hash, force_password_change FROM usuarios WHERE email = ?',
+            'SELECT id, rol, email, nombre, apellidos, password_hash, force_password_change FROM usuarios WHERE email = ?',
             (email,),
             one=True,
         )
@@ -58,6 +58,8 @@ def create_auth_blueprint(
                 'message': 'Inicio de sesión exitoso',
                 'rol': user['rol'],
                 'user_id': user['id'],
+                'nombre': user['nombre'],
+                'apellidos': user['apellidos'],
                 'force_password_change': force_change,
             }
 

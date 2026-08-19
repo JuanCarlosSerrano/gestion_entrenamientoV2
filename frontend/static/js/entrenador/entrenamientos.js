@@ -131,9 +131,9 @@ function initTrainerShell() {
   const storedName =
     localStorage.getItem('userName') ||
     localStorage.getItem('userEmail') ||
-    '';
+    'Entrenador';
   const readableName = storedName.includes('@') ? storedName.split('@')[0] : storedName;
-  const displayName = !readableName || readableName.toLowerCase() === 'entrenador' ? 'Juan Carlos' : readableName;
+  const displayName = readableName || 'Entrenador';
   const initials = displayName
     .split(/\s+/)
     .filter(Boolean)

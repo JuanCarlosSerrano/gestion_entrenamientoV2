@@ -19,6 +19,8 @@ def client(tmp_path, monkeypatch):
         """
         CREATE TABLE usuarios (
             id INTEGER PRIMARY KEY,
+            nombre TEXT,
+            apellidos TEXT,
             email TEXT,
             password_hash TEXT,
             rol TEXT,
@@ -27,12 +29,12 @@ def client(tmp_path, monkeypatch):
         """
     )
     conn.execute(
-        "INSERT INTO usuarios (id, email, password_hash, rol, force_password_change) VALUES (?, ?, ?, ?, ?)",
-        (1, "coach@example.com", crear_hash_password("coach"), "entrenador", 0),
+        "INSERT INTO usuarios (id, nombre, apellidos, email, password_hash, rol, force_password_change) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (1, "Pedro", "Rodrigo", "coach@example.com", crear_hash_password("coach"), "entrenador", 0),
     )
     conn.execute(
-        "INSERT INTO usuarios (id, email, password_hash, rol, force_password_change) VALUES (?, ?, ?, ?, ?)",
-        (2, "athlete@example.com", crear_hash_password("athlete"), "atleta", 1),
+        "INSERT INTO usuarios (id, nombre, apellidos, email, password_hash, rol, force_password_change) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (2, "Ana", "Atleta", "athlete@example.com", crear_hash_password("athlete"), "atleta", 1),
     )
     conn.commit()
     conn.close()
@@ -54,6 +56,19 @@ def test_login_route_mantiene_respuesta_atleta(client):
     assert data["user_id"] == 2
     assert data["atleta_id"] == 2
     assert data["force_password_change"] == 1
+
+
+def test_login_route_devuelve_nombre_del_usuario_que_inicia_sesion(client):
+    # Regresión de un fallo real: el frontend no pedía el nombre en ningún
+    # momento del login y acababa mostrando un valor de otra sesión (o un
+    # nombre hardcodeado) en el saludo y la barra lateral, sin relación
+    # con quien realmente había iniciado sesión.
+    response = client.post("/login", json={"email": "coach@example.com", "password": "coach"})
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["nombre"] == "Pedro"
+    assert data["apellidos"] == "Rodrigo"
 
 
 def test_register_route_sigue_deshabilitada(client):

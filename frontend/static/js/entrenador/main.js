@@ -365,9 +365,9 @@ function inicializarCentroControl() {
   const storedName =
     localStorage.getItem("userName") ||
     localStorage.getItem("userEmail") ||
-    "";
+    "Entrenador";
   const readableName = storedName.includes("@") ? storedName.split("@")[0] : storedName;
-  const displayName = !readableName || readableName.toLowerCase() === "entrenador" ? "Juan Carlos" : readableName;
+  const displayName = readableName || "Entrenador";
   const greeting = document.getElementById("trainer-greeting");
   const nameEl = document.getElementById("trainer-name");
   const initialsEl = document.getElementById("trainer-initials");

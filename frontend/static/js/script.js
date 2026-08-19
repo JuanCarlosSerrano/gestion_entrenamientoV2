@@ -47,6 +47,21 @@ if (loginForm) {
                 // 2️⃣ Guardar sólo lo necesario (nada de password)
                 localStorage.setItem('userId', userId);
                 localStorage.setItem('userRol', userRol);
+                // El saludo y la barra lateral leen userName/userEmail; sin
+                // esto se quedaba lo que hubiera de una sesión anterior en
+                // el mismo navegador (u otro usuario), mostrando el nombre
+                // de otra persona.
+                const userName = [result.nombre, result.apellidos].filter(Boolean).join(' ');
+                if (userName) {
+                    localStorage.setItem('userName', userName);
+                } else {
+                    localStorage.removeItem('userName');
+                }
+                if (data.email) {
+                    localStorage.setItem('userEmail', data.email);
+                } else {
+                    localStorage.removeItem('userEmail');
+                }
 
                 // 3️⃣ Pedir y guardar CSRF token (para futuros POST/PUT/DELETE)
                 if (window.CSRF?.ensureToken) {
@@ -108,7 +123,7 @@ async function handleLogout() {
     } catch (err) {
         console.error('Error durante el logout:', err);
     } finally {
-        ['userId', 'userRol', 'userEmail', 'userPassword', 'csrfToken'].forEach(key => localStorage.removeItem(key));
+        ['userId', 'userRol', 'userName', 'userEmail', 'userPassword', 'csrfToken'].forEach(key => localStorage.removeItem(key));
         window.location.href = loginUrl;
     }
 }
