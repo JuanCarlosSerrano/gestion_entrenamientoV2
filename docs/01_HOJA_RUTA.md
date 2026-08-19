@@ -1,6 +1,33 @@
 
 # 01 · Hoja de Ruta — MindPace V2
 
+## 0. Estado actual (auditoría 2026-08-19)
+
+Esta hoja de ruta describía el plan cuando todo estaba por construir. A día de hoy la mayor parte ya está implementada en `main`; el detalle módulo a módulo, con evidencia en código, vive en `02_BACKLOG_FUNCIONAL.md` (incluye leyenda Hecho/Parcial/Pendiente). Resumen por fase:
+
+| Fase | Estado |
+|---|---|
+| 0 · Reactivación y estabilización | Hecho |
+| 1 · Nueva home del entrenador | Hecho |
+| 2 · Creación guiada de entrenamientos | Hecho |
+| 3 · Planificación semanal guiada | Hecho |
+| 4 · Asignación rápida y personalización | Hecho |
+| 5 · Envío por WhatsApp | Hecho |
+| 6 · Vista simple del atleta | Hecho |
+| 7 · Feedback y archivo FIT | Hecho |
+| 8 · Revisión del entrenador | Parcial — piezas sueltas (feedback, alertas, análisis de atleta) sin pantalla única que las consolide |
+| 9 · Historial y rendimiento | Hecho, integrado en Análisis de atleta y Estadísticas en vez de como pantalla separada |
+| 10 · Alertas inteligentes | Hecho |
+| 11 · Estadísticas avanzadas | Hecho |
+| 12 · Pulido final de V2 | Pendiente |
+| Bloque · Planificación individual por atleta | Hecho |
+| Bloque · Publicación y comunicación | Hecho |
+| Bloque · Configuración y gestión de atletas | Hecho |
+
+Además existen pantallas construidas que no aparecen en ninguna fase de este documento (Grupos, Ciclos, Calendario, Gestión de plantillas, Análisis de atleta, Perfil de atleta, Editor de entrenamiento asignado) — ver Módulo 16 de `02_BACKLOG_FUNCIONAL.md`.
+
+Consecuencia práctica: el trabajo pendiente real no es "seguir el orden de fases 0→12" tal como está escrito abajo, sino cerrar la Fase 8 (Revisión del entrenador) y luego la Fase 12 (pulido, navegación, limpieza, tests de los flujos principales). El resto del documento se conserva como referencia de diseño de cada fase, no como plan de ejecución vigente.
+
 ## 1. Decisión principal
 
 MindPace V2 no se reinicia desde cero.

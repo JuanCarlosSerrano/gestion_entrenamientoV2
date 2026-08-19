@@ -51,6 +51,9 @@ SESSION_COOKIE_NAME=my_session_v2
 ```
 
 ## Flujo entre dos equipos (código + datos)
+
+> Nota (2026-08-19): actualmente solo existe el entorno de desarrollo local (una máquina, una BD). Este flujo de sincronización queda documentado para cuando exista un segundo equipo/entorno real; hasta entonces no aplica.
+
 ### En el equipo origen (antes de cambiar de equipo)
 1. Exportar BD v2:
 ```bash

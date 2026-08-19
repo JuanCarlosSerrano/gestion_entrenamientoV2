@@ -2,6 +2,8 @@
 
 Ultima actualizacion: 2026-03-09 (CET)
 
+> **ARCHIVADO (2026-08-19):** este roadmap de sprints quedo congelado tras el Sprint 1 y no se actualizo mientras el proyecto avanzaba por otra via (fases funcionales). El estado real y vigente esta en `docs/01_HOJA_RUTA.md` (seccion "0. Estado actual") y `docs/02_BACKLOG_FUNCIONAL.md` (estado modulo a modulo con evidencia de codigo). Se conserva este documento como registro historico de como se planteo el arranque del proyecto, no como plan de ejecucion activo.
+
 Tablero operativo: `docs/KANBAN_V2.md`
 
 ## Objetivo

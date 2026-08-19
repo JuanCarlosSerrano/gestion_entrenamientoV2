@@ -1,5 +1,15 @@
 # 02 · Backlog Funcional — MindPace V2
 
+**Última auditoría de estado:** 2026-08-19, contra `main` (`502858b`), tras fusionar `feature/be-010-asignacion-semanal`.
+
+**Método:** auditoría de código (rutas Flask, servicios, tests y pantallas del frontend), no autodeclaración. Cada estado abajo referencia el fichero que lo sostiene. Un módulo puede llevar meses funcionando en la app aunque este documento llevara igual de tiempo sin actualizarse — así estaba antes de esta revisión, y es la razón de que existiera este backlog "fantasma" con todo en `Pendiente`.
+
+## Leyenda de estado
+
+- **Hecho** — implementación real presente en `main` y verificable en código.
+- **Parcial** — hay piezas construidas pero no cumple el criterio de aceptación completo tal como está descrito.
+- **Pendiente** — no se ha encontrado implementación.
+
 ## Criterios de prioridad
 
 ### MUST
@@ -24,7 +34,7 @@ Idea futura fuera del alcance de la V2.
 
 ## MP-001 · Nueva home del entrenador
 
-**Estado:** Pendiente
+**Estado:** Hecho — `frontend/static/entrenador/index.html` + `js/entrenador/main.js`.
 
 **Prioridad:** MUST
 
@@ -55,7 +65,7 @@ Idea futura fuera del alcance de la V2.
 
 ## MP-010 · Biblioteca de entrenamientos
 
-**Estado:** Pendiente
+**Estado:** Hecho — `frontend/static/entrenador/entrenamientos.html` + `js/entrenador/entrenamientos.js` (3724 líneas) y `js/entrenador/gestion_plantillas.js` (838 líneas).
 
 **Prioridad:** MUST
 
@@ -84,7 +94,7 @@ Idea futura fuera del alcance de la V2.
 
 ## MP-020 · Asistente guiado
 
-**Estado:** Pendiente
+**Estado:** Hecho — wizard por pasos (`builder-wizard`, `wizard-title`, `wizard-help`) dentro de `js/entrenador/entrenamientos.js`.
 
 **Prioridad:** MUST
 
@@ -114,7 +124,7 @@ Idea futura fuera del alcance de la V2.
 
 ## MP-030 · Semana planificada
 
-**Estado:** Pendiente
+**Estado:** Hecho — `frontend/static/entrenador/planificacion_semanal.html` + `js/entrenador/planificacion_semanal.js`.
 
 **Prioridad:** MUST
 
@@ -143,7 +153,7 @@ Idea futura fuera del alcance de la V2.
 
 ## MP-040 · Asignación rápida
 
-**Estado:** Pendiente
+**Estado:** Hecho — `asignar_grupo_entrenamiento`, `asignar_entrenamiento_lote` y `asignar_entrenamiento_a_atletas` en `backend/app.py`, más `js/entrenador/grupo_entrenamiento.js`.
 
 **Prioridad:** MUST
 
@@ -170,7 +180,7 @@ Idea futura fuera del alcance de la V2.
 
 ## MP-050 · Personalización automática
 
-**Estado:** Pendiente
+**Estado:** Hecho — el campo `vdot_usado` se congela en el momento de asignar (`backend/app.py`, funciones `calcular_zonas` / `guardar_zonas`).
 
 **Prioridad:** MUST
 
@@ -204,7 +214,7 @@ según el atleta.
 
 ## MP-060 · Compartir entrenamiento
 
-**Estado:** Pendiente
+**Estado:** Hecho — `backend/services/whatsapp_service.py` + `backend/services/publication_service.py`.
 
 **Prioridad:** MUST
 
@@ -231,7 +241,7 @@ según el atleta.
 
 ## MP-070 · Vista móvil del atleta
 
-**Estado:** Pendiente
+**Estado:** Hecho — panel atleta completo en `frontend/static/atleta/` (`index.html`, `entrenamientos.html`, `perfil.html`).
 
 **Prioridad:** MUST
 
@@ -255,7 +265,7 @@ según el atleta.
 
 ## MP-071 · Feedback del atleta
 
-**Estado:** Pendiente
+**Estado:** Hecho — `js/atleta/feedbacks.js` (subida) + `backend/services/fit_service.py` (procesado FIT) + `js/entrenador/feedback.js` (revisión, incluye chips de RPE).
 
 **Prioridad:** MUST
 
@@ -282,7 +292,7 @@ según el atleta.
 
 ## MP-080 · Revisión del entrenador
 
-**Estado:** Pendiente
+**Estado:** Parcial — las piezas existen por separado (`feedback.html`, `alertas.html`, `js/entrenador/analisis_atleta.js` con comparación plan vs. real por semana) pero no hay una pantalla única que las consolide y diga "a quién revisar primero". Es el hueco funcional real más claro del proyecto ahora mismo.
 
 **Prioridad:** SHOULD
 
@@ -308,7 +318,7 @@ según el atleta.
 
 ## MP-090 · Historial y rendimiento
 
-**Estado:** Pendiente
+**Estado:** Hecho, aunque no como pantalla dedicada: vive dentro de `js/entrenador/analisis_atleta.js` (navegación semanal, km planificados vs. realizados) y de `js/atleta/historial.js` para el propio atleta.
 
 **Prioridad:** MUST
 
@@ -334,7 +344,7 @@ según el atleta.
 
 ## MP-100 · Estadísticas
 
-**Estado:** Pendiente
+**Estado:** Hecho — `frontend/static/entrenador/estadisticas.html` + `js/entrenador/estadisticas.js` (379 líneas), con `css/historial_entrenador.css`.
 
 **Prioridad:** SHOULD
 
@@ -359,7 +369,7 @@ según el atleta.
 
 ## MP-110 · Alertas inteligentes
 
-**Estado:** Pendiente
+**Estado:** Hecho — rutas `/alertas/entrenador` (listar, resolver, reactivar) en `backend/app.py`, generación en `generar_alertas_resultado` / `_persistir_alertas`, frontend en `js/entrenador/alertas.js`.
 
 **Prioridad:** SHOULD
 
@@ -397,6 +407,8 @@ Ideas fuera del alcance de la V2:
 ---
 
 # Módulo 13 · Planificación individual por atleta
+
+**Estado general:** Hecho — `frontend/static/entrenador/atleta_planificacion.html` + `js/entrenador/atleta_planificacion.js`, apoyado en `js/entrenador/calendario.js` (1070 líneas) y `js/entrenador/perfil_atleta.js` (554 líneas).
 
 ## MP-120 · Seleccionar atleta para planificación
 
@@ -443,6 +455,8 @@ Ideas fuera del alcance de la V2:
 
 # Módulo 14 · Publicación y WhatsApp
 
+**Estado general:** Hecho — `frontend/static/entrenador/publicacion_pendientes.html` + `js/entrenador/publicacion_pendientes.js` + `backend/services/publication_service.py`.
+
 ## MP-130 · Panel de pendientes de publicar
 
 **Prioridad:** MUST
@@ -479,7 +493,11 @@ Ideas fuera del alcance de la V2:
 
 # Módulo 15 · Configuración
 
+**Estado general:** Hecho en su mayoría — CRUD de atleta en `backend/routes/configuracion.py` (blueprint, 205 líneas); histórico y alta de zonas VDOT/VAM siguen sin migrar al blueprint y viven en `backend/app.py` (`calcular_zonas`, `guardar_zonas`, `obtener_historial_zonas_atleta`).
+
 ## MP-140 · Alta atleta
+
+**Estado:** Hecho — `configuracion_crear_atleta`.
 
 **Prioridad:** MUST
 
@@ -492,6 +510,8 @@ Ideas fuera del alcance de la V2:
 
 ## MP-141 · Edición de datos
 
+**Estado:** Hecho — `configuracion_actualizar_atleta`.
+
 **Prioridad:** MUST
 
 **Debe permitir:**
@@ -502,6 +522,8 @@ Ideas fuera del alcance de la V2:
 
 ## MP-142 · Grupo y subgrupo
 
+**Estado:** Hecho — cubierto por `configuracion_actualizar_atleta` y `grupo_entrenamiento.js`.
+
 **Prioridad:** MUST
 
 **Debe permitir:**
@@ -510,6 +532,8 @@ Ideas fuera del alcance de la V2:
 - Reutilizar el modelo actual de `usuarios`.
 
 ## MP-143 · Reset password
+
+**Estado:** Hecho — `configuracion_reset_password_atleta`.
 
 **Prioridad:** MUST
 
@@ -521,6 +545,8 @@ Ideas fuera del alcance de la V2:
 
 ## MP-144 · Histórico de zonas
 
+**Estado:** Hecho — `obtener_historial_zonas_atleta` en `backend/app.py` (pendiente de mover al blueprint de configuración).
+
 **Prioridad:** MUST
 
 **Debe permitir:**
@@ -529,6 +555,8 @@ Ideas fuera del alcance de la V2:
 - Ver VDOT, VAM, ritmos, FC, método y fechas.
 
 ## MP-145 · Nueva configuración de zonas
+
+**Estado:** Hecho — `guardar_zonas` en `backend/app.py` (cierra la configuración vigente con `fecha_fin` antes de insertar la nueva).
 
 **Prioridad:** MUST
 
@@ -540,6 +568,8 @@ Ideas fuera del alcance de la V2:
 
 ## MP-146 · Archivado/desactivación
 
+**Estado:** Hecho — `configuracion_estado_atleta`.
+
 **Prioridad:** MUST
 
 **Debe permitir:**
@@ -548,6 +578,8 @@ Ideas fuera del alcance de la V2:
 - Borrar físicamente solo atletas sin datos asociados.
 
 ## MP-147 · Panel atleta V2
+
+**Estado:** Parcial — la mayoría de puntos están cubiertos por el panel atleta (`frontend/static/atleta/`), pero no se ha localizado una pantalla específica de "evolución básica" separada del historial propio.
 
 **Prioridad:** MUST
 
@@ -561,3 +593,21 @@ Ideas fuera del alcance de la V2:
 - Consultar historial propio.
 - Consultar evolución básica.
 - Ver perfil y cambiar contraseña.
+
+---
+
+# Módulo 16 · Pantallas implementadas sin especificación formal
+
+Estas pantallas existen en `main` con volumen de código real, pero no tienen un módulo correspondiente en este backlog — se construyeron directamente sin pasar por aquí. Se listan para que quede constancia y se les pueda dar una especificación (criterios de aceptación, dependencias) en la próxima revisión de planificación, en vez de seguir invisibles para este documento.
+
+| Pantalla | Frontend | Backend relacionado | Tamaño (frontend JS) |
+|---|---|---|---|
+| Grupos de entrenamiento | `entrenador/grupo_entrenamiento.html` | `asignar_grupo_entrenamiento` (`app.py`) | 505 líneas |
+| Ciclos de entrenamiento | `entrenador/ciclos.html` | `asignar_ciclo`, `asignar_ciclo_interno` (`app.py`) | 1936 líneas — el segundo archivo JS más grande del proyecto |
+| Calendario general | `entrenador/calendario.html` | — | 1070 líneas |
+| Gestión de plantillas | (integrado en biblioteca) | — | `gestion_plantillas.js`, 838 líneas |
+| Análisis de atleta (plan vs. real) | `entrenador/analisis_atleta.html` | comparación semanal km/zonas | 1207 líneas |
+| Perfil de atleta (vista entrenador) | `entrenador/perfil_atleta.html` | — | 554 líneas |
+| Editor de entrenamiento asignado | `entrenador/entrenamiento_asignado_editor.html` | — | 480 líneas |
+
+**Recomendación:** antes de planificar la siguiente fase, decidir si estas pantallas se documentan retroactivamente como módulos propios o se consolidan dentro de los módulos existentes (p. ej. Ciclos podría absorber parte de lo descrito en Módulo 4, y Análisis de atleta cubre de facto los Módulos 9 y 10).

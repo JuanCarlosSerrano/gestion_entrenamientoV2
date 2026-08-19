@@ -2,6 +2,8 @@
 
 Ultima actualizacion: 2026-03-09 (CET)
 
+> **ARCHIVADO (2026-08-19):** este tablero dejo de moverse tras el Sprint 1 (Sprint 2 aparece entero en "To Do" pese a estar hecho en `main` desde hace meses). El estado real y vigente esta en `docs/01_HOJA_RUTA.md` (seccion "0. Estado actual") y `docs/02_BACKLOG_FUNCIONAL.md`. Se conserva como registro historico, no como tablero activo.
+
 Referencia de plan: `docs/ROADMAP_TECNICO_V2.md`
 
 ## Uso
