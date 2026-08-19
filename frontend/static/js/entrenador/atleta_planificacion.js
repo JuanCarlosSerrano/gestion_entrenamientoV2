@@ -250,24 +250,29 @@ async function handleSessionAction(action, id, sessions) {
     openEditSession(session);
     return;
   }
-  if (action === "toggle-slot") {
-    await writeJson(`/planificacion/sesiones/${id}`, "PUT", {
-      ...session,
-      franja: session.franja === "tarde" ? "manana" : "tarde",
-    });
-    await refreshAfterWrite();
-  }
-  if (action === "delete") {
-    if (!window.confirm("¿Eliminar esta sesión de la planificación?")) return;
-    await writeJson(`/planificacion/sesiones/${id}`, "DELETE");
-    await refreshAfterWrite();
-  }
-  if (action === "duplicate") {
-    await writeJson(`/planificacion/sesiones/${id}/duplicar`, "POST", {
-      fecha: session.fecha,
-      franja: session.franja,
-    });
-    await refreshAfterWrite();
+  try {
+    if (action === "toggle-slot") {
+      await writeJson(`/planificacion/sesiones/${id}`, "PUT", {
+        ...session,
+        franja: session.franja === "tarde" ? "manana" : "tarde",
+      });
+      await refreshAfterWrite();
+    }
+    if (action === "delete") {
+      if (!window.confirm("¿Eliminar esta sesión de la planificación?")) return;
+      await writeJson(`/planificacion/sesiones/${id}`, "DELETE");
+      await refreshAfterWrite();
+    }
+    if (action === "duplicate") {
+      await writeJson(`/planificacion/sesiones/${id}/duplicar`, "POST", {
+        fecha: session.fecha,
+        franja: session.franja,
+      });
+      await refreshAfterWrite();
+    }
+  } catch (err) {
+    console.error(`Error en acción "${action}" sobre sesión ${id}:`, err);
+    alert(err.message || "No se pudo completar la acción sobre la sesión.");
   }
 }
 
@@ -292,37 +297,57 @@ async function saveSession(event) {
     alert("Indica fecha y hora de publicación.");
     return;
   }
-  await writeJson(`/planificacion/sesiones/${id}`, "PUT", {
-    nombre: $("#edit-session-name").value.trim(),
-    fecha: $("#edit-session-date").value,
-    franja: $("#edit-session-franja").value,
-    notas: $("#edit-session-notes").value,
-    visible: visibility === "visible" ? 1 : 0,
-    publicar_en: visibility === "programado" ? publicarEn : null,
-  });
-  await writeJson(`/planificacion/sesiones/${id}/visibilidad`, "PUT", {
-    estado: visibility,
-    publicar_en: publicarEn,
-  });
-  bootstrap.Modal.getOrCreateInstance($("#editSessionModal")).hide();
-  await refreshAfterWrite();
+  try {
+    await writeJson(`/planificacion/sesiones/${id}`, "PUT", {
+      nombre: $("#edit-session-name").value.trim(),
+      fecha: $("#edit-session-date").value,
+      franja: $("#edit-session-franja").value,
+      notas: $("#edit-session-notes").value,
+      visible: visibility === "visible" ? 1 : 0,
+      publicar_en: visibility === "programado" ? publicarEn : null,
+    });
+    await writeJson(`/planificacion/sesiones/${id}/visibilidad`, "PUT", {
+      estado: visibility,
+      publicar_en: publicarEn,
+    });
+    bootstrap.Modal.getOrCreateInstance($("#editSessionModal")).hide();
+  } catch (err) {
+    console.error(`Error guardando sesión ${id}:`, err);
+    alert(err.message || "No se pudo guardar la sesión. Revisa los cambios y vuelve a intentarlo.");
+    // No cerramos el modal: puede que el primer PUT (datos) haya entrado
+    // bien y el segundo (visibilidad) haya fallado; refrescamos el
+    // calendario para reflejar lo que sí quedó guardado y dejamos el
+    // modal abierto para que el entrenador vea el aviso y reintente.
+  } finally {
+    await refreshAfterWrite();
+  }
 }
 
 async function deleteSession() {
   const id = Number($("#edit-session-id").value);
-  await writeJson(`/planificacion/sesiones/${id}`, "DELETE");
-  bootstrap.Modal.getOrCreateInstance($("#editSessionModal")).hide();
-  await refreshAfterWrite();
+  try {
+    await writeJson(`/planificacion/sesiones/${id}`, "DELETE");
+    bootstrap.Modal.getOrCreateInstance($("#editSessionModal")).hide();
+    await refreshAfterWrite();
+  } catch (err) {
+    console.error(`Error eliminando sesión ${id}:`, err);
+    alert(err.message || "No se pudo eliminar la sesión.");
+  }
 }
 
 async function duplicateSession() {
   const id = Number($("#edit-session-id").value);
-  await writeJson(`/planificacion/sesiones/${id}/duplicar`, "POST", {
-    fecha: $("#edit-session-date").value,
-    franja: $("#edit-session-franja").value,
-  });
-  bootstrap.Modal.getOrCreateInstance($("#editSessionModal")).hide();
-  await refreshAfterWrite();
+  try {
+    await writeJson(`/planificacion/sesiones/${id}/duplicar`, "POST", {
+      fecha: $("#edit-session-date").value,
+      franja: $("#edit-session-franja").value,
+    });
+    bootstrap.Modal.getOrCreateInstance($("#editSessionModal")).hide();
+    await refreshAfterWrite();
+  } catch (err) {
+    console.error(`Error duplicando sesión ${id}:`, err);
+    alert(err.message || "No se pudo duplicar la sesión.");
+  }
 }
 
 async function refreshAfterWrite() {
@@ -360,12 +385,17 @@ function renderLibrary() {
 }
 
 async function addWorkout(entrenamientoId) {
-  await writeJson(`/planificacion/atleta/${state.atletaId}/sesiones`, "POST", {
-    fecha: state.selectedDate,
-    entrenamiento_id: entrenamientoId,
-    franja: $("#library-franja").value,
-  });
-  await refreshAfterWrite();
+  try {
+    await writeJson(`/planificacion/atleta/${state.atletaId}/sesiones`, "POST", {
+      fecha: state.selectedDate,
+      entrenamiento_id: entrenamientoId,
+      franja: $("#library-franja").value,
+    });
+    await refreshAfterWrite();
+  } catch (err) {
+    console.error("Error añadiendo entrenamiento a la planificación:", err);
+    alert(err.message || "No se pudo añadir el entrenamiento a la planificación.");
+  }
 }
 
 function setupEvents() {

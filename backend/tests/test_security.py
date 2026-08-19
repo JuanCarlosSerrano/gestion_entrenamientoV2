@@ -747,6 +747,57 @@ def test_entrenador_no_puede_borrar_plantilla_de_otro_entrenador(client):
     assert client.get("/entrenamientos/1").status_code == 200
 
 
+def test_editar_entrenamiento_asignado_sin_mandar_visible_no_lo_oculta(client):
+    # Regresión: calendario.js reutilizaba el mismo payload de "crear"
+    # (visible=0) también al editar, re-ocultando sesiones ya publicadas.
+    # El contrato correcto es: si el payload no incluye "visible", el
+    # backend debe conservar el estado de publicación actual.
+    _set_session(client, user_id=2, rol="entrenador")  # asignación 10 es del atleta 4 (coach 2), visible=1
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+
+    resp = client.put(
+        "/entrenamientos_asignados/10",
+        json={"fecha": "2024-01-02", "nombre": "Rodaje editado desde calendario"},
+        headers={"X-CSRF-Token": token},
+    )
+    assert resp.status_code == 200
+
+    data = client.get("/entrenamientos_asignados/uno/10").get_json()
+    assert data["nombre"] == "Rodaje editado desde calendario"
+    assert data["visible"] == 1
+
+
+def test_publicar_visibilidad_masiva_genera_envio_whatsapp(client):
+    # Regresión: el endpoint bulk de visibilidad (usado desde calendario.js
+    # y grupo_entrenamiento.js) hacía un UPDATE directo sin pasar por
+    # publication_service, así que publicar desde ahí no generaba aviso de
+    # WhatsApp ni registro de envío. Debe comportarse igual que el
+    # publicar individual.
+    _set_session(client, user_id=1, rol="entrenador")
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+
+    resp = client.post(
+        "/entrenamientos_asignados/visibilidad",
+        json={"atletas": [3], "asignacion_id": 9, "visible": 1},
+        headers={"X-CSRF-Token": token},
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["updated"] == 1
+
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    asignado = conn.execute(
+        "SELECT visible, publicado_en FROM entrenamientos_asignados WHERE id = 9"
+    ).fetchone()
+    envios = conn.execute(
+        "SELECT estado FROM entrenamientos_envios WHERE entrenamiento_asignado_id = 9"
+    ).fetchall()
+    conn.close()
+
+    assert asignado[0] == 1
+    assert asignado[1] is not None
+    assert len(envios) == 1
+
+
 def test_entrenador_no_puede_asignar_ciclo_a_atleta_ajeno(client):
     _set_session(client, user_id=1, rol="entrenador")
     token = client.get("/csrf-token").get_json()["csrf_token"]

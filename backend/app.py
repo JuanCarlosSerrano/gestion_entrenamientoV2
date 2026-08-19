@@ -4770,7 +4770,7 @@ def _fecha_iso(value):
         return str(value)
 
 @app.route('/entrenamientos_asignados/visibilidad', methods=['POST'])
-@requires_roles('entrenador')
+@requires_roles('admin', 'entrenador')
 def actualizar_visibilidad_entrenamientos_asignados(current_user):
     """
     Acepta JSON:
@@ -4779,6 +4779,13 @@ def actualizar_visibilidad_entrenamientos_asignados(current_user):
       { "asignacion_id": 12, "atletas": [3,4], "visible": 1 }
 
     Devuelve: { ok: True, updated: N } o { error: '...' }
+
+    Cuando visible=1 (publicar) cada sesión pasa por publicar_asignado(),
+    igual que el flujo de publicación individual: así también desde el
+    calendario o la asignación por grupo se genera el aviso de WhatsApp
+    y el registro de envío, en vez de solo cambiar la columna visible.
+    Ocultar (visible=0) no implica notificación, así que se mantiene
+    como UPDATE directo.
     """
     data = request.get_json(silent=True) or {}
     atletas = data.get('atletas') or []
@@ -4790,9 +4797,10 @@ def actualizar_visibilidad_entrenamientos_asignados(current_user):
     if not isinstance(atletas, list) or len(atletas) == 0:
         return jsonify({'error': 'Faltan atletas'}), 400
 
-    for atleta_id in atletas:
-        if not atleta_pertenece_a_entrenador(atleta_id, current_user["id"]):
-            return jsonify({"error": "No autorizado"}), 403
+    if current_user["rol"] == "entrenador":
+        for atleta_id in atletas:
+            if not atleta_pertenece_a_entrenador(atleta_id, current_user["id"]):
+                return jsonify({"error": "No autorizado"}), 403
 
     if visible is None:
         return jsonify({'error': 'Falta campo visible'}), 400
@@ -4808,16 +4816,11 @@ def actualizar_visibilidad_entrenamientos_asignados(current_user):
         cur = conn.cursor()
 
         placeholders = ','.join(['?'] * len(atletas))
-        params = [visible_val]
+        params = []
 
         if asignacion_id:
-            # actualizar por asignacion_id y atleta_id
-            query = f"""
-                UPDATE entrenamientos_asignados
-                   SET visible = ?
-                 WHERE id = ?
-                   AND atleta_id IN ({placeholders})
-            """
+            # seleccionar por asignacion_id y atleta_id
+            where_sql = f"id = ? AND atleta_id IN ({placeholders})"
             params.append(asignacion_id)
             params.extend(atletas)
 
@@ -4825,53 +4828,54 @@ def actualizar_visibilidad_entrenamientos_asignados(current_user):
             fecha_norm = _normalizar_fecha(fecha)
             if not fecha_norm:
                 return jsonify({'error': 'Fecha inválida'}), 400
-            # actualizar por fecha, con soporte para "dia" o "semana"
+            # seleccionar por fecha, con soporte para "dia" o "semana"
             if modo == 'semana':
                 # calcular lunes–domingo de la semana de 'fecha'
                 fecha_dt = datetime.fromisoformat(fecha_norm).date()
                 inicio_semana = fecha_dt - timedelta(days=fecha_dt.weekday())  # lunes
                 fin_semana = inicio_semana + timedelta(days=6)                # domingo
 
-                query = f"""
-                    UPDATE entrenamientos_asignados
-                       SET visible = ?
-                     WHERE DATE(fecha) BETWEEN DATE(?) AND DATE(?)
-                       AND atleta_id IN ({placeholders})
-                """
+                where_sql = f"DATE(fecha) BETWEEN DATE(?) AND DATE(?) AND atleta_id IN ({placeholders})"
                 params.append(inicio_semana.isoformat())
                 params.append(fin_semana.isoformat())
                 params.extend(atletas)
             else:
                 # modo "dia" (comportamiento original)
-                query = f"""
-                    UPDATE entrenamientos_asignados
-                       SET visible = ?
-                     WHERE DATE(fecha) = DATE(?)
-                       AND atleta_id IN ({placeholders})
-                """
+                where_sql = f"DATE(fecha) = DATE(?) AND atleta_id IN ({placeholders})"
                 params.append(fecha_norm)
                 params.extend(atletas)
 
         else:
-            # actualizar por atleta_id solamente (todo lo asignado)
-            query = f"""
-                UPDATE entrenamientos_asignados
-                   SET visible = ?
-                 WHERE atleta_id IN ({placeholders})
-            """
+            # seleccionar por atleta_id solamente (todo lo asignado)
+            where_sql = f"atleta_id IN ({placeholders})"
             params.extend(atletas)
 
-        cur.execute(query, tuple(params))
-        conn.commit()
-        updated = cur.rowcount if hasattr(cur, 'rowcount') else None
-        if updated is None or (isinstance(updated, int) and updated < 0):
-            # Fallback para SQLite
-            try:
-                updated = conn.total_changes
-            except Exception:
-                updated = 0
+        cur.execute(f"SELECT id FROM entrenamientos_asignados WHERE {where_sql}", tuple(params))
+        ids = [row_get(r, "id") for r in cur.fetchall()]
 
-        return jsonify({'ok': True, 'updated': updated}), 200
+        if visible_val == 1:
+            updated = 0
+            errores = []
+            for asignado_id in ids:
+                _resultado, _error = publicar_asignado(cur, current_user, asignado_id)
+                if _error:
+                    errores.append(asignado_id)
+                else:
+                    updated += 1
+            conn.commit()
+            respuesta = {'ok': True, 'updated': updated}
+            if errores:
+                respuesta['errores'] = errores
+            return jsonify(respuesta), 200
+
+        if ids:
+            id_placeholders = ','.join(['?'] * len(ids))
+            cur.execute(
+                f"UPDATE entrenamientos_asignados SET visible = 0 WHERE id IN ({id_placeholders})",
+                tuple(ids),
+            )
+        conn.commit()
+        return jsonify({'ok': True, 'updated': len(ids)}), 200
 
     except Exception as e:
         app.logger.exception('Error actualizando visibilidad grupal')

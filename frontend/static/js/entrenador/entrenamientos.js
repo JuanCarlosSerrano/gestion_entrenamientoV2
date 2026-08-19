@@ -5,6 +5,17 @@ const API_BASE =
   (window.location && window.location.origin ? window.location.origin : 'http://127.0.0.1:5000');
 window.API_BASE = API_BASE;
 
+// date.toISOString() convierte a UTC: entre medianoche y ~1-2h de madrugada
+// (según el huso horario del entrenador) puede devolver el día anterior.
+// Formateamos en local para que la fecha coincida con la que ve el usuario.
+const toLocalISODate = (date) => {
+  const d = new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 // ===================== ENTRENAMIENTOS BASE =====================
 const entrenamientosGrid = document.getElementById('entrenamientos-grid');
 const builderStepsContainer = document.getElementById('builder-steps');
@@ -354,7 +365,7 @@ const openAsignarMicro = async (micro) => {
     const diff = day === 0 ? 1 : 8 - day; // próximo lunes (si hoy es lunes, usa hoy)
     const lunes = new Date(hoy);
     lunes.setDate(hoy.getDate() + (day === 1 ? 0 : diff));
-    asignacionFechaInput.value = lunes.toISOString().slice(0, 10);
+    asignacionFechaInput.value = toLocalISODate(lunes);
   }
   if (asignacionPreviewSelect) {
     asignacionPreviewSelect.onchange = () => {
@@ -400,7 +411,7 @@ const openAsignarEntrenamiento = async (entrenamiento) => {
     const diff = day === 0 ? 1 : 8 - day;
     const lunes = new Date(hoy);
     lunes.setDate(hoy.getDate() + (day === 1 ? 0 : diff));
-    asignacionFechaInput.value = lunes.toISOString().slice(0, 10);
+    asignacionFechaInput.value = toLocalISODate(lunes);
   }
   if (asignacionPreviewSelect) {
     asignacionPreviewSelect.onchange = () => {

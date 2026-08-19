@@ -11,6 +11,18 @@ document.addEventListener("DOMContentLoaded", function () {
       ? window.CSRF.getToken()
       : localStorage.getItem("csrfToken"));
 
+  // date.toISOString() convierte a UTC: entre medianoche y ~1-2h de
+  // madrugada (según el huso horario del entrenador) puede devolver el día
+  // anterior. Formateamos en local para que la fecha coincida con la que
+  // ve el usuario en pantalla.
+  const toLocalISODate = (date) => {
+    const d = new Date(date);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
   // ----------------------------- Mensajes / confirmación -----------------------------
   function mostrarMensaje(texto, tipo = "success") {
     let contenedor = document.getElementById("mensaje-flotante");
@@ -129,7 +141,7 @@ document.addEventListener("DOMContentLoaded", function () {
   }
 
   if (visFecha && !visFecha.value) {
-    visFecha.value = new Date().toISOString().slice(0, 10);
+    visFecha.value = toLocalISODate(new Date());
   }
 
   // ----------------------------- Visibilidad entrenos -----------------------------
@@ -669,13 +681,21 @@ const llenarModalDetalle = (data = {}) => {
       return null;
     }
 
-    return {
+    const payload = {
       atleta_id: parseInt(atletaId, 10),
       fecha: fechaSeleccionada,
       entrenamiento_id: Number(entrenamientoSeleccionado),
       nombre,
-      visible: 0, // se crean ocultos
     };
+
+    // Solo forzamos "oculto" al crear. Al editar (idEntrenamientoAsignado
+    // presente) omitimos "visible" para que el backend conserve el estado
+    // de publicación actual en vez de re-ocultar una sesión ya publicada.
+    if (!idEntrenamientoAsignado) {
+      payload.visible = 0;
+    }
+
+    return payload;
   }
 
   // ----------------------------- Abrir modales (nuevo / existente) -----------------------------
@@ -1004,7 +1024,7 @@ btnEditarBloques?.addEventListener("click", () => {
     const diff = day === 0 ? 1 : 8 - day;
     const lunes = new Date(hoy);
     lunes.setDate(hoy.getDate() + (day === 1 ? 0 : diff));
-    inputCicloFecha.value = lunes.toISOString().slice(0, 10);
+    inputCicloFecha.value = toLocalISODate(lunes);
     selectCicloAnclaje.value = "inicio";
     labelCicloFecha.textContent = "Fecha de inicio real";
     modalCiclo.show();

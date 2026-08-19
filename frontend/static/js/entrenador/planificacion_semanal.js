@@ -44,11 +44,22 @@ const showStatus = (message, type = "info") => {
   el.dataset.type = type;
 };
 
+// d.toISOString() convierte a UTC: entre medianoche y ~1-2h de madrugada
+// (según el huso horario del entrenador) eso puede devolver el día anterior.
+// Formateamos en local para que la fecha coincida con la que ve el usuario.
+const toLocalISODate = (date) => {
+  const d = new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 const mondayOf = (date) => {
   const d = new Date(date);
   const day = d.getDay() || 7;
   d.setDate(d.getDate() - day + 1);
-  return d.toISOString().slice(0, 10);
+  return toLocalISODate(d);
 };
 
 const sessionId = () => `s_${Date.now()}_${Math.random().toString(16).slice(2)}`;
