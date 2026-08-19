@@ -544,8 +544,21 @@ function renderProximosEntrenamientos() {
     const esProgramado = visibleValue === 2 || String(e.estado || "").toLowerCase() === "programado";
     const estadoTexto = esProgramado ? "Programado" : esVisible ? "Visible" : "Oculto";
     const statusClass = esProgramado ? "training-status--scheduled" : esVisible ? "training-status--visible" : "training-status--hidden";
+    // calendario.html (v1) necesita un atleta concreto para mostrar algo;
+    // sin eso solo pide "abre esto desde Mis atletas". Si el entrenamiento
+    // es de un único atleta, llevamos directamente a su calendario en
+    // atleta_planificacion.html (la vista v2); si es de grupo, no hay un
+    // único calendario que mostrar, así que llevamos a Planificar semana.
+    const atletasIds = String(e.atletas_ids || "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
+    const destino =
+      Number(e.num_atletas) === 1 && atletasIds.length === 1
+        ? `atleta_planificacion.html?atletaId=${encodeURIComponent(atletasIds[0])}`
+        : "planificacion_semanal.html";
     const primaryAction = esProgramado
-      ? { label: "Ver programación", kind: "link", href: "calendario.html" }
+      ? { label: "Ver programación", kind: "link", href: destino }
       : esVisible
         ? { label: "WhatsApp", kind: "link", href: "entrenamientos.html" }
         : { label: "Publicar", kind: "button" };
@@ -575,8 +588,8 @@ function renderProximosEntrenamientos() {
             ? '<button class="training-action training-action--primary" type="button" data-action="publish">Publicar</button>'
             : `<a class="training-action training-action--primary" href="${primaryAction.href}" data-action="primary">${primaryAction.label}</a>`
         }
-        <a class="training-action training-action--secondary" href="calendario.html" data-action="view">Ver</a>
-        <a class="training-action training-action--secondary" href="calendario.html" data-action="edit">Editar</a>
+        <a class="training-action training-action--secondary" href="${destino}" data-action="view">Ver</a>
+        <a class="training-action training-action--secondary" href="${destino}" data-action="edit">Editar</a>
       </div>
     `;
 
