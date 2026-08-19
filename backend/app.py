@@ -42,6 +42,7 @@ try:
         obtener_entrenamiento_asignado_autorizado,
         obtener_entrenamiento_plantilla_autorizado,
     )
+    from security.headers import apply_security_headers
 except ModuleNotFoundError:
     from backend.db import helpers as db_helpers
     from backend.routes.admin_users import create_admin_users_blueprint
@@ -70,6 +71,7 @@ except ModuleNotFoundError:
         obtener_entrenamiento_asignado_autorizado,
         obtener_entrenamiento_plantilla_autorizado,
     )
+    from backend.security.headers import apply_security_headers
 
 app = Flask(__name__, static_folder='../frontend/static')  # Configuración correcta de static_folder
 logger = logging.getLogger(__name__)
@@ -86,6 +88,13 @@ CORS(
     supports_credentials=True,
     resources={r"/*": {"origins": _cors_origins_list}},
 )
+
+
+@app.after_request
+def _apply_security_headers(response):
+    return apply_security_headers(response)
+
+
 app.config["SESSION_PERMANENT"] = False  # Las sesiones expiran cuando se cierra el navegador
 app.config["SESSION_TYPE"] = "filesystem"  # Almacena las sesiones en el sistema de archivos (para desarrollo)
 app.config["SESSION_FILE_DIR"] = "flask_session"  # Directorio para almacenar archivos de sesión
