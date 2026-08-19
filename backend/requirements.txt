@@ -15,3 +15,4 @@ fitparse==1.2.0
 fitdecode==0.10.0
 requests==2.32.3
 pytest==9.1.1
+gunicorn==26.1.0
