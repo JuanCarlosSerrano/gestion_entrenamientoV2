@@ -677,3 +677,95 @@ def test_entrenador_no_puede_marcar_feedback_de_atleta_ajeno(client):
         headers={"X-CSRF-Token": token},
     )
     assert resp.status_code == 403
+
+
+# --- Regresión: fugas de propiedad entrenador-atleta detectadas en la
+# revisión de 2026-08-19 (asignación de entrenamientos/ciclos, lectura de
+# historial, edición/borrado de plantillas y borrado de asignaciones). ---
+
+
+def test_entrenador_no_puede_asignar_entrenamiento_a_atleta_ajeno(client):
+    _set_session(client, user_id=1, rol="entrenador")
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+
+    resp = client.post(
+        "/entrenamientos_asignados",
+        json={"atletas_ids": [4], "entrenamiento_id": 1, "fecha": "2024-01-05"},
+        headers={"X-CSRF-Token": token},
+    )
+    assert resp.status_code == 403
+
+
+def test_entrenador_no_puede_asignar_por_lote_a_atleta_ajeno(client):
+    _set_session(client, user_id=1, rol="entrenador")
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+
+    resp = client.post(
+        "/asignar_entrenamiento_lote",
+        json={"atletas_ids": [4], "entrenamiento_id": 1, "fecha": "2024-01-05"},
+        headers={"X-CSRF-Token": token},
+    )
+    assert resp.status_code == 403
+
+
+def test_entrenador_no_puede_leer_historial_de_atleta_ajeno(client):
+    _set_session(client, user_id=1, rol="entrenador")
+    resp = client.get("/entrenamientos_asignados/4")
+    assert resp.status_code == 403
+
+
+def test_entrenador_puede_leer_historial_de_su_propio_atleta(client):
+    _set_session(client, user_id=1, rol="entrenador")
+    resp = client.get("/entrenamientos_asignados/3")
+    assert resp.status_code == 200
+
+
+def test_entrenador_no_puede_editar_plantilla_de_otro_entrenador(client):
+    _set_session(client, user_id=2, rol="entrenador")  # entrenamiento 1 es de coach 1
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+
+    resp = client.put(
+        "/entrenamientos/1",
+        json={
+            "nombre": "Plantilla modificada",
+            "pasos": [{"tipo_paso": "interval", "objetivo_valor": 5, "unidad": "km"}],
+        },
+        headers={"X-CSRF-Token": token},
+    )
+    assert resp.status_code == 403
+
+
+def test_entrenador_no_puede_borrar_plantilla_de_otro_entrenador(client):
+    _set_session(client, user_id=2, rol="entrenador")  # entrenamiento 1 es de coach 1
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+
+    resp = client.delete("/entrenamientos/1", headers={"X-CSRF-Token": token})
+    assert resp.status_code == 403
+
+    # La plantilla debe seguir existiendo para su dueño real
+    _set_session(client, user_id=1, rol="entrenador")
+    assert client.get("/entrenamientos/1").status_code == 200
+
+
+def test_entrenador_no_puede_asignar_ciclo_a_atleta_ajeno(client):
+    _set_session(client, user_id=1, rol="entrenador")
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+
+    resp = client.post(
+        "/ciclos/asignar",
+        json={"tipo": "micro", "ciclo_id": 1, "atletas": [4], "fecha_inicio": "2024-01-05"},
+        headers={"X-CSRF-Token": token},
+    )
+    assert resp.status_code == 403
+
+
+def test_entrenador_no_puede_borrar_asignacion_de_atleta_ajeno_ni_deja_huella(client):
+    _set_session(client, user_id=1, rol="entrenador")  # asignación 10 es del atleta 4 (coach 2)
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+
+    resp = client.delete("/entrenamientos_asignados/10", headers={"X-CSRF-Token": token})
+    assert resp.status_code == 403
+
+    # La asignación no debe haberse borrado (ni parcialmente) pese al 403
+    _set_session(client, user_id=2, rol="entrenador")
+    assert client.get("/entrenamientos_asignados/uno/10").status_code == 200

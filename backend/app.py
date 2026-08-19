@@ -37,6 +37,7 @@ try:
         entrenador_puede_acceder_atleta,
         obtener_atleta_autorizado,
         obtener_entrenamiento_asignado_autorizado,
+        obtener_entrenamiento_plantilla_autorizado,
     )
 except ModuleNotFoundError:
     from backend.db import helpers as db_helpers
@@ -64,6 +65,7 @@ except ModuleNotFoundError:
         entrenador_puede_acceder_atleta,
         obtener_atleta_autorizado,
         obtener_entrenamiento_asignado_autorizado,
+        obtener_entrenamiento_plantilla_autorizado,
     )
 
 app = Flask(__name__, static_folder='../frontend/static')  # Configuración correcta de static_folder
@@ -1339,8 +1341,8 @@ def get_entrenamiento_con_pasos(entrenamiento_id: int, current_user=None):
         conn.close()
         return None
     if current_user and current_user["rol"] == "entrenador":
-        creador = row.get("creador_id") if isinstance(row, dict) else row[6]
-        if creador not in (None, current_user.get("id")):
+        creador = row_get(row, "creador_id")
+        if creador not in (None, row_get(current_user, "id")):
             cur.close()
             conn.close()
             return None
@@ -1511,10 +1513,12 @@ def actualizar_entrenamiento(current_user, entrenamiento_id):
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
 
-            # 1) Comprobar que existe el entrenamiento
-            cur.execute("SELECT id FROM entrenamientos WHERE id = ?", (entrenamiento_id,))
-            if not cur.fetchone():
-                return jsonify({'error': 'Entrenamiento no encontrado'}), 404
+            # 1) Comprobar que existe el entrenamiento y que pertenece al entrenador
+            _plantilla, _plantilla_error = obtener_entrenamiento_plantilla_autorizado(
+                cur, current_user, entrenamiento_id
+            )
+            if _plantilla_error:
+                return jsonify({'error': _plantilla_error['error']}), _plantilla_error['status']
 
             # 3) Actualizar tabla principal de entrenamientos
             cur.execute(
@@ -1614,8 +1618,25 @@ def actualizar_entrenamiento(current_user, entrenamiento_id):
 @app.route('/entrenamientos/<int:id>', methods=['DELETE'])
 @requires_roles('admin', 'entrenador')  # Admin y Entrenador pueden eliminar
 def eliminar_entrenamiento(current_user, id):
-    execute_db('DELETE FROM entrenamientos WHERE id = ?', (id,))
-    return jsonify({'message': 'Entrenamiento eliminado exitosamente'}), 200
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        _plantilla, _plantilla_error = obtener_entrenamiento_plantilla_autorizado(cur, current_user, id)
+        if _plantilla_error:
+            return jsonify({'error': _plantilla_error['error']}), _plantilla_error['status']
+        cur.execute('DELETE FROM entrenamientos WHERE id = ?', (id,))
+        conn.commit()
+        return jsonify({'message': 'Entrenamiento eliminado exitosamente'}), 200
+    except Exception as e:
+        conn.rollback()
+        print("Error al eliminar entrenamiento:", e)
+        return jsonify({'error': 'Error al eliminar el entrenamiento'}), 500
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+        conn.close()
 
 # --- Rutas para Feedback (Ejemplo) ---
 
@@ -1625,6 +1646,38 @@ def atleta_pertenece_a_entrenador(atleta_id, entrenador_id):
     cur = conn.cursor()
     try:
         return permissions_atleta_pertenece_a_entrenador(cur, atleta_id, entrenador_id)
+    finally:
+        cur.close()
+        conn.close()
+
+
+def atletas_fuera_de_equipo(atletas_ids, entrenador_id):
+    """
+    Dado un listado de ids de atleta y un entrenador_id, devuelve el
+    subconjunto que NO pertenece a ese entrenador (rol 'atleta' con
+    entrenador_id = entrenador_id). Lista vacía = todos son suyos.
+
+    Centraliza la comprobación de propiedad que debe hacerse antes de
+    cualquier escritura masiva sobre atletas (asignar entrenamiento,
+    asignar ciclo, etc.) para evitar que un entrenador escriba sobre
+    atletas de otro entrenador.
+    """
+    atletas_ids = sorted({int(a) for a in atletas_ids})
+    if not atletas_ids:
+        return []
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        placeholders = ",".join(["?"] * len(atletas_ids))
+        cur.execute(
+            f"""
+            SELECT id FROM usuarios
+            WHERE rol = 'atleta' AND entrenador_id = ? AND id IN ({placeholders})
+            """,
+            tuple([entrenador_id] + atletas_ids),
+        )
+        permitidos = {row_get(row, "id") for row in cur.fetchall()}
+        return [a for a in atletas_ids if a not in permitidos]
     finally:
         cur.close()
         conn.close()
@@ -1941,6 +1994,11 @@ def crear_entrenamiento_asignado(current_user):
 
     visible = 1 if str(visible_raw) in ('1', 'true', 'True') else 0
 
+    if current_user["rol"] == "entrenador":
+        fuera = atletas_fuera_de_equipo(atletas_ids, current_user["id"])
+        if fuera:
+            return jsonify({"error": "Hay atletas fuera de tu equipo"}), 403
+
     try:
         asignados = asignar_entrenamiento_a_atletas(
             fecha=fecha_str,
@@ -1973,6 +2031,9 @@ def obtener_entrenamientos_asignados(current_user, atleta_id):
     try:
         # Si es atleta, sólo puede ver los suyos
         if session.get("user_rol") == "atleta" and session.get("user_id") != atleta_id:
+            return jsonify({'error': 'Acceso no autorizado'}), 403
+        # Si es entrenador, sólo puede ver los de sus propios atletas
+        if current_user["rol"] == "entrenador" and not atleta_pertenece_a_entrenador(atleta_id, current_user["id"]):
             return jsonify({'error': 'Acceso no autorizado'}), 403
         where = ["atleta_id = ?"]
         params = [atleta_id]
@@ -2172,19 +2233,19 @@ def eliminar_entrenamiento_asignado(current_user, id):
     cur = conn.cursor()
 
     try:
-        # Primero borramos pasos (por si no hay ON DELETE CASCADE)
-        cur.execute("""
-            DELETE FROM entrenamientos_asignados_detalle
-            WHERE entrenamiento_asignado_id = ?
-        """, (id,))
-
-        # Luego la cabecera
+        # 1) Comprobar existencia y permisos ANTES de borrar nada
         cur.execute("SELECT atleta_id FROM entrenamientos_asignados WHERE id = ?", (id,))
         actual = cur.fetchone()
         if not actual:
             return jsonify({'error': 'Entrenamiento asignado no encontrado'}), 404
         if current_user["rol"] == "entrenador" and not atleta_pertenece_a_entrenador(actual["atleta_id"], current_user["id"]):
             return jsonify({'error': 'No autorizado'}), 403
+
+        # 2) Borrar pasos (por si no hay ON DELETE CASCADE) y luego la cabecera
+        cur.execute("""
+            DELETE FROM entrenamientos_asignados_detalle
+            WHERE entrenamiento_asignado_id = ?
+        """, (id,))
         cur.execute("DELETE FROM entrenamientos_asignados WHERE id = ?", (id,))
 
         conn.commit()
@@ -2194,6 +2255,12 @@ def eliminar_entrenamiento_asignado(current_user, id):
         print("Error al eliminar entrenamiento asignado:", e)
         conn.rollback()
         return jsonify({'error': 'Error al eliminar entrenamiento asignado'}), 500
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+        conn.close()
 
 @app.route('/asignar_grupo_entrenamiento', methods=['POST'])
 @requires_roles('admin', 'entrenador')
@@ -3199,7 +3266,7 @@ def eliminar_sesion_planificacion(current_user, asignado_id):
         cur.close()
         conn.close()
 
-def asignar_ciclo_interno(tipo, ciclo_id, atletas, fecha_inicio_str, notas=None, anclar_en=None):
+def asignar_ciclo_interno(current_user, tipo, ciclo_id, atletas, fecha_inicio_str, notas=None, anclar_en=None):
     """
     Lógica central para asignar micro/meso/macro a atletas y generar entrenamientos reales.
     """
@@ -3229,6 +3296,11 @@ def asignar_ciclo_interno(tipo, ciclo_id, atletas, fecha_inicio_str, notas=None,
 
     if not atleta_ids:
         return jsonify({'error': 'Lista de atletas inválida'}), 400
+
+    if current_user["rol"] == "entrenador":
+        fuera = atletas_fuera_de_equipo(atleta_ids, current_user["id"])
+        if fuera:
+            return jsonify({'error': 'Hay atletas fuera de tu equipo'}), 403
 
     conn = get_db()
     cur = conn.cursor()
@@ -3427,7 +3499,7 @@ def asignar_ciclo(current_user):
     atletas = data.get('atletas') or []
     fecha_inicio_str = data.get('fecha_inicio')
     notas = (data.get('notas') or '').strip() or None
-    return asignar_ciclo_interno(tipo, ciclo_id, atletas, fecha_inicio_str, notas)
+    return asignar_ciclo_interno(current_user, tipo, ciclo_id, atletas, fecha_inicio_str, notas)
 
 @app.route('/ciclos/<tipo>/<int:ciclo_id>/asignaciones', methods=['POST'])
 @requires_roles('admin', 'entrenador')
@@ -3441,7 +3513,7 @@ def asignar_ciclo_alias(current_user, tipo, ciclo_id):
     atletas = data.get('atleta_ids') or data.get('atletas') or []
     notas = (data.get('notas') or '').strip() or None
     anclar_en = (data.get('anclar_en') or '').strip().lower() or None
-    return asignar_ciclo_interno(tipo, ciclo_id, atletas, fecha_inicio_str, notas, anclar_en)
+    return asignar_ciclo_interno(current_user, tipo, ciclo_id, atletas, fecha_inicio_str, notas, anclar_en)
         
 @app.route('/atletas_filtrados', methods=['GET'])
 @requires_roles('entrenador')
@@ -3482,6 +3554,13 @@ def asignar_entrenamiento_lote(current_user):
 
     if not fecha or not entrenamiento_id or not atletas_ids:
         return jsonify({"error": "Faltan datos requeridos"}), 400
+
+    try:
+        fuera = atletas_fuera_de_equipo(atletas_ids, current_user["id"])
+    except Exception:
+        return jsonify({"error": "Lista de atletas inválida"}), 400
+    if fuera:
+        return jsonify({"error": "Hay atletas fuera de tu equipo"}), 403
 
     try:
         asignados = asignar_entrenamiento_a_atletas(
