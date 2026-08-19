@@ -100,6 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function showUserForm() {
         userListContainer.style.display = 'none';
         userFormContainer.style.display = 'block';
+        document.getElementById('temp-password-alert').classList.add('d-none');
     }
 
     function hideUserForm() {
@@ -107,6 +108,22 @@ document.addEventListener('DOMContentLoaded', () => {
         userFormContainer.style.display = 'none';
         userForm.reset();
         editingUserId = null;
+    }
+
+    function updatePasswordFieldForMode() {
+        // Al crear, la contraseña temporal se genera siempre (no hay nada
+        // que elegir); al editar, es opcional forzar una nueva.
+        const checkbox = document.getElementById('reset-password');
+        const help = document.getElementById('password-help');
+        if (editingUserId) {
+            checkbox.checked = false;
+            checkbox.disabled = false;
+            help.textContent = 'Marca la casilla para generar una contraseña temporal nueva y forzar su cambio al iniciar sesión. Sin marcar, la contraseña actual no se toca.';
+        } else {
+            checkbox.checked = true;
+            checkbox.disabled = true;
+            help.textContent = 'Al crear un usuario siempre se genera una contraseña temporal aleatoria (no se puede elegir); se mostrará una única vez al guardar para que se la pases a la persona. Deberá cambiarla al iniciar sesión.';
+        }
     }
 
     // --------------------------------------------------
@@ -136,6 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('rol').value = user.rol;
 
             editingUserId = userId;
+            updatePasswordFieldForMode();
         } catch (error) {
             console.error('Error:', error);
             alert('Error al obtener los datos del usuario. Consulta la consola.');
@@ -152,12 +170,15 @@ document.addEventListener('DOMContentLoaded', () => {
         const nombre = document.getElementById('nombre').value.trim();
         const apellidos = document.getElementById('apellidos').value.trim();
         const email = document.getElementById('email').value.trim();
-        const password = document.getElementById('password').value;
+        const resetPassword = document.getElementById('reset-password').checked;
         const rol = document.getElementById('rol').value;
 
         const userData = { nombre, apellidos, email, rol };
-        if (password) {
-            userData.password = password;
+        if (resetPassword) {
+            // El backend siempre genera su propia contraseña temporal
+            // aleatoria; este valor solo actúa como bandera "sí, cambia la
+            // contraseña" y nunca se usa como contraseña real.
+            userData.password = '__generar_temporal__';
         }
 
         console.log('Datos que se envían:', userData, 'editingUserId:', editingUserId);
@@ -187,12 +208,24 @@ document.addEventListener('DOMContentLoaded', () => {
                     : 'Error al crear el usuario'));
             }
 
-            alert(result.message || (editingUserId
-                ? 'Usuario actualizado correctamente'
-                : 'Usuario creado correctamente'));
+            const tempPassword = result.temporary_password || result.password_temporal;
+            if (tempPassword) {
+                document.getElementById('temp-password-value').textContent = tempPassword;
+                document.getElementById('temp-password-user').textContent = `${nombre} ${apellidos} (${email})`;
+                document.getElementById('temp-password-alert').classList.remove('d-none');
+            } else {
+                alert(result.message || (editingUserId
+                    ? 'Usuario actualizado correctamente'
+                    : 'Usuario creado correctamente'));
+            }
 
             fetchUsers();
-            hideUserForm();
+            if (!tempPassword) {
+                hideUserForm();
+            } else {
+                userForm.reset();
+                editingUserId = null;
+            }
 
         } catch (error) {
             console.error('Error en saveUser:', error);
@@ -242,17 +275,20 @@ document.addEventListener('DOMContentLoaded', () => {
     // Eventos
     // --------------------------------------------------
 
-    createUserBtn.addEventListener('click', showUserForm);
+    createUserBtn.addEventListener('click', () => {
+        editingUserId = null;
+        showUserForm();
+        updatePasswordFieldForMode();
+    });
     cancelBtn.addEventListener('click', hideUserForm);
     userForm.addEventListener('submit', saveUser);
+    document.getElementById('btn-copy-temp-password')?.addEventListener('click', () => {
+        navigator.clipboard?.writeText(document.getElementById('temp-password-value').textContent || '');
+    });
 
     // --------------------------------------------------
     // Init
     // --------------------------------------------------
-
-    // Solo para desarrollo: credenciales del admin
-    localStorage.setItem('userEmail', 'admin@example.com');
-    localStorage.setItem('userPassword', 'admin1234');
 
     fetchUsers();
 });

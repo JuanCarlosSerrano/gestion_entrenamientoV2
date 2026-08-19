@@ -88,10 +88,17 @@
                     <label for="email" class="form-label">Correo Electrónico:</label>
                     <input type="email" class="form-control" id="email" name="email" required>
                 </div>
-                <div class="mb-3">
-                    <label for="password" class="form-label">Contraseña:</label>
-                    <input type="password" class="form-control" id="password" name="password">
-                    <small class="form-text text-muted">Dejar en blanco para no cambiar</small>
+                <div class="mb-3" id="password-field-wrap">
+                    <label class="form-label">Contraseña:</label>
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" id="reset-password">
+                        <label class="form-check-label" for="reset-password">Generar contraseña temporal nueva</label>
+                    </div>
+                    <small class="form-text text-muted" id="password-help">
+                        Al crear un usuario siempre se genera una contraseña temporal aleatoria (no se puede elegir);
+                        se mostrará una única vez al guardar para que se la pases a la persona. Deberá cambiarla al
+                        iniciar sesión.
+                    </small>
                 </div>
                 <div class="mb-3">
                     <label for="rol" class="form-label">Rol:</label>
@@ -106,6 +113,17 @@
                     <button type="button" id="cancel-btn" class="btn btn-secondary">Cancelar</button>
                 </div>
             </form>
+            <div id="temp-password-alert" class="alert alert-warning d-none mt-3" role="alert">
+                <strong>Contraseña temporal generada</strong>
+                <div class="d-flex align-items-center gap-2 mt-2">
+                    <code id="temp-password-value" class="fs-5"></code>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-copy-temp-password">Copiar</button>
+                </div>
+                <div class="small mt-2">
+                    Pásasela ahora a <strong id="temp-password-user"></strong>; no se volverá a mostrar. Deberá
+                    cambiarla al iniciar sesión.
+                </div>
+            </div>
         </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
