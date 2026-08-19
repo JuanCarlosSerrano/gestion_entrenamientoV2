@@ -1,126 +1,72 @@
 # Informe de seguridad para cliente final - MindPace V2
 
-Fecha: 18-08-2026
+Fecha: 19-08-2026 (revision del informe del 18-08-2026)
 
 ## Resumen
 
-MindPace V2 ha completado una revision de seguridad orientada a preparar la aplicacion para un uso mas seguro y una futura exposicion publica.
+Se ha vuelto a revisar la seguridad de MindPace V2 para confirmar que las mejoras aplicadas en la revisión anterior siguen vigentes y no se han deteriorado con el desarrollo posterior. La conclusión es positiva: **ningún control de seguridad se ha perdido**, y algunas comprobaciones se han reforzado porque las funcionalidades nuevas (planificación individual por atleta, publicación programada, feedback) incorporaron sus propias protecciones de acceso.
 
-El trabajo se ha centrado en proteger el acceso de usuarios, evitar altas no autorizadas, reforzar la gestion de contraseñas, limitar acciones por rol, proteger formularios y asegurar que los archivos subidos por los atletas se validan antes de procesarse.
+En paralelo, el desarrollo se centra ahora en tres funciones principales — crear entrenamiento, planificar y gestionar atletas — dejando en pausa el módulo de análisis y estadística hasta que esas tres funciones estén probadas a fondo. Esta revisión de seguridad cubre igualmente toda la aplicación, incluida la parte que queda en pausa, porque el código sigue publicado y accesible.
 
-## Que se ha reforzado
+## Qué se ha confirmado que sigue funcionando
 
-### Acceso a la aplicacion
+### Acceso a la aplicación
 
-El registro publico ha sido deshabilitado. A partir de ahora, los usuarios no pueden crear cuentas por si mismos desde internet.
-
-Las altas se realizan de forma controlada:
-
-- Un administrador puede crear usuarios autorizados.
-- Un entrenador puede crear solo atletas propios.
-- Un atleta no puede crear otros usuarios.
+El registro público sigue deshabilitado. Las altas de usuario se siguen haciendo de forma controlada por un administrador o por el propio entrenador, solo para sus atletas.
 
 ### Contraseñas
 
-Las contraseñas temporales ya no son fijas ni predecibles.
-
-Cuando se crea una cuenta o se resetea una contraseña:
-
-- la aplicacion genera una contraseña temporal segura;
-- solo se muestra una vez;
-- no se guarda en texto plano;
-- el usuario debe cambiarla antes de utilizar la aplicacion normalmente.
+Las contraseñas temporales se siguen generando de forma segura, se muestran una sola vez y nunca se guardan en texto plano. Sigue existiendo el cambio obligatorio antes de poder usar la aplicación con normalidad.
 
 ### Sesiones y login
 
-El inicio de sesion ha sido reforzado:
-
-- no se registran contraseñas en logs;
-- se limpia la sesion anterior al iniciar sesion;
-- existe una proteccion basica contra intentos repetidos de acceso;
-- las cookies de sesion estan configuradas con medidas de seguridad recomendadas.
+El inicio de sesión sigue sin registrar contraseñas en los logs, sigue limpiando la sesión anterior al iniciar una nueva, y sigue teniendo protección básica contra intentos repetidos.
 
 ### Permisos por rol
 
-Se han revisado los permisos principales:
-
-- Entrenador: solo puede gestionar sus atletas.
-- Atleta: solo puede ver sus entrenamientos publicados.
-- Administrador: puede gestionar usuarios segun la politica definida.
-
-Esto reduce el riesgo de que un usuario acceda a datos de otro atleta o entrenador.
+Aquí es donde más ha mejorado desde la revisión anterior: las funciones que se han construido después (planificación individual de cada atleta, publicación de entrenamientos, feedback) se han probado una a una para confirmar que un entrenador no puede ver ni modificar datos de un atleta que no es suyo. Antes esta comprobación cubría el núcleo de la aplicación; ahora cubre también estas ampliaciones.
 
 ### Formularios y acciones sensibles
 
-Las acciones que modifican datos usan proteccion CSRF. Esto ayuda a evitar que una pagina externa intente ejecutar acciones dentro de MindPace aprovechando una sesion abierta.
+La protección contra formularios falsificados (CSRF) sigue activa en todas las acciones que modifican datos, incluidas las más recientes como el feedback.
 
 ### Subida de archivos
 
-La subida de archivos ha sido endurecida:
+Las reglas para fotos de perfil y archivos de actividad deportiva (FIT) se mantienen sin cambios: solo se aceptan los formatos previstos y los archivos se guardan con nombres generados por el servidor.
 
-- Foto de perfil: solo JPG, PNG o WEBP.
-- Actividad deportiva: solo archivos FIT.
-- Los archivos FIT se guardan con nombres generados por el servidor.
-- Se valida que el archivo pertenece a un entrenamiento del atleta antes de guardarlo.
+### Conservación del historial
 
-### Conservacion del historial
+Los atletas con historial siguen archivándose en vez de eliminarse. No se ha detectado ningún cambio que ponga esto en riesgo.
 
-Los atletas con entrenamientos, feedback o historico asociado ya no se eliminan fisicamente.
+## Punto pendiente de la revisión anterior: resuelto
 
-En su lugar se archivan, conservando la trazabilidad de la planificacion, sesiones, respuestas y datos historicos.
+La revisión anterior señalaba archivos técnicos (sesiones locales, bases de datos, copias de seguridad) que estaban registrados en el control de versiones del repositorio. Se ha comprobado de nuevo y **ese punto ya no existe**: ninguno de esos archivos está en el repositorio a día de hoy.
 
-## Resultado de validacion
+## Resultado de la validación de esta revisión
 
-Se ha ejecutado la suite de pruebas del backend.
+Se ha vuelto a ejecutar la suite completa de pruebas automáticas del backend.
 
 Resultado:
 
 ```text
-46 pruebas superadas
+85 pruebas superadas
 ```
 
-Estas pruebas cubren login, permisos, altas, resets de contraseña, CSRF, subida de archivos, publicacion y proteccion de datos entre entrenadores y atletas.
+De esas, 46 son pruebas específicas de seguridad (login, permisos, altas, resets de contraseña, CSRF, subida de archivos, publicación y protección de datos entre entrenadores y atletas) — el mismo número que en la revisión anterior, ahora ampliado con casos nuevos para las funciones construidas después. Las 39 restantes son pruebas funcionales del resto de la aplicación.
 
 ## Estado actual
 
-MindPace V2 queda en una base mas segura para continuar el desarrollo.
+MindPace V2 mantiene la base de seguridad establecida en la revisión anterior, sin regresiones, y con cobertura de permisos ampliada a las funciones más recientes.
 
-Los principales riesgos corregidos son:
+## Puntos pendientes antes de un uso público (sin cambios de fondo respecto a la revisión anterior)
 
-- altas publicas no autorizadas;
-- contraseñas temporales fijas;
-- credenciales en logs;
-- uso de la app sin cambiar contraseña temporal;
-- subida de archivos no controlada;
-- borrado accidental de atletas con historico.
+1. Activar cookies seguras (`SESSION_COOKIE_SECURE`) en cuanto exista un entorno con HTTPS.
+2. Configurar solo el dominio real como origen permitido cuando exista.
+3. Usar un servidor de producción, no el servidor de desarrollo de Flask.
+4. Preparar un almacenamiento de sesiones y un control de intentos de login pensado para producción, no solo para un único proceso en desarrollo.
+5. Mantener secretos fuera del repositorio (ya se cumple; mantenerlo como práctica).
+6. Realizar una auditoría o pentest externo antes de abrir acceso público.
 
-## Punto pendiente antes de publicar
+## Conclusión
 
-Existe una tarea tecnica pendiente relacionada con el repositorio de codigo: se han detectado archivos de desarrollo ya versionados, como sesiones locales, bases de datos SQLite y backups.
-
-No se han eliminado automaticamente porque requiere una decision tecnica y controlada.
-
-Antes de publicar el repositorio o abrirlo a terceros, se recomienda:
-
-- retirar esos archivos del control de versiones;
-- revisar si contienen datos reales;
-- limpiar el historico Git si procede;
-- rotar credenciales si algun archivo contiene secretos.
-
-## Recomendaciones para produccion
-
-Antes de poner MindPace V2 en un entorno publico:
-
-1. Usar HTTPS obligatorio.
-2. Activar cookies seguras.
-3. Configurar solo el dominio real como origen permitido.
-4. Usar un servidor de produccion, no el servidor de desarrollo de Flask.
-5. Usar almacenamiento de sesiones preparado para produccion.
-6. Mantener secretos fuera del repositorio.
-7. Realizar una auditoria o pentest externo antes de abrir acceso publico.
-
-## Conclusion
-
-El sprint de seguridad ha cerrado vulnerabilidades importantes y ha establecido una politica clara de acceso, contraseñas, permisos y tratamiento de datos historicos.
-
-MindPace V2 no debe considerarse aun listo para exposicion publica sin completar la limpieza del repositorio y la configuracion de produccion, pero la aplicacion queda preparada sobre una base mucho mas segura para continuar el desarrollo.
+La base de seguridad establecida en la revisión anterior se mantiene intacta y se ha reforzado de forma natural al construir las últimas funciones. MindPace V2 sigue sin estar lista para exposición pública sin completar la configuración de producción (HTTPS, servidor de producción, sesiones), pero no hay ningún retroceso de seguridad que corregir antes de continuar el desarrollo centrado en crear entrenamiento, planificar y gestionar atletas.

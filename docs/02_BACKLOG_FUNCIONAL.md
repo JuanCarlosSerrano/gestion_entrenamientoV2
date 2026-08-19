@@ -4,6 +4,8 @@
 
 **Método:** auditoría de código (rutas Flask, servicios, tests y pantallas del frontend), no autodeclaración. Cada estado abajo referencia el fichero que lo sostiene. Un módulo puede llevar meses funcionando en la app aunque este documento llevara igual de tiempo sin actualizarse — así estaba antes de esta revisión, y es la razón de que existiera este backlog "fantasma" con todo en `Pendiente`.
 
+**Foco actual (decisión 2026-08-19):** el desarrollo se concentra en tres pilares — Módulo 3 (creación de entrenamiento), Módulo 4 + Módulo 13 (planificación semanal e individual) y Módulo 15 (gestión de atletas) — hasta que estén sólidos y probados. Los Módulos 9, 10 y 11 (revisión, historial, estadísticas) quedan **en pausa deliberada**, no descartados: su estado de código no cambia, pero no reciben esfuerzo nuevo por ahora.
+
 ## Leyenda de estado
 
 - **Hecho** — implementación real presente en `main` y verificable en código.

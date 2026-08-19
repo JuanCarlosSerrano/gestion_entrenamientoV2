@@ -26,7 +26,17 @@ Esta hoja de ruta describía el plan cuando todo estaba por construir. A día de
 
 Además existen pantallas construidas que no aparecen en ninguna fase de este documento (Grupos, Ciclos, Calendario, Gestión de plantillas, Análisis de atleta, Perfil de atleta, Editor de entrenamiento asignado) — ver Módulo 16 de `02_BACKLOG_FUNCIONAL.md`.
 
-Consecuencia práctica: el trabajo pendiente real no es "seguir el orden de fases 0→12" tal como está escrito abajo, sino cerrar la Fase 8 (Revisión del entrenador) y luego la Fase 12 (pulido, navegación, limpieza, tests de los flujos principales). El resto del documento se conserva como referencia de diseño de cada fase, no como plan de ejecución vigente.
+### Foco actual (decisión 2026-08-19): tres pilares, análisis en pausa
+
+Aunque casi todo lo de la tabla está construido, el criterio para seguir avanzando ha cambiado: en vez de repartir esfuerzo entre todos los módulos hechos, el foco se concentra en dejar sólidos y probados a fondo solo tres pilares:
+
+1. Crear entrenamiento (Fase 2, Módulo 3).
+2. Planificar — semanal e individual por atleta (Fase 3, Módulo 4; Bloque de planificación individual, Módulo 13).
+3. Gestionar atletas (Bloque de configuración, Módulo 15).
+
+El módulo de análisis y estadística (Fases 9 y 11, Módulos 10 y 11 del backlog: historial, comparación plan vs. real, estadísticas) **queda en pausa deliberadamente** — no se retira ni se rehace, simplemente no se invierte más esfuerzo ahí hasta que los tres pilares de arriba funcionen y estén probados de forma fiable. La Fase 8 (Revisión del entrenador), al depender de ese mismo material de análisis, queda en pausa por la misma razón.
+
+Consecuencia práctica: el trabajo pendiente real ahora mismo es hardening y pruebas sobre crear entrenamiento, planificación y gestión de atletas — no avanzar en análisis/estadísticas ni en la Fase 8, y tampoco seguir el orden original de fases 0→12 tal como está escrito abajo. El resto del documento se conserva como referencia de diseño de cada fase, no como plan de ejecución vigente.
 
 ## 1. Decisión principal
 
