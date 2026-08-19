@@ -68,7 +68,15 @@ async function fetchJson(path, options = {}) {
     },
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "Error de servidor");
+  if (!res.ok) {
+    const mensaje =
+      res.status === 401 || res.status === 403
+        ? "Tu sesión no tiene permiso de entrenador para esto. Vuelve a iniciar sesión e inténtalo de nuevo."
+        : data.error || "Error de servidor";
+    const error = new Error(mensaje);
+    error.status = res.status;
+    throw error;
+  }
   return data;
 }
 
@@ -206,16 +214,32 @@ async function publishIds(ids) {
   }
 }
 
+function showScheduleError(message) {
+  const el = $("#schedule-error");
+  if (!el) return;
+  if (!message) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  el.hidden = false;
+  el.textContent = message;
+}
+
 function openSchedule(ids) {
   state.pendingScheduleIds = ids;
   const first = state.sesiones.find((item) => Number(item.id) === Number(ids[0]));
   $("#schedule-datetime").value = first?.publicar_en ? String(first.publicar_en).slice(0, 16).replace(" ", "T") : "";
+  showScheduleError(null);
   bootstrap.Modal.getOrCreateInstance($("#scheduleModal")).show();
 }
 
 async function submitSchedule(event) {
   event.preventDefault();
+  showScheduleError(null);
+  const submitBtn = $("#schedule-submit");
   setBusy(true);
+  if (submitBtn) submitBtn.disabled = true;
   try {
     await writeJson("/planificacion/publicacion/programar", "POST", {
       ids: state.pendingScheduleIds,
@@ -227,9 +251,14 @@ async function submitSchedule(event) {
     await loadPendientes();
     showMessage("Publicación programada.", "success");
   } catch (err) {
-    showMessage(err.message || "No se pudo programar.", "error");
+    // Se muestra dentro del propio modal -- si solo se actualizaba el
+    // resumen de la página, con el modal abierto tapándola, un fallo
+    // (p.ej. sesión sin permiso de entrenador) podía parecer que el
+    // botón "Guardar" simplemente no hacía nada.
+    showScheduleError(err.message || "No se pudo programar. Inténtalo de nuevo.");
   } finally {
     setBusy(false);
+    if (submitBtn) submitBtn.disabled = false;
   }
 }
 

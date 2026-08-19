@@ -83,10 +83,11 @@
         <div class="modal-body">
           <label class="form-label" for="schedule-datetime">Fecha y hora</label>
           <input class="form-control" id="schedule-datetime" type="datetime-local" required>
+          <p id="schedule-error" class="text-danger small mt-2 mb-0" hidden></p>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
-          <button type="submit" class="btn btn-brand">Guardar</button>
+          <button type="submit" class="btn btn-brand" id="schedule-submit">Guardar</button>
         </div>
       </form>
     </div>
