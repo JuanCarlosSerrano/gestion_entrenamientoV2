@@ -800,17 +800,6 @@ function buildSelectField(label, options, value, onChange, defaultValue = null, 
 }
 
 
-const autoFormatMmss = (value) => {
-  const digits = (value || '').replace(/\D/g, '');
-  if (!digits) return '';
-  if (digits.length <= 2) {
-    return `0:${digits.padStart(2, '0')}`;
-  }
-  const mins = digits.slice(0, -2);
-  const secs = digits.slice(-2);
-  return `${Number(mins)}:${secs.padStart(2, '0')}`;
-};
-
 function buildNumberField(label, value, onChange, wrapperClass = '', options = {}) {
   const wrapper = document.createElement('div');
   wrapper.className = ['mb-3', wrapperClass].filter(Boolean).join(' ').trim();
@@ -1198,25 +1187,25 @@ function buildStepCard(step, siblings, index) {
         )
       );
     } else if (step.objetivo_tipo === 'tiempo') {
-      const timeField = buildTextField(
-        'Valor (mm:ss)',
-        step.objetivo_valor ?? '',
-        (value) => {
-          const formatted = autoFormatMmss(value);
-          step.objetivo_valor = formatted || null;
-        },
-        'col-md-3'
+      // Campo numérico simple, igual que en "distancia": el valor se
+      // interpreta en la unidad elegida al lado (min o s). Antes este
+      // campo era de texto con autoformato "mm:ss", pero el backend
+      // interpreta un valor con ":" como minutos:segundos y lo convierte
+      // a segundos totales -- con una unidad "s" ya explícita, escribir
+      // p.ej. "150" (150 segundos) se autoformateaba a "1:50" y se
+      // guardaba como 110, no 150. El campo numérico evita esa doble
+      // conversión.
+      rowValues.appendChild(
+        buildNumberField(
+          'Valor',
+          step.objetivo_valor ?? '',
+          (value) => {
+            step.objetivo_valor = value === null ? null : value;
+          },
+          'col-md-3',
+          { step: 1, min: 0 }
+        )
       );
-      const input = timeField.querySelector('input');
-      if (input) {
-        input.placeholder = 'mm:ss';
-        input.inputMode = 'numeric';
-        input.addEventListener('input', (event) => {
-          const formatted = autoFormatMmss(event.target.value);
-          event.target.value = formatted;
-        });
-      }
-      rowValues.appendChild(timeField);
     } else {
       rowValues.appendChild(
         buildTextField(
@@ -1230,25 +1219,34 @@ function buildStepCard(step, siblings, index) {
         )
       );
     }
+    // Las unidades disponibles dependen del tipo de objetivo: un bloque de
+    // tiempo (calentamiento, recuperación dentro de series, etc.) puede
+    // medirse en minutos o en segundos -- una recuperación de "90" suele
+    // ser 90 segundos, no 90 minutos -- así que el selector debe permitir
+    // elegir entre ambos en vez de forzar "min" y bloquearlo.
+    const unidadesPorTipo = {
+      tiempo: ['min', 's'],
+      distancia: ['m', 'km'],
+    };
+    const unidadOpciones = unidadesPorTipo[step.objetivo_tipo] || UNIDADES;
+    const unidadDefault = unidadOpciones[0] || 'm';
     const unidadField = buildSelectField(
       'Unidad',
-      UNIDADES.map((u) => ({ value: u, label: u || '-' })),
+      unidadOpciones.map((u) => ({ value: u, label: u || '-' })),
       step.unidad || '',
       (value) => {
         step.unidad = value || null;
       },
-      'm',
+      unidadDefault,
       'col-md-3'
     );
     const unidadSelect = unidadField.querySelector('select');
     if (unidadSelect) {
-      if (step.objetivo_tipo === 'tiempo') {
-        unidadSelect.value = 'min';
-        unidadSelect.disabled = true;
-      } else if (step.objetivo_tipo === 'libre') {
-        unidadSelect.disabled = true;
-      } else {
-        unidadSelect.disabled = false;
+      unidadSelect.disabled = step.objetivo_tipo === 'libre';
+      if (!step.unidad && step.objetivo_tipo !== 'libre') {
+        // Si el paso no traía unidad (p.ej. plantilla nueva), fijamos el
+        // valor por defecto también en el modelo, no solo en el <select>.
+        step.unidad = unidadDefault;
       }
     }
     rowValues.appendChild(unidadField);
