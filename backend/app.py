@@ -1865,6 +1865,25 @@ def clonar_entrenamiento_para_atleta(
         now = datetime.now().isoformat(" ")
         nombre_final = nombre_override if nombre_override else entrenamiento["nombre"]
 
+        km_previstos = entrenamiento["km_totales"] if entrenamiento["km_totales"] is not None else 0
+        try:
+            cur.execute(
+                """
+                SELECT id, parent_id, tipo_paso, repeticiones, objetivo_tipo,
+                       objetivo_valor, unidad, zona
+                FROM entrenamientos_detalle
+                WHERE entrenamiento_id = ?
+                """,
+                (entrenamiento_id,),
+            )
+            pasos_plantilla = [dict(p) for p in cur.fetchall()]
+            zonas_atleta = obtener_zonas_atleta_por_fecha(cur, atleta_id, fecha_str)
+            km_personalizado = _km_totales_personalizado(pasos_plantilla, zonas_atleta)
+            if km_personalizado is not None and km_personalizado > 0:
+                km_previstos = km_personalizado
+        except Exception as e:
+            print("Aviso: no se pudo personalizar km_previstos, se usa el km_totales de la plantilla:", e)
+
         cur.execute(
             """
             INSERT INTO entrenamientos_asignados (
@@ -1887,7 +1906,7 @@ def clonar_entrenamiento_para_atleta(
                 nombre_final,
                 entrenamiento["objetivo"],
                 entrenamiento["notas"],
-                entrenamiento["km_totales"] if entrenamiento["km_totales"] is not None else 0,
+                km_previstos,
                 now,
                 now,
             ),
@@ -2187,6 +2206,23 @@ def editar_entrenamiento_asignado(current_user, id):
         objetivo = ent_base['objetivo']
         notas = ent_base['notas']
         km_previstos = ent_base['km_totales'] if ent_base['km_totales'] is not None else 0
+        try:
+            cur.execute(
+                """
+                SELECT id, parent_id, tipo_paso, repeticiones, objetivo_tipo,
+                       objetivo_valor, unidad, zona
+                FROM entrenamientos_detalle
+                WHERE entrenamiento_id = ?
+                """,
+                (entrenamiento_id_nuevo,),
+            )
+            pasos_plantilla = [dict(p) for p in cur.fetchall()]
+            zonas_atleta = obtener_zonas_atleta_por_fecha(cur, actual["atleta_id"], fecha_str)
+            km_personalizado = _km_totales_personalizado(pasos_plantilla, zonas_atleta)
+            if km_personalizado is not None and km_personalizado > 0:
+                km_previstos = km_personalizado
+        except Exception as e:
+            print("Aviso: no se pudo personalizar km_previstos al editar, se usa el km_totales de la plantilla:", e)
 
         # Actualizar cabecera
         cur.execute("""
@@ -2451,6 +2487,24 @@ def clonar_entrenamiento_planificacion(cur, *, atleta_id, fecha, entrenamiento_i
     now = datetime.now().isoformat(" ")
     nombre_final = (nombre or "").strip() or ent["nombre"]
 
+    km_previstos = ent["km_totales"] if ent["km_totales"] is not None else 0
+    try:
+        cur.execute(
+            """
+            SELECT id, parent_id, tipo_paso, repeticiones, objetivo_tipo,
+                   objetivo_valor, unidad, zona
+            FROM entrenamientos_detalle
+            WHERE entrenamiento_id = ?
+            """,
+            (ent["id"],),
+        )
+        pasos_plantilla = [dict(p) for p in cur.fetchall()]
+        km_personalizado = _km_totales_personalizado(pasos_plantilla, zonas_snapshot.get("zonas"))
+        if km_personalizado is not None and km_personalizado > 0:
+            km_previstos = km_personalizado
+    except Exception as e:
+        print("Aviso: no se pudo personalizar km_previstos (plan semanal), se usa el km_totales de la plantilla:", e)
+
     cur.execute(
         """
         INSERT INTO entrenamientos_asignados (
@@ -2475,7 +2529,7 @@ def clonar_entrenamiento_planificacion(cur, *, atleta_id, fecha, entrenamiento_i
             nombre_final,
             ent["objetivo"],
             ent["notas"],
-            ent["km_totales"] if ent["km_totales"] is not None else 0,
+            km_previstos,
             now,
             now,
             zonas_snapshot.get("vdot_usado"),
@@ -2489,7 +2543,7 @@ def clonar_entrenamiento_planificacion(cur, *, atleta_id, fecha, entrenamiento_i
         upsert_km_realizados(
             cur,
             asignado_id,
-            ent["km_totales"] if ent["km_totales"] is not None else None,
+            km_previstos,
             None,
             now,
         )
@@ -6045,6 +6099,84 @@ def _zona_mas_cercana(pace_seg, zonas_seg):
             mejor = zona
             mejor_diff = diff
     return mejor
+
+
+def _km_totales_personalizado(pasos, zonas_atleta):
+    """
+    Km totales de una sesión ya asignada a un atleta concreto.
+
+    Los bloques por distancia se suman tal cual. Los bloques por tiempo
+    (p.ej. "calentamiento 20' en Z1") se convierten a km usando el ritmo
+    personalizado del atleta para esa zona -- VDOT si está disponible,
+    si no la tabla de zonas (mismo criterio que _resumen_zonas_plan,
+    que ya usa el análisis plan vs. real). La contribución de cada
+    bloque por tiempo se redondea a km enteros antes de sumarla, para
+    que el desglose sea legible: 20' a un ritmo de Z1 5:00/km son 4 km,
+    no 4.0000...
+
+    Devuelve None si no hay ninguna zona registrada para ese atleta --
+    el llamador decide entonces si usar el km_totales genérico de la
+    plantilla como respaldo.
+    """
+    if not pasos or not zonas_atleta:
+        return None
+
+    zonas_seg = _zonas_ritmo_en_segundos(zonas_atleta)
+    try:
+        vdot_val = float(zonas_atleta.get('vdot_val')) if zonas_atleta.get('vdot_val') is not None else None
+    except Exception:
+        vdot_val = None
+
+    if not zonas_seg and not vdot_val:
+        return None
+
+    children = {}
+    for p in pasos:
+        children.setdefault(p.get('parent_id'), []).append(p)
+
+    total = 0.0
+
+    def _calc(parent_id):
+        nonlocal total
+        for paso in children.get(parent_id, []):
+            tipo = paso.get('tipo_paso') or paso.get('tipo')
+            try:
+                rep = int(paso.get('repeticiones') or 1)
+            except Exception:
+                rep = 1
+            if tipo == 'repeat':
+                for _ in range(rep):
+                    _calc(paso.get('id'))
+                continue
+
+            objetivo_tipo = (paso.get('objetivo_tipo') or '').lower()
+            unidad = (paso.get('unidad') or '').lower()
+            val = paso.get('objetivo_valor')
+
+            if objetivo_tipo in ('distancia', 'distance', 'dist') or unidad in ('km', 'kilometro', 'kilometros', 'm', 'metro', 'metros'):
+                try:
+                    v = float(val)
+                    total += v / 1000.0 if unidad in ('m', 'metro', 'metros') else v
+                except Exception:
+                    pass
+            elif objetivo_tipo in ('tiempo', 'duracion', 'time') or unidad in ('s', 'seg', 'segundo', 'segundos', 'sec', 'secs', 'min', 'mins', 'minuto', 'minutos', 'h', 'hora', 'horas'):
+                tiempo_seg = _segundos_desde_unidad(val, unidad)
+                if tiempo_seg:
+                    zona_raw = paso.get('zona')
+                    zona = None
+                    if zona_raw is not None:
+                        z = str(zona_raw).strip()
+                        if z.lower().startswith('z'):
+                            z = z[1:]
+                        if z:
+                            zona = f"Z{z}"
+                    ritmo_vdot = _vdot_ritmo_seg_desde_zona(vdot_val, zona) if vdot_val else None
+                    ritmo_ref = ritmo_vdot or zonas_seg.get(zona)
+                    if ritmo_ref:
+                        total += round(tiempo_seg / ritmo_ref)
+
+    _calc(None)
+    return round(total, 2)
 
 
 def _resumen_zonas_plan(pasos, zonas_atleta):

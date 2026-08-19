@@ -17,7 +17,9 @@ CREATE TABLE usuarios (
     aprobado INTEGER DEFAULT 1,
     categoria TEXT,
     grupo TEXT,
-    subgrupo TEXT
+    subgrupo TEXT,
+    vdot_val REAL,
+    vdot_fecha TEXT
 );
 CREATE TABLE entrenamientos (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,7 +65,25 @@ CREATE TABLE entrenamientos_asignados (
     objetivo TEXT,
     notas TEXT,
     km_previstos REAL DEFAULT 0,
-    visible INTEGER DEFAULT 0
+    visible INTEGER DEFAULT 0,
+    ciclo_tipo TEXT,
+    ciclo_id INTEGER,
+    macrociclo_id INTEGER,
+    mesociclo_id INTEGER,
+    microciclo_id INTEGER,
+    created_at TEXT,
+    updated_at TEXT
+);
+CREATE TABLE zonas_entrenamiento (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    atleta_id INTEGER,
+    vam REAL,
+    vdot_val REAL,
+    z1 TEXT, z2 TEXT, z3 TEXT, z4 TEXT, z5 TEXT, z6 TEXT,
+    fc_z1 REAL, fc_z2 REAL, fc_z3 REAL, fc_z4 REAL, fc_z5 REAL, fc_z6 REAL,
+    metodo TEXT,
+    fecha_inicio TEXT,
+    fecha_fin TEXT
 );
 CREATE TABLE entrenamientos_asignados_detalle (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -273,6 +293,96 @@ def test_actualizar_entrenamiento_rechaza_sin_pasos(client):
 
     assert resp.status_code == 400
     assert "al menos un bloque" in resp.get_json()["error"]
+
+
+def test_km_totales_personalizado_convierte_bloques_por_tiempo(client):
+    # Mismo ejemplo que describió el usuario: calentamiento de 20' en Z1,
+    # el atleta tiene Z1 a 5:00 min/km -> 4 km. Se suma con un bloque por
+    # distancia (5 km) tal cual, sin conversión.
+    import backend.app as app_module
+
+    pasos = [
+        {
+            "id": 1, "parent_id": None, "tipo_paso": "warmup",
+            "objetivo_tipo": "tiempo", "objetivo_valor": 20, "unidad": "min", "zona": "Z1",
+        },
+        {
+            "id": 2, "parent_id": None, "tipo_paso": "interval",
+            "objetivo_tipo": "distancia", "objetivo_valor": 5, "unidad": "km", "zona": "Z3",
+        },
+    ]
+    zonas_atleta = {"z1": 5.0}  # zonas_entrenamiento.z1 guarda minutos/km en decimal, 5.0 = 5:00/km
+
+    total = app_module._km_totales_personalizado(pasos, zonas_atleta)
+    assert total == pytest.approx(9.0)  # 4 km (20'/5:00) + 5 km
+
+
+def test_km_totales_personalizado_multiplica_por_repeticiones(client):
+    import backend.app as app_module
+
+    pasos = [
+        {
+            "id": 1, "parent_id": None, "tipo_paso": "repeat", "repeticiones": 4,
+        },
+        {
+            "id": 2, "parent_id": 1, "tipo_paso": "interval",
+            "objetivo_tipo": "tiempo", "objetivo_valor": 3, "unidad": "min", "zona": "Z2",
+        },
+    ]
+    zonas_atleta = {"z2": 3.0}  # 3' a ritmo 3:00/km = 1 km por repetición
+
+    total = app_module._km_totales_personalizado(pasos, zonas_atleta)
+    assert total == pytest.approx(4.0)  # 4 repeticiones × 1 km
+
+
+def test_km_totales_personalizado_sin_zonas_devuelve_none(client):
+    # Sin zonas registradas no hay ritmo con el que convertir tiempo a km;
+    # el llamador debe caer al km_totales genérico de la plantilla.
+    import backend.app as app_module
+
+    pasos = [{"id": 1, "parent_id": None, "tipo_paso": "warmup", "objetivo_tipo": "tiempo", "objetivo_valor": 20, "unidad": "min", "zona": "Z1"}]
+    assert app_module._km_totales_personalizado(pasos, None) is None
+    assert app_module._km_totales_personalizado(pasos, {}) is None
+
+
+def test_asignar_entrenamiento_calcula_km_previstos_personalizado(client):
+    # Extremo a extremo: asignar una plantilla con un bloque por tiempo a
+    # un atleta con zonas registradas debe guardar km_previstos calculado
+    # con su ritmo, no el km_totales genérico de la plantilla (10.0).
+    import backend.app as app_module
+
+    conn = sqlite3.connect(app_module.DATABASE)
+    conn.execute(
+        """
+        INSERT INTO entrenamientos_detalle
+            (id, entrenamiento_id, parent_id, orden, tipo_paso, objetivo_tipo, objetivo_valor, unidad, zona)
+        VALUES (20, 3, NULL, 1, 'warmup', 'tiempo', 20, 'min', 'Z1')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO zonas_entrenamiento (atleta_id, vam, z1, fecha_inicio, fecha_fin)
+        VALUES (4, 18.0, 5.0, '2024-01-01', NULL)
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    _set_session(client, user_id=2, rol="entrenador")
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+    resp = client.post(
+        "/entrenamientos_asignados",
+        json={"atleta_id": 4, "entrenamiento_id": 3, "fecha": "2026-08-20"},
+        headers={"X-CSRF-Token": token},
+    )
+    assert resp.status_code == 201
+
+    conn = sqlite3.connect(app_module.DATABASE)
+    row = conn.execute(
+        "SELECT km_previstos FROM entrenamientos_asignados WHERE entrenamiento_id = 3 AND fecha = '2026-08-20'"
+    ).fetchone()
+    conn.close()
+    assert row[0] == pytest.approx(4.0)  # 20' en Z1 a 5:00/km, no los 10.0 de la plantilla
 
 
 def test_resultados_guardan_km_por_bloque_y_total(client):

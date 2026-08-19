@@ -963,10 +963,6 @@ const renderGuiadoStep = () => {
           <label class="form-label">Notas</label>
           <input type="text" class="form-control" id="guiado-notas" value="${guiadoData.info.notas || ''}" />
         </div>
-        <div class="col-md-4">
-          <label class="form-label">Km totales</label>
-          <input type="number" class="form-control" id="guiado-km" value="${guiadoData.info.km || ''}" step="0.1" min="0" />
-        </div>
       </div>
     `;
     return;
@@ -1021,11 +1017,9 @@ const collectGuiadoInfo = () => {
   const nombre = document.getElementById('guiado-nombre');
   const objetivo = document.getElementById('guiado-objetivo');
   const notas = document.getElementById('guiado-notas');
-  const km = document.getElementById('guiado-km');
   if (nombre) guiadoData.info.nombre = nombre.value.trim();
   if (objetivo) guiadoData.info.objetivo = objetivo.value.trim();
   if (notas) guiadoData.info.notas = notas.value.trim();
-  if (km) guiadoData.info.km = km.value.trim();
 };
 
 const collectGuiadoBloques = () => {
@@ -1047,12 +1041,43 @@ const openGuiadoModal = () => {
   modal?.show();
 };
 
+// Suma los bloques por distancia del entrenamiento (mismo criterio que
+// calcular_km_totales_desde_pasos en el backend: solo bloques con
+// objetivo_tipo "distancia", "repeat" multiplica por repeticiones). Los
+// bloques por tiempo no se pueden convertir a km sin el ritmo real de un
+// atleta, así que aquí no cuentan -- esa conversión se hace al asignar.
+function calcularKmTotalesDesdePasos(pasos) {
+  let totalMetros = 0;
+  const rec = (step, factor = 1) => {
+    const tipo = (step.tipo_paso || '').toLowerCase();
+    const reps = step.repeticiones || 1;
+    const objetivoTipo = (step.objetivo_tipo || '').toLowerCase();
+    const unidad = (step.unidad || '').toLowerCase();
+    const valor = Number(step.objetivo_valor) || 0;
+    if (objetivoTipo === 'distancia' && valor) {
+      if (unidad === 'm') totalMetros += valor * factor;
+      else if (unidad === 'km') totalMetros += valor * 1000 * factor;
+    }
+    const subpasos = step.subpasos || [];
+    if (subpasos.length) {
+      const nuevoFactor = factor * (tipo === 'repeat' ? reps : 1);
+      subpasos.forEach((s) => rec(s, nuevoFactor));
+    }
+  };
+  (pasos || []).forEach((s) => rec(s, 1));
+  return Math.round((totalMetros / 1000) * 100) / 100;
+}
+
 function renderBuilder() {
   if (!builderStepsContainer) return;
   builderStepsContainer.innerHTML = '';
   builderState.forEach((step, index) => {
     builderStepsContainer.appendChild(buildStepCard(step, builderState, index));
   });
+  if (kmTotalesInput) {
+    const kmTotales = calcularKmTotalesDesdePasos(builderState);
+    kmTotalesInput.value = kmTotales ? String(kmTotales) : '';
+  }
   renderPreview();
   if (guidedMode) {
     ensureWizardSteps();
@@ -1622,10 +1647,9 @@ function startEditing(id) {
   nombreInput.value = entrenamiento.nombre || '';
   objetivoInput.value = entrenamiento.objetivo || '';
   notasInput.value = entrenamiento.notas || '';
-  if (kmTotalesInput) {
-    const km = entrenamiento.km_totales ?? entrenamiento.kms_totales ?? 0;
-    kmTotalesInput.value = km ? Number(km).toString() : '';
-  }
+  // km_totales ya no se lee de entrenamiento.km_totales: resetBuilderState()
+  // dispara renderBuilder(), que recalcula el campo sumando los bloques
+  // por distancia que se acaban de cargar.
   resetBuilderState(entrenamiento.pasos || []);
   renderEntrenamientos();
   toggleBuilder(true);
@@ -1785,7 +1809,6 @@ function init() {
     if (nombreInput) nombreInput.value = guiadoData.info.nombre || '';
     if (objetivoInput) objetivoInput.value = guiadoData.info.objetivo || '';
     if (notasInput) notasInput.value = guiadoData.info.notas || '';
-    if (kmTotalesInput) kmTotalesInput.value = guiadoData.info.km || '';
 
     setGuidedMode(false);
     resetBuilderState(steps);
