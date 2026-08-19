@@ -8,6 +8,8 @@ import time
 import threading
 import re
 import json
+import hmac
+import hashlib
 from werkzeug.utils import secure_filename
 import secrets
 import sqlite3
@@ -558,7 +560,8 @@ def csrf_protect():
     # Sólo proteger métodos que modifican datos
     if request.method in ('POST', 'PUT', 'DELETE'):
         # Endpoints EXENTOS (nombres de las funciones Python)
-        if request.endpoint in ('auth.login_user',):
+        # whatsapp_webhook_receive: lo llama Meta directamente, sin sesión ni cookie.
+        if request.endpoint in ('auth.login_user', 'whatsapp_webhook_receive'):
             return
 
         token_session = session.get('csrf_token')
@@ -7427,6 +7430,120 @@ def estadisticas_analisis_atleta(current_user, atleta_id):
 # El envío en sí sigue protegido por la reclama atómica en
 # publicar_asignado(), así que este hilo puede coexistir sin problema
 # con la revisión perezosa que sigue disparando esa misma pantalla.
+
+def _verificar_firma_webhook_whatsapp(req):
+    """
+    Comprueba la cabecera X-Hub-Signature-256 que Meta añade a cada POST
+    del webhook, firmada con el App Secret de la app de Meta. Si no hay
+    WHATSAPP_APP_SECRET configurado no se puede verificar la firma; se
+    deja pasar la petición (con aviso en el log) para no bloquear el
+    desarrollo antes de tener ese secreto, pero en producción debe
+    configurarse siempre.
+    """
+    app_secret = os.getenv("WHATSAPP_APP_SECRET", "").strip()
+    if not app_secret:
+        logger.warning("Webhook de WhatsApp recibido sin WHATSAPP_APP_SECRET configurado; no se verifica la firma.")
+        return True
+    firma = req.headers.get("X-Hub-Signature-256", "")
+    if not firma.startswith("sha256="):
+        return False
+    esperado = hmac.new(app_secret.encode("utf-8"), req.get_data(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(firma[len("sha256="):], esperado)
+
+
+def _procesar_estado_whatsapp(status):
+    """
+    Actualiza entrenamientos_envios/entrenamientos_asignados a partir de
+    un evento de estado que envía Meta por el webhook. Meta puede
+    aceptar el envío (HTTP 200 + wamid) y que el mensaje falle después
+    de forma asíncrona (p.ej. error 131047 "Re-engagement message" si
+    han pasado más de 24h desde el último mensaje del atleta); sin este
+    procesamiento esos fallos quedaban invisibles y el envío se
+    guardaba como "enviado" aunque nunca llegara al atleta.
+    """
+    wamid = status.get("id")
+    estado_meta = str(status.get("status") or "").lower()
+    if not wamid or not estado_meta:
+        return
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT id, entrenamiento_asignado_id, estado FROM entrenamientos_envios WHERE provider_message_id = ?",
+            (wamid,),
+        )
+        envio = cur.fetchone()
+        if not envio:
+            return
+        if estado_meta == "failed":
+            errores = status.get("errors") or []
+            detalle = "; ".join(
+                f"{e.get('code')}: {e.get('title') or e.get('message')}" for e in errores
+            ) or "Entrega fallida"
+            cur.execute(
+                "UPDATE entrenamientos_envios SET estado = 'error', error = ? WHERE id = ?",
+                (detalle, row_get(envio, "id")),
+            )
+            cur.execute(
+                "UPDATE entrenamientos_asignados SET estado_envio = 'error' WHERE id = ?",
+                (row_get(envio, "entrenamiento_asignado_id"),),
+            )
+            logger.warning(
+                "WhatsApp entrega fallida provider_message_id=%s entrenamiento_asignado_id=%s detalle=%s",
+                wamid, row_get(envio, "entrenamiento_asignado_id"), detalle,
+            )
+        elif estado_meta in ("sent", "delivered", "read"):
+            estado_actual = str(row_get(envio, "estado") or "").lower()
+            # No se pisa un error ya registrado con un evento tardío de una
+            # etapa anterior (p.ej. "sent" llegando después de "failed").
+            if estado_actual not in ("enviado", "error"):
+                cur.execute(
+                    "UPDATE entrenamientos_envios SET estado = 'enviado' WHERE id = ?",
+                    (row_get(envio, "id"),),
+                )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/webhooks/whatsapp', methods=['GET'])
+def whatsapp_webhook_verify():
+    """Verificación inicial que hace Meta al dar de alta la suscripción del webhook."""
+    verify_token = os.getenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "").strip()
+    modo = request.args.get("hub.mode")
+    token = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+    if modo == "subscribe" and verify_token and token == verify_token:
+        return challenge or "", 200
+    return jsonify({"error": "Verificación de webhook inválida"}), 403
+
+
+@app.route('/webhooks/whatsapp', methods=['POST'])
+def whatsapp_webhook_receive():
+    """
+    Recibe los eventos de estado de los mensajes de WhatsApp enviados
+    (sent/delivered/read/failed). Meta espera una respuesta 200 rápida;
+    si no la recibe, reintenta la entrega del webhook más tarde.
+    """
+    if not _verificar_firma_webhook_whatsapp(request):
+        logger.warning("Webhook de WhatsApp con firma inválida, se descarta.")
+        return jsonify({"error": "Firma inválida"}), 403
+
+    data = request.get_json(silent=True) or {}
+    try:
+        for entry in data.get("entry", []):
+            for change in entry.get("changes", []):
+                valor = change.get("value", {})
+                for status in valor.get("statuses", []):
+                    _procesar_estado_whatsapp(status)
+    except Exception as e:
+        logger.exception("Error procesando webhook de WhatsApp: %s", e)
+    return jsonify({"ok": True}), 200
+
 
 def _procesar_publicaciones_programadas_globales():
     conn = get_db()

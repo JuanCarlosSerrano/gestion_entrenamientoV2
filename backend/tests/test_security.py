@@ -652,6 +652,83 @@ def test_planificador_en_segundo_plano_procesa_programadas_vencidas(client):
     assert envios == 1
 
 
+def test_webhook_whatsapp_verifica_handshake_con_token_correcto(client, monkeypatch):
+    monkeypatch.setenv("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "secreto-test")
+    resp = client.get(
+        "/webhooks/whatsapp",
+        query_string={
+            "hub.mode": "subscribe",
+            "hub.verify_token": "secreto-test",
+            "hub.challenge": "12345",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.get_data(as_text=True) == "12345"
+
+    rechazado = client.get(
+        "/webhooks/whatsapp",
+        query_string={
+            "hub.mode": "subscribe",
+            "hub.verify_token": "token-incorrecto",
+            "hub.challenge": "12345",
+        },
+    )
+    assert rechazado.status_code == 403
+
+
+def test_webhook_whatsapp_marca_envio_fallido_con_evento_real_de_meta(client):
+    # Regresión del incidente real: Meta aceptó el envío (HTTP 200 +
+    # wamid) y lo marcamos como "enviado", pero el mensaje no llegó al
+    # atleta porque habían pasado más de 24h desde su última respuesta a
+    # este número (error 131047 "Re-engagement message"). Sin procesar
+    # este webhook ese fallo quedaba invisible en la base de datos.
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    conn.execute(
+        """
+        INSERT INTO entrenamientos_envios
+            (id, entrenamiento_asignado_id, atleta_id, entrenador_id, canal,
+             telefono_destino, mensaje_generado, estado, provider_message_id, created_at, sent_at)
+        VALUES (100, 9, 4, 1, 'whatsapp', '+34600000000', 'mensaje', 'enviado',
+                'wamid.TEST123', '2026-08-19 18:28:32', '2026-08-19 18:28:32')
+        """
+    )
+    conn.execute("UPDATE entrenamientos_asignados SET estado_envio = 'enviado' WHERE id = 9")
+    conn.commit()
+    conn.close()
+
+    payload = {
+        "entry": [{
+            "changes": [{
+                "value": {
+                    "statuses": [{
+                        "id": "wamid.TEST123",
+                        "status": "failed",
+                        "errors": [{"code": 131047, "title": "Re-engagement message"}],
+                    }]
+                }
+            }]
+        }]
+    }
+    resp = client.post("/webhooks/whatsapp", json=payload)
+    assert resp.status_code == 200
+
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    envio = conn.execute("SELECT estado, error FROM entrenamientos_envios WHERE id = 100").fetchone()
+    asignado = conn.execute("SELECT estado_envio FROM entrenamientos_asignados WHERE id = 9").fetchone()
+    conn.close()
+    assert envio[0] == "error"
+    assert "131047" in envio[1]
+    assert asignado[0] == "error"
+
+
+def test_webhook_whatsapp_no_requiere_csrf_ni_sesion(client):
+    # Meta llama a este endpoint sin cookie de sesión ni token CSRF; debe
+    # quedar exento del middleware antes-de-cada-petición o Meta nunca
+    # podría avisarnos de un fallo de entrega.
+    resp = client.post("/webhooks/whatsapp", json={"entry": []})
+    assert resp.status_code == 200
+
+
 def test_servicio_normaliza_telefono_y_mensaje_sin_enlace():
     from backend.services.whatsapp_service import (
         FINAL_MESSAGE,
