@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from functools import wraps
 import os
 import time
+import threading
 import re
 import json
 from werkzeug.utils import secure_filename
@@ -7412,6 +7413,81 @@ def estadisticas_analisis_atleta(current_user, atleta_id):
     except Exception as e:
         print("Error en análisis de atleta:", e)
         return jsonify({"error": "No se pudieron obtener las estadísticas."}), 500
+
+
+# ============================================================
+# Planificador en segundo plano para publicaciones programadas
+# ============================================================
+#
+# Antes, una publicación programada (publicar_en) solo se procesaba de
+# forma perezosa cuando alguien cargaba la pantalla "Pendientes de
+# publicar" -- si nadie la abría después de la hora programada, el
+# WhatsApp no salía. Este hilo revisa periódicamente en segundo plano y
+# publica lo que ya venció, sin depender de que nadie abra esa pantalla.
+# El envío en sí sigue protegido por la reclama atómica en
+# publicar_asignado(), así que este hilo puede coexistir sin problema
+# con la revisión perezosa que sigue disparando esa misma pantalla.
+
+def _procesar_publicaciones_programadas_globales():
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        ahora = datetime.now().isoformat(" ")
+        cur.execute(
+            """
+            SELECT DISTINCT u.entrenador_id
+            FROM entrenamientos_asignados ea
+            JOIN usuarios u ON u.id = ea.atleta_id
+            WHERE COALESCE(ea.visible, 0) = 0
+              AND ea.publicar_en IS NOT NULL
+              AND ea.publicar_en <= ?
+              AND u.entrenador_id IS NOT NULL
+            """,
+            (ahora,),
+        )
+        entrenador_ids = [row_get(r, "entrenador_id") for r in cur.fetchall()]
+        procesadas = []
+        for entrenador_id in entrenador_ids:
+            current_user = {"id": entrenador_id, "rol": "entrenador"}
+            procesadas.extend(publication_domain.procesar_programadas_vencidas(cur, current_user))
+        conn.commit()
+        return procesadas
+    finally:
+        cur.close()
+        conn.close()
+
+
+def _hilo_publicaciones_programadas(intervalo_seg=30):
+    while True:
+        time.sleep(intervalo_seg)
+        try:
+            with app.app_context():
+                publication_domain.enviar_whatsapp = enviar_whatsapp
+                procesadas = _procesar_publicaciones_programadas_globales()
+                if procesadas:
+                    logger.info(
+                        "Publicaciones programadas procesadas en segundo plano: %s",
+                        [p.get("id") for p in procesadas],
+                    )
+        except Exception as e:
+            print("Error en el hilo de publicaciones programadas:", e)
+
+
+def _lanzar_planificador_publicaciones():
+    if os.getenv("PYTEST_CURRENT_TEST"):
+        # No arrancar hilos de fondo durante los tests.
+        return
+    if os.getenv("MINDPACE_DISABLE_SCHEDULER") == "1":
+        return
+    hilo = threading.Thread(
+        target=_hilo_publicaciones_programadas,
+        daemon=True,
+        name="publicaciones-programadas",
+    )
+    hilo.start()
+
+
+_lanzar_planificador_publicaciones()
 
 
 if __name__ == '__main__':

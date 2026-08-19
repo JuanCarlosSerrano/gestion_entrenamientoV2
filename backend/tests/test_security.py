@@ -582,6 +582,76 @@ def test_publicar_dos_veces_no_duplica_aviso(client):
     assert envios == 1
 
 
+def test_publicar_no_reenvia_si_otra_peticion_ya_lo_esta_enviando(client):
+    # Regresión del incidente real: dos peticiones casi simultáneas para
+    # la misma sesión (p.ej. el entrenador cambia de pestaña rápido en
+    # "Pendientes de publicar") mandaban el WhatsApp dos veces, porque la
+    # comprobación de "ya enviado" no veía lo que la otra petición aún no
+    # había confirmado en BD. Simulamos la carrera dejando la fila ya
+    # "reclamada" (estado_envio='enviando') antes de publicar: la
+    # petición debe respetar esa reclama y no generar un segundo envío.
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    conn.execute("UPDATE entrenamientos_asignados SET estado_envio = 'enviando' WHERE id = 9")
+    conn.commit()
+    conn.close()
+
+    _set_session(client, user_id=1, rol="entrenador")
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+    resp = client.post(
+        "/planificacion/publicacion/publicar",
+        json={"ids": [9]},
+        headers={"X-CSRF-Token": token},
+    )
+    assert resp.status_code == 200
+
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    envios = conn.execute(
+        "SELECT COUNT(*) FROM entrenamientos_envios WHERE entrenamiento_asignado_id = 9"
+    ).fetchone()[0]
+    estado = conn.execute(
+        "SELECT estado_envio FROM entrenamientos_asignados WHERE id = 9"
+    ).fetchone()[0]
+    conn.close()
+    assert envios == 0  # no se reenvió mientras la otra petición lo tenía reclamado
+    assert estado == "enviando"  # se deja tal cual para que la que lo reclamó lo resuelva
+
+
+def test_planificador_en_segundo_plano_procesa_programadas_vencidas(client):
+    # Regresión: antes una publicación programada solo se procesaba si
+    # alguien abría "Pendientes de publicar" después de la hora. Aquí se
+    # llama directamente a la función que usa el hilo de fondo (sin
+    # esperar los 30s reales) para comprobar que, sin ninguna petición a
+    # esa pantalla, una programación ya vencida se publica igualmente.
+    import backend.app as app_module
+
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    conn.execute(
+        """
+        UPDATE entrenamientos_asignados
+        SET visible = 0, publicar_en = '2020-01-01 00:00:00', estado_envio = 'pendiente', publicado_en = NULL
+        WHERE id = 9
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    procesadas = app_module._procesar_publicaciones_programadas_globales()
+    assert len(procesadas) == 1
+    assert procesadas[0]["id"] == 9
+
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    asignado = conn.execute(
+        "SELECT visible, publicar_en, estado_envio FROM entrenamientos_asignados WHERE id = 9"
+    ).fetchone()
+    envios = conn.execute(
+        "SELECT COUNT(*) FROM entrenamientos_envios WHERE entrenamiento_asignado_id = 9"
+    ).fetchone()[0]
+    conn.close()
+    assert asignado[0] == 1  # visible
+    assert asignado[1] is None  # publicar_en ya consumido
+    assert envios == 1
+
+
 def test_servicio_normaliza_telefono_y_mensaje_sin_enlace():
     from backend.services.whatsapp_service import (
         FINAL_MESSAGE,

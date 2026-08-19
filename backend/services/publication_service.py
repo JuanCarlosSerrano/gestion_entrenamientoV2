@@ -237,15 +237,52 @@ def publicar_asignado(cur, current_user, asignado_id, now=None):
         )
         asignado["visible"] = 1
         asignado["publicado_en"] = asignado.get("publicado_en") or now
-    envio = registrar_envio_publicacion(cur, asignado, current_user, now)
+
+    # Reclamamos el envío de forma atómica antes de tocar la API de
+    # WhatsApp. Si dos peticiones llegan casi a la vez para la misma
+    # sesión (p.ej. el entrenador cambia de pestaña rápido en "Pendientes
+    # de publicar", o el job periódico se solapa con esa pantalla), este
+    # UPDATE solo consigue afectar la fila en una de ellas -- la otra ve
+    # rowcount=0 y no vuelve a llamar a la API, evitando el envío
+    # duplicado que hacía la comprobación anterior (SELECT en
+    # registrar_envio_publicacion, sin nada que la protegiera de una
+    # segunda petición concurrente pasando por el mismo hueco).
+    ya_enviado = str(asignado.get("estado_envio") or "").lower() == "enviado"
     cur.execute(
         """
         UPDATE entrenamientos_asignados
-        SET estado_envio = ?, fecha_envio = COALESCE(fecha_envio, ?), updated_at = ?
-        WHERE id = ?
+        SET estado_envio = 'enviando'
+        WHERE id = ? AND COALESCE(estado_envio, 'pendiente') NOT IN ('enviado', 'enviando')
         """,
-        (envio.get("estado"), now if envio.get("estado") == "enviado" else None, now, asignado_id),
+        (asignado_id,),
     )
+    reclamado = cur.rowcount > 0
+
+    if ya_enviado or not reclamado:
+        envio = {
+            "idempotente": True,
+            "estado": "enviado" if ya_enviado else (asignado.get("estado_envio") or "pendiente"),
+        }
+    else:
+        try:
+            envio = registrar_envio_publicacion(cur, asignado, current_user, now)
+        except Exception:
+            # Si algo revienta enviando, liberamos la reclama para que se
+            # pueda reintentar después en vez de quedarse en "enviando"
+            # para siempre.
+            cur.execute(
+                "UPDATE entrenamientos_asignados SET estado_envio = 'error' WHERE id = ?",
+                (asignado_id,),
+            )
+            raise
+        cur.execute(
+            """
+            UPDATE entrenamientos_asignados
+            SET estado_envio = ?, fecha_envio = COALESCE(fecha_envio, ?), updated_at = ?
+            WHERE id = ?
+            """,
+            (envio.get("estado"), now if envio.get("estado") == "enviado" else None, now, asignado_id),
+        )
     return {
         "id": asignado_id,
         "estado": "visible",
