@@ -30,7 +30,7 @@ CONTENT_SECURITY_POLICY = (
     "script-src 'self' https://cdn.jsdelivr.net https://cdn.datatables.net https://code.jquery.com; "
     "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net; "
     "font-src 'self' https://cdn.jsdelivr.net; "
-    "img-src 'self'; "
+    "img-src 'self' data:; "
     "connect-src 'self'; "
     "object-src 'none'; "
     "base-uri 'self'; "

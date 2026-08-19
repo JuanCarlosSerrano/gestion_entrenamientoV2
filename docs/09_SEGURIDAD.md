@@ -44,7 +44,7 @@ error (4xx/404).
   script-src 'self' https://cdn.jsdelivr.net https://cdn.datatables.net https://code.jquery.com;
   style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net;
   font-src 'self' https://cdn.jsdelivr.net;
-  img-src 'self';
+  img-src 'self' data:;
   connect-src 'self';
   object-src 'none';
   base-uri 'self';
@@ -56,9 +56,15 @@ error (4xx/404).
     `code.jquery.com`) son exactamente los CDN que usa el frontend hoy
     (Bootstrap, Bootstrap Icons, Chart.js, DataTables y jQuery). No se
     ha añadido ningún dominio "por si acaso".
-  - `img-src`/`connect-src` se quedan en `'self'`: no hay imágenes ni
-    peticiones `fetch`/XHR a dominios externos ni imágenes `data:` en
-    el frontend actual.
+  - `connect-src` se queda en `'self'`: no hay peticiones `fetch`/XHR a
+    dominios externos en el frontend actual.
+  - `img-src` incluye `data:` porque el CSS de Bootstrap (cargado desde
+    `cdn.jsdelivr.net`, ya permitido) embebe iconos de formulario como
+    `background-image: url("data:image/svg+xml,...")` (carets de
+    `<select>`, checkboxes, etc.); sin `data:` esos iconos quedan
+    bloqueados, como se detectó en `entrenador/alertas.html`. No hay
+    imágenes `data:` propias del código de MindPace, solo las que trae
+    Bootstrap.
   - **Limitación temporal conocida**: `style-src` incluye
     `'unsafe-inline'` porque 6 páginas usan todavía el atributo
     `style=""` directamente en el HTML (`admin/usuarios.html`,
