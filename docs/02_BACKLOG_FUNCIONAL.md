@@ -605,11 +605,11 @@ Estas pantallas existen en `main` con volumen de código real, pero no tienen un
 | Pantalla | Frontend | Backend relacionado | Tamaño (frontend JS) |
 |---|---|---|---|
 | Grupos de entrenamiento | `entrenador/grupo_entrenamiento.html` | `asignar_grupo_entrenamiento` (`app.py`) | 505 líneas |
-| Ciclos de entrenamiento | `entrenador/ciclos.html` | `asignar_ciclo`, `asignar_ciclo_interno` (`app.py`) | 1936 líneas — el segundo archivo JS más grande del proyecto |
 | Calendario general | `entrenador/calendario.html` | — | 1070 líneas |
-| Gestión de plantillas | (integrado en biblioteca) | — | `gestion_plantillas.js`, 838 líneas |
 | Análisis de atleta (plan vs. real) | `entrenador/analisis_atleta.html` | comparación semanal km/zonas | 1207 líneas |
 | Perfil de atleta (vista entrenador) | `entrenador/perfil_atleta.html` | — | 554 líneas |
 | Editor de entrenamiento asignado | `entrenador/entrenamiento_asignado_editor.html` | — | 480 líneas |
 
-**Recomendación:** antes de planificar la siguiente fase, decidir si estas pantallas se documentan retroactivamente como módulos propios o se consolidan dentro de los módulos existentes (p. ej. Ciclos podría absorber parte de lo descrito en Módulo 4, y Análisis de atleta cubre de facto los Módulos 9 y 10).
+**Recomendación:** antes de planificar la siguiente fase, decidir si estas pantallas se documentan retroactivamente como módulos propios o se consolidan dentro de los módulos existentes (p. ej. Análisis de atleta cubre de facto los Módulos 9 y 10).
+
+**Actualización 2026-08-19:** Ciclos de entrenamiento (`ciclos.html`) y Gestión de plantillas (`gestion_plantillas.js`) — que aparecían aquí como pantallas sin especificar — se retiraron del código. Eran el modelo jerárquico de planificación de v1 (entrenamiento → microciclo → mesociclo → macrociclo), sustituido en v2 por entrenamiento + semana con "semanas tipo" (biblioteca de semanas reutilizables), ya cubierto por el Módulo 4 y `planificacion_semanal.js`. Ver commit `2e2efc7`.
