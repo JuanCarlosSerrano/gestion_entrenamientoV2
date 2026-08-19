@@ -40,20 +40,6 @@
           <button class="btn btn-brand flex-grow-1" id="btn-vis-mostrar">Mostrar</button>
         </div>
       </div>
-      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-4">
-        <div>
-          <h3 class="h6 mb-0">Asignar ciclos o plantillas</h3>
-          <p class="text-muted small mb-0">Utiliza tus plantillas de micro, meso o macrociclos para poblar el calendario.</p>
-        </div>
-        <div class="d-flex flex-wrap gap-2">
-          <button class="btn btn-outline-primary btn-sm" id="btn-asignar-semana">
-            <span class="me-1">＋</span>Asignar semana
-          </button>
-          <button class="btn btn-primary btn-sm" id="btn-asignar-ciclo">
-            <span class="me-1">＋</span>Asignar ciclo / plantilla
-          </button>
-        </div>
-      </div>
     </div>
 
     <div class="row mt-4">
@@ -126,51 +112,6 @@
 </div>
 
 
-  <!-- Modal: asignar ciclo -->
-  <div class="modal fade" id="modalAsignarCiclo" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title">Asignar ciclo o plantilla</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-        </div>
-        <form id="form-asignar-ciclo">
-          <div class="modal-body">
-            <div class="mb-3">
-              <label class="form-label">Tipo de ciclo</label>
-              <select id="select-ciclo-tipo" class="form-select" required>
-                <option value="micro" selected>Microciclo</option>
-                <option value="meso">Mesociclo</option>
-                <option value="macro">Macrociclo</option>
-              </select>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Ciclo disponible</label>
-              <select id="select-ciclo-id" class="form-select" required></select>
-              <div id="ayuda-ciclo" class="form-text">Selecciona un ciclo para desplegarlo en el calendario.</div>
-            </div>
-            <div class="row g-3">
-              <div class="col-md-7">
-                <label class="form-label" id="label-ciclo-fecha">Fecha de inicio real</label>
-                <input type="date" id="input-ciclo-fecha" class="form-control" required>
-              </div>
-              <div class="col-md-5">
-                <label class="form-label">Anclar en</label>
-                <select id="select-ciclo-anclaje" class="form-select">
-                  <option value="inicio" selected>Inicio del ciclo</option>
-                  <option value="fin">Fin del ciclo</option>
-                </select>
-              </div>
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-            <button type="submit" class="btn btn-primary">Asignar</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  </div>
 
   <!-- Modal: confirmación genérica -->
   <div class="modal fade" id="modalConfirmacion" tabindex="-1" aria-hidden="true">

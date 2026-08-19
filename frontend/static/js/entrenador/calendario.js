@@ -91,18 +91,6 @@ document.addEventListener("DOMContentLoaded", function () {
   const selectEntrenamiento = document.getElementById("select-entrenamiento");
   const btnEliminar = document.getElementById("btn-eliminar-entrenamiento");
 
-  const btnAsignarSemana = document.getElementById("btn-asignar-semana");
-  const btnAsignarCiclo = document.getElementById("btn-asignar-ciclo");
-  const modalCicloEl = document.getElementById("modalAsignarCiclo");
-  const modalCiclo = modalCicloEl ? new bootstrap.Modal(modalCicloEl) : null;
-  const formCiclo = document.getElementById("form-asignar-ciclo");
-  const selectCicloTipo = document.getElementById("select-ciclo-tipo");
-  const selectCicloId = document.getElementById("select-ciclo-id");
-  const inputCicloFecha = document.getElementById("input-ciclo-fecha");
-  const ayudaCiclo = document.getElementById("ayuda-ciclo");
-  const selectCicloAnclaje = document.getElementById("select-ciclo-anclaje");
-  const labelCicloFecha = document.getElementById("label-ciclo-fecha");
-
   const visFecha = document.getElementById("vis-fecha");
   const visModo = document.getElementById("vis-modo");
   const btnVisMostrar = document.getElementById("btn-vis-mostrar");
@@ -134,7 +122,7 @@ document.addEventListener("DOMContentLoaded", function () {
       calendarEl.innerHTML =
         '<div class="alert alert-warning">Debes abrir este calendario desde "Mis atletas" para seleccionar un deportista concreto.</div>';
     }
-    [btnVisMostrar, btnVisOcultar, btnAsignarCiclo, form].forEach((el) => {
+    [btnVisMostrar, btnVisOcultar, form].forEach((el) => {
       if (el) el.disabled = true;
     });
     return;
@@ -224,79 +212,6 @@ document.addEventListener("DOMContentLoaded", function () {
     e.preventDefault();
     actualizarVisibilidad(false);
   });
-
-  // ----------------------------- Ciclos (micro/meso/macro) -----------------------------
-  const ciclosCache = { micro: null, meso: null, macro: null };
-  const cicloEndpoints = {
-    micro: "/microciclos",
-    meso: "/mesociclos",
-    macro: "/macrociclos",
-  };
-
-  async function fetchListado(url) {
-    const res = await fetch(`${API_BASE}${url}`, {
-      method: "GET",
-      credentials: "include",
-    });
-    if (!res.ok) throw new Error("No se pudieron cargar los ciclos");
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
-  }
-
-  async function fetchCiclos(tipo) {
-    if (ciclosCache[tipo]) return ciclosCache[tipo];
-    try {
-      const ciclos = await fetchListado(cicloEndpoints[tipo]);
-      ciclosCache[tipo] = ciclos;
-      return ciclos;
-    } catch (err) {
-      console.error("Error al cargar ciclos:", err);
-      mostrarMensaje(
-        err.message || "No se pudieron cargar los ciclos",
-        "danger"
-      );
-      ciclosCache[tipo] = [];
-      return ciclosCache[tipo];
-    }
-  }
-
-  async function actualizarSelectCiclo(tipo) {
-    if (!selectCicloId) return;
-
-    selectCicloId.innerHTML = '<option value="">Cargando...</option>';
-    const ciclos = await fetchCiclos(tipo);
-
-    if (!ciclos.length) {
-      selectCicloId.innerHTML =
-        '<option value="">No hay ciclos disponibles</option>';
-      if (ayudaCiclo) {
-        ayudaCiclo.textContent = "Crea ciclos antes de asignarlos.";
-      }
-      return;
-    }
-
-    let options = '<option value="">Selecciona un ciclo</option>';
-    options += ciclos
-      .map(
-        (c) =>
-          `<option value="${c.id}">${c.nombre}${
-            c.fecha_inicio && c.fecha_fin
-              ? ` (${c.fecha_inicio} → ${c.fecha_fin})`
-              : ""
-          }</option>`
-      )
-      .join("");
-
-    selectCicloId.innerHTML = options;
-    if (ayudaCiclo) {
-      ayudaCiclo.textContent =
-        "Selecciona un ciclo y la fecha real para desplegarlo.";
-    }
-  }
-
-  selectCicloTipo?.addEventListener("change", () =>
-    actualizarSelectCiclo(selectCicloTipo.value)
-  );
 
   // ----------------------------- Helpers bloques (estilo tarjetas) -----------------------------
   const TIPO_PASO_LABEL = {
@@ -1012,79 +927,4 @@ btnEditarBloques?.addEventListener("click", () => {
   }
 
   if (atletaId) cargarNombreAtleta(atletaId);
-
-  
-  btnAsignarSemana?.addEventListener("click", async () => {
-    if (!modalCiclo) return;
-    selectCicloTipo.value = "micro";
-    ciclosCache[selectCicloTipo.value] = null;
-    await actualizarSelectCiclo(selectCicloTipo.value);
-    const hoy = new Date();
-    const day = hoy.getDay();
-    const diff = day === 0 ? 1 : 8 - day;
-    const lunes = new Date(hoy);
-    lunes.setDate(hoy.getDate() + (day === 1 ? 0 : diff));
-    inputCicloFecha.value = toLocalISODate(lunes);
-    selectCicloAnclaje.value = "inicio";
-    labelCicloFecha.textContent = "Fecha de inicio real";
-    modalCiclo.show();
-  });
-
-// ----------------------------- Asignar ciclo al atleta -----------------------------
-  btnAsignarCiclo?.addEventListener("click", async () => {
-    if (!modalCiclo) return;
-    ciclosCache[selectCicloTipo.value] = null;
-    await actualizarSelectCiclo(selectCicloTipo.value);
-    inputCicloFecha.value = "";
-    selectCicloAnclaje.value = "inicio";
-    labelCicloFecha.textContent = "Fecha de inicio real";
-    modalCiclo.show();
-  });
-
-  formCiclo?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const tipo = selectCicloTipo.value;
-    const seleccionado = selectCicloId.value;
-    const fecha = inputCicloFecha.value;
-    const anclarEn = selectCicloAnclaje.value || "inicio";
-
-    if (!tipo || !seleccionado || !fecha) {
-      mostrarMensaje("Completa los datos del ciclo.", "warning");
-      return;
-    }
-
-    const payload = {
-      fecha_inicio_real: fecha,
-      atleta_ids: [parseInt(atletaId, 10)],
-      anclar_en: anclarEn,
-    };
-
-    const endpoint = `/ciclos/${tipo}/${seleccionado}/asignaciones`;
-
-    try {
-      const token = await asegurarCsrf();
-      const res = await fetch(`${API_BASE}${endpoint}`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { "X-CSRF-Token": token } : {}),
-        },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        mostrarMensaje(data.error || "No se pudo asignar el ciclo", "danger");
-        return;
-      }
-
-      mostrarMensaje(data.message || "Ciclo asignado", "success");
-      modalCiclo.hide();
-      calendar.refetchEvents();
-    } catch (err) {
-      console.error("Error al asignar ciclo:", err);
-      mostrarMensaje("No se pudo asignar el ciclo", "danger");
-    }
-  });
 });

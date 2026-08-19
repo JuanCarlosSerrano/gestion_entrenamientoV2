@@ -122,6 +122,25 @@ CREATE TABLE IF NOT EXISTS entrenamientos_envios (
     created_at TEXT,
     sent_at TEXT
 );
+CREATE TABLE microciclos (
+    id INTEGER PRIMARY KEY,
+    mesociclo_id INTEGER,
+    nombre TEXT,
+    objetivo TEXT,
+    created_at TEXT,
+    creador_id INTEGER
+);
+CREATE TABLE microciclos_entrenamientos (
+    id INTEGER PRIMARY KEY,
+    microciclo_id INTEGER,
+    dia_relativo INTEGER,
+    sesion_indice INTEGER,
+    franja TEXT,
+    entrenamiento_id INTEGER,
+    notas TEXT,
+    orden INTEGER,
+    created_at TEXT
+);
 """
 
 
@@ -830,18 +849,6 @@ def test_publicar_visibilidad_masiva_genera_envio_whatsapp(client):
     assert len(envios) == 1
 
 
-def test_entrenador_no_puede_asignar_ciclo_a_atleta_ajeno(client):
-    _set_session(client, user_id=1, rol="entrenador")
-    token = client.get("/csrf-token").get_json()["csrf_token"]
-
-    resp = client.post(
-        "/ciclos/asignar",
-        json={"tipo": "micro", "ciclo_id": 1, "atletas": [4], "fecha_inicio": "2024-01-05"},
-        headers={"X-CSRF-Token": token},
-    )
-    assert resp.status_code == 403
-
-
 def test_entrenador_no_puede_borrar_asignacion_de_atleta_ajeno_ni_deja_huella(client):
     _set_session(client, user_id=1, rol="entrenador")  # asignación 10 es del atleta 4 (coach 2)
     token = client.get("/csrf-token").get_json()["csrf_token"]
@@ -852,3 +859,19 @@ def test_entrenador_no_puede_borrar_asignacion_de_atleta_ajeno_ni_deja_huella(cl
     # La asignación no debe haberse borrado (ni parcialmente) pese al 403
     _set_session(client, user_id=2, rol="entrenador")
     assert client.get("/entrenamientos_asignados/uno/10").status_code == 200
+
+
+def test_modelo_jerarquico_de_ciclos_retirado(client):
+    # Regresión de producto (2026-08-19): v2 sustituyó el modelo v1 de
+    # entrenamiento -> microciclo -> mesociclo -> macrociclo por
+    # entrenamiento + semana (semanas tipo). Estas rutas ya no deben
+    # existir; si alguien las reintroduce por accidente, este test debe
+    # fallar para que se note.
+    _set_session(client, user_id=1, rol="entrenador")
+    for path in ("/ciclos/asignar", "/mesociclos", "/macrociclos"):
+        resp = client.get(path)
+        assert resp.status_code == 404, f"{path} debería seguir eliminado"
+
+    # El mecanismo real de "semana tipo" (que antes vivía dentro de
+    # microciclos) sigue vivo y funcionando.
+    assert client.get("/semanas_tipo").status_code == 200
