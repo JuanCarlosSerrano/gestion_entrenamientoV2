@@ -2529,9 +2529,19 @@ def planificacion_atletas(current_user):
         where.append("categoria = ?")
         params.append(categoria)
 
+    # "tiene_zonas": si el atleta tiene una configuración de zonas vigente
+    # (fecha_fin IS NULL). Sustituye a exponer usuarios.vdot_val, que no
+    # refleja las zonas registradas por el entrenador vía /guardar_zonas
+    # (ese flujo solo escribe en zonas_entrenamiento, nunca actualiza
+    # usuarios.vdot_val -- esa columna solo la escribe el autoservicio de
+    # VDOT del propio atleta, POST /atletas/<id>/vdot).
     atletas = query_db(
         f"""
-        SELECT id, nombre, apellidos, email, categoria, grupo, subgrupo, vdot_val, vdot_fecha
+        SELECT id, nombre, apellidos, email, categoria, grupo, subgrupo,
+               EXISTS (
+                   SELECT 1 FROM zonas_entrenamiento z
+                   WHERE z.atleta_id = usuarios.id AND z.fecha_fin IS NULL
+               ) AS tiene_zonas
         FROM usuarios
         WHERE {' AND '.join(where)}
         ORDER BY apellidos, nombre, id

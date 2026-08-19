@@ -141,6 +141,18 @@ CREATE TABLE microciclos_entrenamientos (
     orden INTEGER,
     created_at TEXT
 );
+CREATE TABLE zonas_entrenamiento (
+    id INTEGER PRIMARY KEY,
+    atleta_id INTEGER,
+    vam REAL,
+    vdot_val REAL,
+    z1 REAL, z2 REAL, z3 REAL, z4 REAL, z5 REAL, z6 REAL,
+    fc_z1 REAL, fc_z2 REAL, fc_z3 REAL, fc_z4 REAL, fc_z5 REAL, fc_z6 REAL,
+    metodo TEXT,
+    fecha_inicio TEXT,
+    fecha_fin TEXT,
+    fecha_creacion TEXT
+);
 """
 
 
@@ -177,6 +189,12 @@ def _seed_data(db_path: str):
         """
         INSERT INTO entrenamientos_asignados (id, atleta_id, fecha, visible, franja, entrenamiento_id, nombre, objetivo, notas)
         VALUES (9, 3, '2024-01-01', 0, 'manana', 1, 'Rodaje propio', 'Base propia', 'Notas asignadas')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO zonas_entrenamiento (id, atleta_id, vam, vdot_val, z1, fecha_inicio, fecha_fin)
+        VALUES (1, 3, 18.5, 45.0, 3.8, '2024-01-01', NULL)
         """
     )
     conn.execute(
@@ -746,6 +764,23 @@ def _archivar_atleta(db_path, atleta_id):
     conn.execute("UPDATE usuarios SET activo = 0 WHERE id = ?", (atleta_id,))
     conn.commit()
     conn.close()
+
+
+def test_planificacion_atletas_indica_zonas_registradas(client):
+    # Regresión: el listado exponía usuarios.vdot_val, una columna que el
+    # flujo real de registro de zonas (POST /guardar_zonas) nunca escribe
+    # -- solo la actualiza el autoservicio de VDOT del propio atleta. El
+    # indicador debe basarse en si existe una configuración de zonas
+    # vigente en zonas_entrenamiento, no en esa columna.
+    _set_session(client, user_id=1, rol="entrenador")
+    atletas = client.get("/planificacion/atletas").get_json()["atletas"]
+    atleta_3 = next(a for a in atletas if a["id"] == 3)
+    assert atleta_3["tiene_zonas"]
+
+    _set_session(client, user_id=2, rol="entrenador")
+    atletas = client.get("/planificacion/atletas").get_json()["atletas"]
+    atleta_4 = next(a for a in atletas if a["id"] == 4)
+    assert not atleta_4["tiene_zonas"]
 
 
 def test_planificacion_atletas_excluye_archivados(client):

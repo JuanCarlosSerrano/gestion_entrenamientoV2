@@ -63,7 +63,7 @@ function renderAtletas() {
       <button class="athlete-card athlete-card--select" data-athlete-id="${a.id}" type="button">
         <strong>${escapeHtml(name)}</strong>
         <small>${escapeHtml(meta || "Sin grupo asignado")}</small>
-        <small>${a.vdot_val ? `VDOT ${escapeHtml(a.vdot_val)}` : "Planificación"}</small>
+        <small>${a.tiene_zonas ? "Zonas registradas" : "Sin zonas registradas"}</small>
       </button>
     `;
   }).join("");
