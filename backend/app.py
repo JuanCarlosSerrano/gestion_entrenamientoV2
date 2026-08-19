@@ -1,34 +1,79 @@
 from flask import Flask, jsonify, request, session
-from flask import redirect, url_for
 from flask_cors import CORS
 from flask_session import Session
 from datetime import datetime, timedelta
-from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import os
-import hashlib
 import time
 import re
+import json
 from werkzeug.utils import secure_filename
 import secrets
 import sqlite3
-
+import logging
 try:
-    import mariadb  # type: ignore
-except ImportError:  # El paquete se instala sólo cuando se usa MariaDB
-    mariadb = None
-
-try:
-    import pymysql  # type: ignore
-except ImportError:
-    pymysql = None
+    from db import helpers as db_helpers
+    from routes.admin_users import create_admin_users_blueprint
+    from routes.auth import create_auth_blueprint
+    from routes.configuracion import create_configuracion_blueprint
+    from routes.system import bp as system_bp
+    import services.publication_service as publication_domain
+    from services.whatsapp_service import enviar_whatsapp
+    from services.fit_service import hash_file_sha256, parse_fit_metrics
+    from services.auth_service import (
+        cambiar_password_usuario,
+        crear_hash_password,
+        generar_password_temporal,
+        resetear_password_usuario,
+        temporary_password_response,
+        verificar_password,
+    )
+    from services.publication_service import (
+        estado_visibilidad_asignado,
+    )
+    from security.uploads import is_allowed_fit_upload, is_allowed_image_upload
+    from security.permissions import (
+        atleta_pertenece_a_entrenador as permissions_atleta_pertenece_a_entrenador,
+        entrenador_puede_acceder_atleta,
+        obtener_atleta_autorizado,
+        obtener_entrenamiento_asignado_autorizado,
+    )
+except ModuleNotFoundError:
+    from backend.db import helpers as db_helpers
+    from backend.routes.admin_users import create_admin_users_blueprint
+    from backend.routes.auth import create_auth_blueprint
+    from backend.routes.configuracion import create_configuracion_blueprint
+    from backend.routes.system import bp as system_bp
+    import backend.services.publication_service as publication_domain
+    from backend.services.whatsapp_service import enviar_whatsapp
+    from backend.services.fit_service import hash_file_sha256, parse_fit_metrics
+    from backend.services.auth_service import (
+        cambiar_password_usuario,
+        crear_hash_password,
+        generar_password_temporal,
+        resetear_password_usuario,
+        temporary_password_response,
+        verificar_password,
+    )
+    from backend.services.publication_service import (
+        estado_visibilidad_asignado,
+    )
+    from backend.security.uploads import is_allowed_fit_upload, is_allowed_image_upload
+    from backend.security.permissions import (
+        atleta_pertenece_a_entrenador as permissions_atleta_pertenece_a_entrenador,
+        entrenador_puede_acceder_atleta,
+        obtener_atleta_autorizado,
+        obtener_entrenamiento_asignado_autorizado,
+    )
 
 app = Flask(__name__, static_folder='../frontend/static')  # Configuración correcta de static_folder
+logger = logging.getLogger(__name__)
+DB_ENGINE = os.getenv("DB_ENGINE", "mariadb").lower()  # mariadb | sqlite
 
 # Config CORS con soporte de credenciales y orígenes configurables
 _cors_origins = os.getenv(
     "CORS_ORIGINS",
-    "http://localhost:8080,http://127.0.0.1:8080,http://12.0.1.8:8080",
+    "http://127.0.0.1:5002,http://localhost:5002,http://localhost:8080,http://127.0.0.1:8080",
 )
 _cors_origins_list = [o.strip() for o in _cors_origins.split(",") if o.strip()]
 CORS(
@@ -39,15 +84,22 @@ CORS(
 app.config["SESSION_PERMANENT"] = False  # Las sesiones expiran cuando se cierra el navegador
 app.config["SESSION_TYPE"] = "filesystem"  # Almacena las sesiones en el sistema de archivos (para desarrollo)
 app.config["SESSION_FILE_DIR"] = "flask_session"  # Directorio para almacenar archivos de sesión
-app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "DEV_KEY_CAMBIALA")  # ¡Reemplaza con una clave segura!
+_secret_key = os.getenv("SECRET_KEY")
+if not _secret_key:
+    if DB_ENGINE == "sqlite" or os.getenv("PYTEST_CURRENT_TEST"):
+        _secret_key = secrets.token_urlsafe(32)
+    else:
+        raise RuntimeError("SECRET_KEY es obligatoria para arrancar MindPace fuera de tests.")
+app.config["SECRET_KEY"] = _secret_key
 app.config["SESSION_COOKIE_NAME"] = os.getenv("SESSION_COOKIE_NAME", "my_session_v2")  # Nombre de la cookie de sesión
 app.config["SESSION_COOKIE_HTTPONLY"] = True  # Recomendado por seguridad
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"  # Recomendado por seguridad
 app.config["SESSION_COOKIE_SECURE"] = os.getenv("SESSION_COOKIE_SECURE", "0") in ("1", "true", "True")
+app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH", str(5 * 1024 * 1024)))
 Session(app)
+app.register_blueprint(system_bp)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATABASE = os.path.join(BASE_DIR, 'atletas.db')
-DB_ENGINE = os.getenv("DB_ENGINE", "mariadb").lower()  # mariadb | sqlite
+DATABASE = os.getenv("DB_PATH", os.path.join(BASE_DIR, "atletas.db"))
 MARIADB_CONFIG = {
     "host": os.getenv("DB_HOST", "127.0.0.1"),
     "port": int(os.getenv("DB_PORT", "3306")),
@@ -55,11 +107,7 @@ MARIADB_CONFIG = {
     "password": os.getenv("DB_PASSWORD", ""),
     "database": os.getenv("DB_NAME", "gestion_entrenamiento"),
 }
-DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError,)
-if mariadb:
-    DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError, mariadb.IntegrityError)
-elif pymysql:
-    DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError, pymysql.IntegrityError)
+DB_INTEGRITY_ERRORS = db_helpers.integrity_errors()
 
 
 def ensure_meta_columns():
@@ -89,6 +137,10 @@ def ensure_meta_columns():
                 cur.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS force_password_change TINYINT DEFAULT 0")
             except Exception:
                 pass
+            try:
+                cur.execute("ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS activo TINYINT DEFAULT 1")
+            except Exception:
+                pass
             for col, col_type in (
                 ("vdot_val", "DOUBLE"),
                 ("vdot_fecha", "DATE"),
@@ -110,12 +162,59 @@ def ensure_meta_columns():
                 except Exception:
                     pass
             
-            for col in ("fc_z1", "fc_z2", "fc_z3", "fc_z4", "fc_z5", "fc_z6", "metodo"):
+            for col in ("fc_z1", "fc_z2", "fc_z3", "fc_z4", "fc_z5", "fc_z6", "metodo", "vdot_val"):
                 try:
                     tipo = "VARCHAR(20)" if col == "metodo" else "DOUBLE"
                     cur.execute(f"ALTER TABLE zonas_entrenamiento ADD COLUMN IF NOT EXISTS {col} {tipo}")
                 except Exception:
                     pass
+            try:
+                cur.execute("ALTER TABLE microciclos_entrenamientos ADD COLUMN IF NOT EXISTS franja VARCHAR(20) DEFAULT 'manana'")
+            except Exception:
+                pass
+            for col, tipo in (
+                ("franja", "VARCHAR(20) DEFAULT 'manana'"),
+                ("publicar_en", "DATETIME"),
+                ("publicado_en", "DATETIME"),
+                ("vdot_usado", "DOUBLE"),
+                ("zonas_metodo", "VARCHAR(50)"),
+                ("estado_envio", "VARCHAR(30) DEFAULT 'pendiente'"),
+                ("fecha_envio", "DATETIME"),
+                ("plantilla_version", "INT"),
+                ("canal_comunicacion", "VARCHAR(30)"),
+                ("personalizado", "TINYINT DEFAULT 0"),
+            ):
+                try:
+                    cur.execute(f"ALTER TABLE entrenamientos_asignados ADD COLUMN IF NOT EXISTS {col} {tipo}")
+                except Exception:
+                    pass
+            try:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS entrenamientos_envios (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        entrenamiento_asignado_id INT NOT NULL,
+                        atleta_id INT NOT NULL,
+                        entrenador_id INT NOT NULL,
+                        canal VARCHAR(30) NOT NULL DEFAULT 'whatsapp',
+                        telefono_destino VARCHAR(50),
+                        mensaje_generado TEXT,
+                        url_publica TEXT,
+                        estado VARCHAR(30) NOT NULL DEFAULT 'pendiente',
+                        provider_message_id VARCHAR(255),
+                        error TEXT,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        sent_at DATETIME,
+                        INDEX idx_envios_entrenamiento (entrenamiento_asignado_id),
+                        INDEX idx_envios_entrenamiento_canal (entrenamiento_asignado_id, canal),
+                        INDEX idx_envios_estado (estado)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                    """
+                )
+                cur.execute("ALTER TABLE entrenamientos_envios ADD COLUMN IF NOT EXISTS provider_message_id VARCHAR(255)")
+                cur.execute("ALTER TABLE entrenamientos_envios ADD COLUMN IF NOT EXISTS error TEXT")
+            except Exception:
+                pass
             conn.commit()
         finally:
             cur.close()
@@ -147,6 +246,11 @@ def ensure_meta_columns():
                     cur.execute("ALTER TABLE usuarios ADD COLUMN force_password_change INTEGER DEFAULT 0")
                 except Exception:
                     pass
+            if not column_exists("usuarios", "activo"):
+                try:
+                    cur.execute("ALTER TABLE usuarios ADD COLUMN activo INTEGER DEFAULT 1")
+                except Exception:
+                    pass
 
             for col, col_type in (
                 ("vdot_val", "REAL"),
@@ -175,13 +279,72 @@ def ensure_meta_columns():
 
             
             # Zonas FC + método
-            for col in ("fc_z1", "fc_z2", "fc_z3", "fc_z4", "fc_z5", "fc_z6", "metodo"):
+            for col in ("fc_z1", "fc_z2", "fc_z3", "fc_z4", "fc_z5", "fc_z6", "metodo", "vdot_val"):
                 if not column_exists("zonas_entrenamiento", col):
                     try:
                         col_type = "TEXT" if col == "metodo" else "REAL"
                         cur.execute(f"ALTER TABLE zonas_entrenamiento ADD COLUMN {col} {col_type}")
                     except Exception:
                         pass
+            if not column_exists("microciclos_entrenamientos", "franja"):
+                try:
+                    cur.execute("ALTER TABLE microciclos_entrenamientos ADD COLUMN franja TEXT DEFAULT 'manana'")
+                except Exception:
+                    pass
+            for col, col_type in (
+                ("franja", "TEXT DEFAULT 'manana'"),
+                ("publicar_en", "TEXT"),
+                ("publicado_en", "TEXT"),
+                ("vdot_usado", "REAL"),
+                ("zonas_metodo", "TEXT"),
+                ("estado_envio", "TEXT DEFAULT 'pendiente'"),
+                ("fecha_envio", "TEXT"),
+                ("plantilla_version", "INTEGER"),
+                ("canal_comunicacion", "TEXT"),
+                ("personalizado", "INTEGER DEFAULT 0"),
+            ):
+                if not column_exists("entrenamientos_asignados", col):
+                    try:
+                        cur.execute(f"ALTER TABLE entrenamientos_asignados ADD COLUMN {col} {col_type}")
+                    except Exception:
+                        pass
+            try:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS entrenamientos_envios (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        entrenamiento_asignado_id INTEGER NOT NULL,
+                        atleta_id INTEGER NOT NULL,
+                        entrenador_id INTEGER NOT NULL,
+                        canal TEXT NOT NULL DEFAULT 'whatsapp',
+                        telefono_destino TEXT,
+                        mensaje_generado TEXT,
+                        url_publica TEXT,
+                        estado TEXT NOT NULL DEFAULT 'pendiente',
+                        provider_message_id TEXT,
+                        error TEXT,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        sent_at TEXT
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_envios_entrenamiento_canal
+                    ON entrenamientos_envios(entrenamiento_asignado_id, canal)
+                    """
+                )
+                for col, col_type in (
+                    ("provider_message_id", "TEXT"),
+                    ("error", "TEXT"),
+                ):
+                    if not column_exists("entrenamientos_envios", col):
+                        try:
+                            cur.execute(f"ALTER TABLE entrenamientos_envios ADD COLUMN {col} {col_type}")
+                        except Exception:
+                            pass
+            except Exception:
+                pass
             conn.commit()
         finally:
             cur.close()
@@ -220,114 +383,16 @@ def ensure_owner_columns():
         conn.close()
 
 
-class MariaDBConnectionWrapper:
-    """
-    Envuelve la conexión de MariaDB para ofrecer cursores en modo diccionario
-    y tolerar asignaciones a row_factory que hace el código legado.
-    """
-    def __init__(self, conn):
-        object.__setattr__(self, "_conn", conn)
-        object.__setattr__(self, "_row_factory", None)
-
-    def cursor(self):
-        return self._conn.cursor(dictionary=True)
-
-    def __getattr__(self, name):
-        return getattr(self._conn, name)
-
-    def __setattr__(self, name, value):
-        if name in ("_conn", "_row_factory"):
-            object.__setattr__(self, name, value)
-        elif name == "row_factory":
-            object.__setattr__(self, "_row_factory", value)
-        else:
-            setattr(self._conn, name, value)
-
-class PyMySQLCursorWrapper:
-    def __init__(self, cursor):
-        self._cursor = cursor
-
-    def execute(self, query, args=None):
-        if args is not None:
-            query = query.replace('?', '%s')
-        return self._cursor.execute(query, args)
-
-    def executemany(self, query, args=None):
-        if args is not None:
-            query = query.replace('?', '%s')
-        return self._cursor.executemany(query, args)
-
-    def __getattr__(self, name):
-        return getattr(self._cursor, name)
-
-
-class PyMySQLConnectionWrapper:
-    def __init__(self, conn):
-        object.__setattr__(self, '_conn', conn)
-        object.__setattr__(self, '_row_factory', None)
-
-    def cursor(self):
-        return PyMySQLCursorWrapper(self._conn.cursor())
-
-    def __getattr__(self, name):
-        return getattr(self._conn, name)
-
-    def __setattr__(self, name, value):
-        if name in ('_conn', '_row_factory'):
-            object.__setattr__(self, name, value)
-        elif name == 'row_factory':
-            object.__setattr__(self, '_row_factory', value)
-        else:
-            setattr(self._conn, name, value)
-
-
-
 def get_db():
-    """
-    Devuelve una conexión según el motor configurado (MariaDB por defecto).
-    """
-    if DB_ENGINE == "mariadb":
-        if mariadb:
-            conn = mariadb.connect(**MARIADB_CONFIG)
-            conn.autocommit = False
-            return MariaDBConnectionWrapper(conn)
-        if pymysql:
-            conn = pymysql.connect(
-                host=MARIADB_CONFIG["host"],
-                port=MARIADB_CONFIG["port"],
-                user=MARIADB_CONFIG["user"],
-                password=MARIADB_CONFIG["password"],
-                database=MARIADB_CONFIG["database"],
-                cursorclass=pymysql.cursors.DictCursor,
-            )
-            conn.autocommit(False)
-            return PyMySQLConnectionWrapper(conn)
-        raise RuntimeError("DB_ENGINE=mariadb pero no hay driver instalado (mariadb o pymysql)")
-
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    return conn
+    return db_helpers.open_connection(DB_ENGINE, DATABASE, MARIADB_CONFIG)
 
 
 def query_db(query, args=(), one=False):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute(query, args)
-    rv = cur.fetchall()
-    cur.close()
-    conn.close()
-    return (rv[0] if rv else None) if one else rv
+    return db_helpers.query_db(get_db, query, args, one)
 
 
 def execute_db(query, args=()):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute(query, args)
-    conn.commit()
-    last_id = cur.lastrowid
-    cur.close()
-    conn.close()
-    return last_id
+    return db_helpers.execute_db(get_db, query, args)
 
 
 def upsert_km_realizados(cur, entrenamiento_asignado_id, km_planificados, km_realizados, fecha):
@@ -360,6 +425,22 @@ def upsert_km_realizados(cur, entrenamiento_asignado_id, km_planificados, km_rea
             """,
             (entrenamiento_asignado_id, km_planificados, km_realizados, fecha),
         )
+
+
+def ensure_resultados_km_column(cur):
+    """
+    Asegura la columna de km por bloque en bases existentes.
+    """
+    try:
+        if DB_ENGINE == "mariadb":
+            cur.execute("ALTER TABLE resultados_entrenamientos ADD COLUMN IF NOT EXISTS km_realizados DOUBLE")
+        else:
+            cur.execute("PRAGMA table_info(resultados_entrenamientos)")
+            cols = {row[1] for row in cur.fetchall()}
+            if "km_realizados" not in cols:
+                cur.execute("ALTER TABLE resultados_entrenamientos ADD COLUMN km_realizados REAL")
+    except Exception as e:
+        print("Aviso: no se pudo asegurar km_realizados en resultados_entrenamientos", e)
 
 
 def init_db():
@@ -418,34 +499,55 @@ def requires_roles(*roles):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             if "user_id" not in session:
-                print("requires_roles: sin user_id en sesión")
+                logger.info("Acceso sin sesión path=%s", request.path)
                 return jsonify({'error': 'Autenticación requerida'}), 401
 
             user = query_db(
-                'SELECT id, rol, email FROM usuarios WHERE id = ?',
+                'SELECT id, rol, email, force_password_change FROM usuarios WHERE id = ?',
                 (session["user_id"],), one=True
             )
 
             if not user:
-                print("requires_roles: usuario no encontrado en BD")
+                logger.info("Sesión con usuario inexistente user_id=%s", session.get("user_id"))
                 return jsonify({'error': 'Usuario no encontrado'}), 403
 
             if user['rol'] not in roles:
-                print(f"requires_roles: rol {user['rol']} no permitido para esta ruta")
+                logger.info("Acceso denegado user_id=%s rol=%s path=%s", user['id'], user['rol'], request.path)
                 return jsonify({'error': 'Acceso no autorizado'}), 403
 
-            print(f"requires_roles: OK user_id={user['id']} rol={user['rol']} en {request.path}")
             return f(user, *args, **kwargs)
 
         return decorated_function
     return wrapper
 
 
-@app.route('/csrf-token', methods=['GET'])
-def get_csrf_token():
-    if 'csrf_token' not in session:
-        session['csrf_token'] = secrets.token_urlsafe(32)
-    return jsonify({'csrf_token': session['csrf_token']})
+LOGIN_ATTEMPTS = {}
+LOGIN_RATE_LIMIT_MAX = int(os.getenv("LOGIN_RATE_LIMIT_MAX", "5"))
+LOGIN_RATE_LIMIT_WINDOW = int(os.getenv("LOGIN_RATE_LIMIT_WINDOW", "60"))
+
+
+def login_rate_limited(ip):
+    now = time.time()
+    window_start = now - LOGIN_RATE_LIMIT_WINDOW
+    attempts = [ts for ts in LOGIN_ATTEMPTS.get(ip, []) if ts >= window_start]
+    if len(attempts) >= LOGIN_RATE_LIMIT_MAX:
+        LOGIN_ATTEMPTS[ip] = attempts
+        return True
+    attempts.append(now)
+    LOGIN_ATTEMPTS[ip] = attempts
+    return False
+
+
+app.register_blueprint(create_auth_blueprint(
+    requires_roles=requires_roles,
+    query_db=query_db,
+    get_db=get_db,
+    login_rate_limited=login_rate_limited,
+    login_attempts=LOGIN_ATTEMPTS,
+    logger=logger,
+    verificar_password=verificar_password,
+    cambiar_password_usuario=cambiar_password_usuario,
+))
 
 
 @app.before_request
@@ -453,211 +555,37 @@ def csrf_protect():
     # Sólo proteger métodos que modifican datos
     if request.method in ('POST', 'PUT', 'DELETE'):
         # Endpoints EXENTOS (nombres de las funciones Python)
-        if request.endpoint in ('login_user', 'register_user'):
+        if request.endpoint in ('auth.login_user',):
             return
 
         token_session = session.get('csrf_token')
         token_header = request.headers.get('X-CSRF-Token')
 
         if not token_session or not token_header or token_session != token_header:
-            print(f"CSRF bloqueado en {request.path}: sesión={token_session}, header={token_header}")
+            logger.warning("CSRF bloqueado path=%s user_id=%s", request.path, session.get("user_id"))
             return jsonify({'error': 'CSRF token inválido'}), 403
 
-# --- Rutas para Usuarios (Registro e Inicio de Sesión) ---
-@app.route('/register', methods=['POST'])
-def register_user():
-    data = request.get_json()
 
-    if not data:
-        return jsonify({'error': 'No se recibieron datos'}), 400
-
-    nombre = data.get('nombre', '').strip()
-    apellidos = data.get('apellidos', '').strip()
-    email = data.get('email', '').strip()
-    password = data.get('password')
-    rol = data.get('rol')
-
-    fecha_nacimiento = data.get('fecha_nacimiento')
-    telefono = data.get('telefono')
-    entrenador_id = data.get('entrenador_id')  # desde select
-    categoria = data.get('categoria')
-
-    # Validación básica
-    if not nombre or not apellidos or not email or not password or not rol:
-        return jsonify({'error': 'Todos los campos son obligatorios'}), 400
-
-    if rol not in ('admin', 'entrenador', 'atleta'):
-        return jsonify({'error': 'Rol inválido'}), 400
-
-    # Reglas específicas para atletas
-    if rol == 'atleta':
-        if not entrenador_id or entrenador_id == "":
-            return jsonify({'error': 'Debes seleccionar un entrenador'}), 400
-        if not categoria or categoria == "":
-            return jsonify({'error': 'Debes seleccionar una categoría'}), 400
-
-        # Convertir a int si viene como string
-        try:
-            entrenador_id = int(entrenador_id)
-        except ValueError:
-            return jsonify({'error': 'Entrenador seleccionado no es válido'}), 400
-    else:
-        # Otros roles no deben llevar estos campos
-        fecha_nacimiento = None
-        telefono = None
-        entrenador_id = None
-        categoria = None
-
-    # Comprobar si el email ya existe
-    existing_user = query_db(
-        'SELECT id FROM usuarios WHERE email = ?',
-        (email,),
-        one=True
+@app.before_request
+def force_password_change_gate():
+    if not session.get("user_id"):
+        return
+    allowed = {"auth.login_user", "system.get_csrf_token", "auth.cambiar_password", "system.index", "static"}
+    if request.endpoint in allowed:
+        return
+    user = query_db(
+        "SELECT force_password_change FROM usuarios WHERE id = ?",
+        (session["user_id"],),
+        one=True,
     )
-    if existing_user:
-        return jsonify({'error': 'El correo electrónico ya está registrado'}), 409
-
-    password_hash = generate_password_hash(password)
-
-    # Lógica de aprobado: ahora todos se marcan como aprobados al crearse.
-    aprobado = 1
-
-    try:
-        conn = get_db()
-        cursor = conn.cursor()
-
-        cursor.execute(
-            '''
-            INSERT INTO usuarios (
-                nombre, apellidos, email, password_hash, rol,
-                fecha_nacimiento, telefono, entrenador_id, categoria,
-                aprobado
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''',
-            (
-                nombre,
-                apellidos,
-                email,
-                password_hash,
-                rol,
-                fecha_nacimiento if rol == 'atleta' else None,
-                telefono if rol == 'atleta' else None,
-                entrenador_id if rol == 'atleta' else None,
-                categoria if rol == 'atleta' else None,
-                aprobado
-            )
-        )
-
-        conn.commit()
-
-        mensaje = 'Usuario registrado correctamente'
-        if rol == 'atleta':
-            mensaje = ('Registro completado. Tu cuenta de atleta queda pendiente de '
-                       'aprobación por tu entrenador.')
-
-        return jsonify({'message': mensaje}), 201
-
-    except DB_INTEGRITY_ERRORS as e:
-        print("Error de integridad al registrar:", e)
-        return jsonify({'error': 'Error al registrar el usuario (integridad de datos)'}), 500
-
-    except Exception as e:
-        print("Error general al registrar:", e)
-        return jsonify({'error': 'Error interno del servidor al registrar el usuario'}), 500
-
-@app.route('/login', methods=['POST'])
-def login_user():
-    data = request.get_json()
-    email = data.get('email')
-    password = data.get('password')
-
-    print(f'Solicitud a /login: {data}')
-    print(f'Email: {email}')
-    print(f'Password: {password}')
-
-    if not email or not password:
-        print('Email o password faltantes')
-        return jsonify({'error': 'Correo electrónico y contraseña son obligatorios'}), 400
-
-    user = query_db('SELECT id, rol, email, password_hash, force_password_change FROM usuarios WHERE email = ?', (email,), one=True)
-    print(f'Usuario recuperado: {user}')
-
-    if user and check_password_hash(user['password_hash'], password):
-        print(f'Inicio de sesión exitoso. Rol: {user["rol"]}')
-        session["user_id"] = user["id"]
-        session["user_rol"] = user["rol"]
-        session["user_email"] = user["email"]
-
-        try:
-            force_change = user["force_password_change"]
-        except Exception:
-            force_change = None
-
-        response = {
-            'message': 'Inicio de sesión exitoso',
-            'rol': user['rol'],
-            'user_id': user['id'],
-            'force_password_change': force_change
-        }
-
-        if user['rol'] == 'atleta':
-            # Ya no hay tabla atletas, así que usamos el mismo id
-            response['atleta_id'] = user['id']
-
-        return jsonify(response), 200
-
-    print("Credenciales inválidas")
-    return jsonify({'error': 'Credenciales inválidas'}), 401
+    force_flag = row_get(user, "force_password_change", 0) if user else 0
+    if int(force_flag or 0) == 1:
+        return jsonify({
+            "error": "Debes cambiar la contraseña temporal antes de continuar",
+            "force_password_change": 1,
+        }), 403
 
 # --- Rutas para Usuarios (Gestión - Solo para Admin) ---
-
-@app.route('/usuarios', methods=['GET'])
-@requires_roles('admin')
-def get_all_users(current_user):  # Recibimos el usuario actual
-    users = query_db('SELECT id, nombre, apellidos, email, rol FROM usuarios')  # No devolvemos password_hash
-    return jsonify([dict(user) for user in users])
-
-
-@app.route('/usuarios/<int:id>', methods=['GET'])
-@requires_roles('admin')
-def get_user(current_user, id):
-    user = query_db('SELECT id, nombre, apellidos, email, rol FROM usuarios WHERE id = ?', (id,), one=True)
-    if not user:
-        return jsonify({'error': 'Usuario no encontrado'}), 404
-    return jsonify(dict(user))
-
-
-@app.route('/usuarios', methods=['POST'])
-@requires_roles('admin')
-def create_user(current_user):
-    data = request.get_json()
-    nombre = data.get('nombre')
-    apellidos = data.get('apellidos')
-    email = data.get('email')
-    password = data.get('password')
-    rol = data.get('rol')
-
-    if not nombre or not apellidos or not email or not password or not rol:
-        return jsonify({'error': 'Todos los campos son obligatorios'}), 400
-
-    if rol not in ('admin', 'entrenador', 'atleta'):
-        return jsonify({'error': 'Rol inválido'}), 400
-
-    existing_user = query_db('SELECT * FROM usuarios WHERE email = ?', (email,), one=True)
-    if existing_user:
-        return jsonify({'error': 'El correo electrónico ya está registrado'}), 409
-
-    password_hash = generate_password_hash(password)
-
-    try:
-        execute_db(
-            'INSERT INTO usuarios (nombre, apellidos, email, password_hash, rol, force_password_change) VALUES (?, ?, ?, ?, ?, 0)',
-            (nombre, apellidos, email, password_hash, rol)
-        )
-        return jsonify({'message': 'Usuario creado exitosamente'}), 201
-    except DB_INTEGRITY_ERRORS:
-        return jsonify({'error': 'Error al crear el usuario'}), 500
 
 @app.route('/atletas/<int:id>', methods=['PUT'])
 @requires_roles('admin', 'entrenador')
@@ -714,8 +642,6 @@ def update_atleta(current_user, id):
         print("Error al actualizar atleta:", e)
         return jsonify({'error': 'Error al actualizar atleta'}), 500
 
-from werkzeug.security import generate_password_hash
-
 @app.route('/entrenadores/atletas', methods=['POST'])
 @requires_roles('entrenador', 'admin')
 def crear_atleta_desde_entrenador(current_user):
@@ -734,9 +660,6 @@ def crear_atleta_desde_entrenador(current_user):
     grupo = (data.get('grupo') or '').strip() or None
     subgrupo = (data.get('subgrupo') or '').strip() or None
 
-    # Contraseña temporal fija
-    password = "cambiame"
-
     # --- Validaciones básicas ---
     if not nombre or not apellidos or not email:
         return jsonify({'error': 'Nombre, apellidos y email son obligatorios'}), 400
@@ -750,8 +673,8 @@ def crear_atleta_desde_entrenador(current_user):
     if existente:
         return jsonify({'error': 'Ya existe un usuario con ese email'}), 400
 
-    # Hash de contraseña
-    password_hash = generate_password_hash(password)
+    password_temporal = generar_password_temporal()
+    password_hash = crear_hash_password(password_temporal)
 
     try:
         # Por si tu tabla tiene más campos, ajusta la lista de columnas
@@ -780,7 +703,8 @@ def crear_atleta_desde_entrenador(current_user):
 
         return jsonify({
             'message': 'Atleta creado correctamente',
-            'atleta_id': nuevo_id
+            'atleta_id': nuevo_id,
+            **temporary_password_response(password_temporal),
         }), 201
 
     except Exception as e:
@@ -804,105 +728,49 @@ def delete_atleta(current_user, id):
         return jsonify({'error': 'No tienes permiso para eliminar este atleta'}), 403
 
     try:
-        # Opcional: borrar también entrenamientos_asignados, feedbacks, etc. para ese atleta
-        execute_db('DELETE FROM entrenamientos_asignados WHERE atleta_id = ?', (id,))
-        execute_db('DELETE FROM feedbacks WHERE atleta_id = ?', (id,))
+        if atleta_tiene_historial(id):
+            execute_db('UPDATE usuarios SET activo = 0 WHERE id = ?', (id,))
+            return jsonify({
+                'message': 'Atleta archivado correctamente',
+                'archivado': True,
+                'eliminado': False
+            }), 200
 
         execute_db('DELETE FROM usuarios WHERE id = ?', (id,))
-        return jsonify({'message': 'Atleta eliminado correctamente'}), 200
+        return jsonify({'message': 'Atleta eliminado correctamente', 'eliminado': True}), 200
     except Exception as e:
         print("Error al eliminar atleta:", e)
         return jsonify({'error': 'Error al eliminar atleta'}), 500
 
-@app.route('/usuarios/<int:id>', methods=['PUT'])
-@requires_roles('admin')
-def update_user(current_user, id):
-    data = request.get_json()
-    nombre = data.get('nombre')
-    apellidos = data.get('apellidos')
-    email = data.get('email')
-    rol = data.get('rol')
-    password = data.get('password')
-
-    if not nombre or not apellidos or not email or not rol:
-        return jsonify({'error': 'Todos los campos son obligatorios'}), 400
-
-    if rol not in ('admin', 'entrenador', 'atleta'):
-        return jsonify({'error': 'Rol inválido'}), 400
-
-    if password:
-        password_hash = generate_password_hash(password)
-        # Al cambiar contraseña desde admin forzamos que el usuario la renueve
-        execute_db(
-            '''
-            UPDATE usuarios
-            SET nombre = ?, apellidos = ?, email = ?, rol = ?, password_hash = ?, force_password_change = 1
-            WHERE id = ?
-            ''',
-            (nombre, apellidos, email, rol, password_hash, id)
-        )
-    else:
-        execute_db(
-            'UPDATE usuarios SET nombre = ?, apellidos = ?, email = ?, rol = ? WHERE id = ?',
-            (nombre, apellidos, email, rol, id)
-        )
-    return jsonify({'message': 'Usuario actualizado exitosamente'}), 200
-
-
-@app.route('/usuarios/<int:id>', methods=['DELETE'])
-@requires_roles('admin')
-def delete_user(current_user, id):
-    execute_db('DELETE FROM usuarios WHERE id = ?', (id,))
-    return jsonify({'message': 'Usuario eliminado exitosamente'}), 200
-
-
-@app.route('/usuarios/password', methods=['POST'])
-@requires_roles('admin', 'entrenador', 'atleta')
-def cambiar_password(current_user):
-    data = request.get_json(silent=True) or {}
-    password_actual = data.get('password_actual') or data.get('current_password')
-    password_nueva = data.get('password_nueva') or data.get('new_password')
-
-    if not password_nueva:
-        return jsonify({'error': 'Falta la nueva contraseña'}), 400
+@app.route('/usuarios/<int:id>/reset-password', methods=['POST'])
+@requires_roles('admin', 'entrenador')
+def reset_user_password(current_user, id):
+    user = query_db(
+        'SELECT id, rol, entrenador_id FROM usuarios WHERE id = ?',
+        (id,),
+        one=True,
+    )
+    if not user:
+        return jsonify({'error': 'Usuario no encontrado'}), 404
+    if current_user['rol'] == 'entrenador':
+        if user['rol'] != 'atleta' or user['entrenador_id'] != current_user['id']:
+            return jsonify({'error': 'No tienes permiso para resetear este usuario'}), 403
 
     conn = get_db()
     cur = conn.cursor()
-
     try:
-        cur.execute("SELECT password_hash, force_password_change FROM usuarios WHERE id = ?", (current_user['id'],))
-        row = cur.fetchone()
-        if not row:
-            return jsonify({'error': 'Usuario no encontrado'}), 404
-
-        stored_hash = row["password_hash"] if isinstance(row, dict) else row[0]
-        force_flag = row["force_password_change"] if isinstance(row, dict) else row[1]
-
-        # Si hay contraseña actual, validamos. Si no hay y hay flag de cambio forzado, permitimos.
-        if password_actual:
-            if not check_password_hash(stored_hash, password_actual):
-                return jsonify({'error': 'Contraseña actual incorrecta'}), 400
-        else:
-            if not force_flag:
-                return jsonify({'error': 'Debes indicar tu contraseña actual'}), 400
-
-        new_hash = generate_password_hash(password_nueva)
-        cur.execute(
-            "UPDATE usuarios SET password_hash = ?, force_password_change = 0 WHERE id = ?",
-            (new_hash, current_user['id'])
-        )
+        password_temporal = resetear_password_usuario(cur, id)
         conn.commit()
-        return jsonify({'message': 'Contraseña actualizada'}), 200
-    except Exception as e:
-        print("Error al cambiar contraseña:", e)
+    except Exception:
         conn.rollback()
-        return jsonify({'error': 'No se pudo actualizar la contraseña'}), 500
+        raise
     finally:
-        try:
-            cur.close()
-            conn.close()
-        except Exception:
-            pass
+        cur.close()
+        conn.close()
+    return jsonify({
+        "message": "Contraseña temporal generada",
+        **temporary_password_response(password_temporal),
+    }), 200
 
 
 # --- Rutas para Atletas ---
@@ -929,8 +797,10 @@ def get_atletas(current_user):
 @app.route('/atletas/<int:id>', methods=['GET'])
 @requires_roles('admin', 'entrenador', 'atleta')
 def get_atleta(current_user, id):
-    if session.get("user_rol") == 'admin' or session.get("user_rol") == 'entrenador':
+    if session.get("user_rol") == 'admin':
         atleta = query_db('SELECT * FROM usuarios WHERE id = ?', (id,), one=True)
+    elif session.get("user_rol") == 'entrenador':
+        atleta = query_db('SELECT * FROM usuarios WHERE id = ? AND entrenador_id = ?', (id, current_user["id"]), one=True)
     else:  # 'atleta'
         if session.get("user_id") != id:
             return jsonify({'error': 'Acceso no autorizado'}), 403
@@ -946,8 +816,10 @@ def obtener_perfil_atleta(current_user, atleta_id):
         query = '''
             SELECT u.id, u.nombre, u.apellidos, u.email, u.foto_url, u.telefono,
                    u.fecha_nacimiento, u.categoria, u.grupo, u.subgrupo, u.entrenador_id, u.rol,
-                   u.vdot_val, u.vdot_fecha, u.vdot_distancia_m, u.vdot_tiempo_seg
+                   u.vdot_val, u.vdot_fecha, u.vdot_distancia_m, u.vdot_tiempo_seg,
+                   e.nombre AS entrenador_nombre, e.email AS entrenador_email
             FROM usuarios u
+            LEFT JOIN usuarios e ON e.id = u.entrenador_id
             WHERE u.id = ?
         '''
         resultado = query_db(query, (atleta_id,), one=True)
@@ -1091,18 +963,16 @@ def actualizar_perfil(current_user):
             return jsonify({"error": "Ese correo ya está en uso"}), 409
 
         if foto:
-            # Carpeta de destino
-            print("Nombre del archivo recibido:", foto.filename)
+            if not is_allowed_image_upload(foto):
+                return jsonify({"error": "Formato de imagen no permitido. Usa JPG, PNG o WEBP."}), 400
             carpeta_destino = os.path.join('..', 'frontend','static', 'img', 'perfiles')
             os.makedirs(carpeta_destino, exist_ok=True)
 
             # Guardar imagen con nombre único
-            extension = os.path.splitext(foto.filename)[1]
+            extension = os.path.splitext(secure_filename(foto.filename))[1].lower()
             nombre_archivo = f"perfil_{usuario_id}{extension}"
             ruta_archivo = os.path.join(carpeta_destino, secure_filename(nombre_archivo))
             foto.save(ruta_archivo)
-            print(f"Imagen guardada en: {ruta_archivo}")
-
 
             foto_url = f"/static/img/perfiles/{nombre_archivo}"
 
@@ -1468,7 +1338,7 @@ def get_entrenamiento_con_pasos(entrenamiento_id: int, current_user=None):
         cur.close()
         conn.close()
         return None
-    if current_user and current_user.get("rol") == "entrenador":
+    if current_user and current_user["rol"] == "entrenador":
         creador = row.get("creador_id") if isinstance(row, dict) else row[6]
         if creador not in (None, current_user.get("id")):
             cur.close()
@@ -1749,10 +1619,28 @@ def eliminar_entrenamiento(current_user, id):
 
 # --- Rutas para Feedback (Ejemplo) ---
 
+
+def atleta_pertenece_a_entrenador(atleta_id, entrenador_id):
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        return permissions_atleta_pertenece_a_entrenador(cur, atleta_id, entrenador_id)
+    finally:
+        cur.close()
+        conn.close()
+
+
 @app.route('/calendario/<int:atleta_id>', methods=['GET'])
 @requires_roles('admin', 'entrenador', 'atleta')
 def get_calendario(current_user, atleta_id):
     try:
+        if current_user["rol"] == "entrenador":
+            if not atleta_pertenece_a_entrenador(atleta_id, current_user["id"]):
+                return jsonify({"error": "No autorizado"}), 403
+
+        if current_user["rol"] == "atleta" and current_user["id"] != atleta_id:
+            return jsonify({"error": "No autorizado"}), 403
+
         # Recuperamos todas las asignaciones del atleta
         entrenamientos_asignados = query_db(
             "SELECT id, nombre, fecha, visible FROM entrenamientos_asignados WHERE atleta_id = ?",
@@ -2086,17 +1974,26 @@ def obtener_entrenamientos_asignados(current_user, atleta_id):
         # Si es atleta, sólo puede ver los suyos
         if session.get("user_rol") == "atleta" and session.get("user_id") != atleta_id:
             return jsonify({'error': 'Acceso no autorizado'}), 403
+        where = ["atleta_id = ?"]
+        params = [atleta_id]
+        if current_user["rol"] == "atleta":
+            where.append("COALESCE(visible, 0) = 1")
 
         entrenamientos = query_db(
             """
             SELECT *
             FROM entrenamientos_asignados 
-            WHERE atleta_id = ?
+            WHERE {where}
             ORDER BY fecha ASC
-            """,
-            (atleta_id,)
+            """.format(where=" AND ".join(where)),
+            tuple(params)
         )
-        return jsonify([dict(e) for e in entrenamientos]), 200
+        items = []
+        for e in entrenamientos:
+            item = dict(e)
+            item["fecha"] = fecha_iso(item.get("fecha"))
+            items.append(item)
+        return jsonify(items), 200
     except Exception as e:
         print("Error al obtener entrenamientos asignados:", e)
         return jsonify({'error': 'Error al obtener entrenamientos asignados'}), 500
@@ -2113,14 +2010,18 @@ def obtener_entrenamiento_asignado(current_user, id):
     cur = conn.cursor()
 
     # Cabecera del entrenamiento asignado
-    cur.execute(
-        "SELECT * FROM entrenamientos_asignados WHERE id = ?",
-        (id,)
-    )
+    cur.execute("SELECT * FROM entrenamientos_asignados WHERE id = ?", (id,))
     entrenamiento = cur.fetchone()
 
     if not entrenamiento:
         return jsonify({'error': 'Entrenamiento no encontrado'}), 404
+    if current_user['rol'] == 'atleta':
+        if current_user['id'] != entrenamiento['atleta_id']:
+            return jsonify({'error': 'No tienes permiso para ver este entrenamiento'}), 403
+        if int(entrenamiento['visible'] or 0) != 1:
+            return jsonify({'error': 'Entrenamiento no disponible'}), 404
+    if current_user['rol'] == 'entrenador' and not atleta_pertenece_a_entrenador(entrenamiento['atleta_id'], current_user['id']):
+        return jsonify({'error': 'No tienes permiso para ver este entrenamiento'}), 403
 
     # Detalle de pasos
     cur.execute(
@@ -2196,6 +2097,8 @@ def editar_entrenamiento_asignado(current_user, id):
 
         if not actual:
             return jsonify({'error': 'Entrenamiento asignado no encontrado'}), 404
+        if current_user["rol"] == "entrenador" and not atleta_pertenece_a_entrenador(actual["atleta_id"], current_user["id"]):
+            return jsonify({'error': 'No autorizado'}), 403
 
         # Si no mandan entrenamiento_id nuevo, usamos el actual
         if entrenamiento_id_nuevo is None:
@@ -2276,6 +2179,12 @@ def eliminar_entrenamiento_asignado(current_user, id):
         """, (id,))
 
         # Luego la cabecera
+        cur.execute("SELECT atleta_id FROM entrenamientos_asignados WHERE id = ?", (id,))
+        actual = cur.fetchone()
+        if not actual:
+            return jsonify({'error': 'Entrenamiento asignado no encontrado'}), 404
+        if current_user["rol"] == "entrenador" and not atleta_pertenece_a_entrenador(actual["atleta_id"], current_user["id"]):
+            return jsonify({'error': 'No autorizado'}), 403
         cur.execute("DELETE FROM entrenamientos_asignados WHERE id = ?", (id,))
 
         conn.commit()
@@ -2300,6 +2209,995 @@ def asignar_grupo_entrenamiento(current_user):
         ),
         410,
     )
+
+def normalizar_franja(valor):
+    val = (valor or "").strip().lower()
+    if val in ("tarde", "pm", "p.m.", "segunda"):
+        return "tarde"
+    return "manana"
+
+
+def normalizar_dia_semana(valor):
+    try:
+        dia = int(valor)
+    except Exception:
+        dia = 1
+    return max(1, min(7, dia))
+
+
+def obtener_filtros_atletas_entrenador(current_user):
+    if current_user["rol"] == "admin":
+        filas = query_db('SELECT grupo, subgrupo, categoria FROM usuarios WHERE rol = "atleta"')
+    else:
+        filas = query_db(
+            'SELECT grupo, subgrupo, categoria FROM usuarios WHERE rol = "atleta" AND entrenador_id = ?',
+            (current_user["id"],),
+        )
+    filtros = {"grupos": set(), "subgrupos": set(), "categorias": set()}
+    for fila in filas:
+        for campo, destino in (("grupo", "grupos"), ("subgrupo", "subgrupos"), ("categoria", "categorias")):
+            valor = (fila.get(campo) if isinstance(fila, dict) else None) or ""
+            valor = str(valor).strip()
+            if valor:
+                filtros[destino].add(valor)
+    return {k: sorted(v) for k, v in filtros.items()}
+
+
+def row_get(row, key, default=None):
+    if row is None:
+        return default
+    try:
+        return row.get(key, default)
+    except AttributeError:
+        try:
+            return row[key]
+        except Exception:
+            return default
+
+
+def obtener_atleta_configurable(current_user, atleta_id):
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        atleta, error = obtener_atleta_autorizado(cur, current_user, atleta_id)
+        if error:
+            return None, (jsonify({"error": error["error"]}), error["status"])
+        return atleta, None
+    finally:
+        cur.close()
+        conn.close()
+
+
+def atleta_tiene_historial(atleta_id):
+    comprobaciones = (
+        ("entrenamientos_asignados", "atleta_id"),
+        ("feedbacks", "atleta_id"),
+        ("sesiones_realizadas", "atleta_id"),
+        ("zonas_entrenamiento", "atleta_id"),
+        ("entrenamientos_envios", "atleta_id"),
+        ("alertas_entrenamientos", "atleta_id"),
+    )
+    for tabla, columna in comprobaciones:
+        try:
+            fila = query_db(
+                f"SELECT COUNT(*) AS total FROM {tabla} WHERE {columna} = ?",
+                (atleta_id,),
+                one=True,
+            )
+            total = fila.get("total") if isinstance(fila, dict) else fila[0]
+            if total:
+                return True
+        except Exception:
+            pass
+    return False
+
+
+app.register_blueprint(create_admin_users_blueprint(
+    requires_roles=requires_roles,
+    query_db=query_db,
+    execute_db=execute_db,
+    atleta_tiene_historial=atleta_tiene_historial,
+    generar_password_temporal=generar_password_temporal,
+    crear_hash_password=crear_hash_password,
+    temporary_password_response=temporary_password_response,
+    db_integrity_errors=DB_INTEGRITY_ERRORS,
+))
+
+
+def obtener_zonas_snapshot(cur, atleta_id, fecha):
+    try:
+        zonas = obtener_zonas_atleta_por_fecha(cur, atleta_id, fecha)
+    except Exception:
+        zonas = None
+    if not zonas:
+        return {"vdot_usado": None, "zonas_metodo": None}
+    return {
+        "vdot_usado": zonas.get("vdot_val"),
+        "zonas_metodo": zonas.get("metodo"),
+        "zonas": zonas,
+    }
+
+
+def puede_gestionar_atleta(current_user, atleta_id):
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        return entrenador_puede_acceder_atleta(cur, current_user, atleta_id)
+    finally:
+        cur.close()
+        conn.close()
+
+
+def obtener_asignado_seguro(cur, current_user, asignado_id, *, escritura=False):
+    asignado, error = obtener_entrenamiento_asignado_autorizado(cur, current_user, asignado_id, escritura=escritura)
+    if error:
+        return None, (jsonify({"error": error["error"]}), error["status"])
+    return asignado, None
+
+
+def publicar_asignado(cur, current_user, asignado_id, now=None):
+    publication_domain.enviar_whatsapp = enviar_whatsapp
+    return publication_domain.publicar_asignado(cur, current_user, asignado_id, now=now)
+
+
+def programar_asignado(cur, current_user, asignado_id, publicar_en):
+    return publication_domain.programar_asignado(cur, current_user, asignado_id, publicar_en)
+
+
+def procesar_programadas_vencidas(cur, current_user):
+    publication_domain.enviar_whatsapp = enviar_whatsapp
+    return publication_domain.procesar_programadas_vencidas(cur, current_user)
+
+
+def fecha_iso(valor):
+    if valor is None:
+        return None
+    try:
+        if hasattr(valor, "date") and not isinstance(valor, str):
+            return valor.date().isoformat()
+        if hasattr(valor, "isoformat") and not isinstance(valor, str):
+            return valor.isoformat()
+    except Exception:
+        pass
+    texto = str(valor)
+    try:
+        return datetime.fromisoformat(texto).date().isoformat()
+    except Exception:
+        return texto[:10]
+
+
+def clonar_entrenamiento_planificacion(cur, *, atleta_id, fecha, entrenamiento_id, meta=None, nombre=None):
+    meta = meta or {}
+    cur.execute(
+        """
+        SELECT id, nombre, objetivo, notas, km_totales
+        FROM entrenamientos
+        WHERE id = ?
+        """,
+        (entrenamiento_id,),
+    )
+    ent = cur.fetchone()
+    if not ent:
+        raise ValueError(f"Entrenamiento base no encontrado: {entrenamiento_id}")
+
+    zonas_snapshot = obtener_zonas_snapshot(cur, atleta_id, fecha)
+    now = datetime.now().isoformat(" ")
+    nombre_final = (nombre or "").strip() or ent["nombre"]
+
+    cur.execute(
+        """
+        INSERT INTO entrenamientos_asignados (
+            atleta_id, fecha, entrenamiento_id, visible, franja, publicar_en,
+            ciclo_tipo, ciclo_id, macrociclo_id, mesociclo_id, microciclo_id,
+            nombre, objetivo, notas, km_previstos, created_at, updated_at,
+            vdot_usado, zonas_metodo, estado_envio, personalizado
+        )
+        VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendiente', ?)
+        """,
+        (
+            atleta_id,
+            fecha,
+            ent["id"],
+            normalizar_franja(meta.get("franja")),
+            meta.get("publicar_en"),
+            meta.get("ciclo_tipo"),
+            meta.get("ciclo_id"),
+            meta.get("macrociclo_id"),
+            meta.get("mesociclo_id"),
+            meta.get("microciclo_id"),
+            nombre_final,
+            ent["objetivo"],
+            ent["notas"],
+            ent["km_totales"] if ent["km_totales"] is not None else 0,
+            now,
+            now,
+            zonas_snapshot.get("vdot_usado"),
+            zonas_snapshot.get("zonas_metodo"),
+            1 if zonas_snapshot.get("vdot_usado") or zonas_snapshot.get("zonas_metodo") else 0,
+        ),
+    )
+    asignado_id = cur.lastrowid
+    clonar_detalle_entrenamiento(cur, ent["id"], asignado_id)
+    try:
+        upsert_km_realizados(
+            cur,
+            asignado_id,
+            ent["km_totales"] if ent["km_totales"] is not None else None,
+            None,
+            now,
+        )
+    except Exception as e:
+        print("Aviso: no se pudo registrar km planificados (plan semanal):", e)
+    return asignado_id
+
+
+@app.route('/planificacion/atletas', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def planificacion_atletas(current_user):
+    busqueda = (request.args.get("q") or "").strip()
+    grupo = (request.args.get("grupo") or "").strip()
+    subgrupo = (request.args.get("subgrupo") or "").strip()
+    categoria = (request.args.get("categoria") or "").strip()
+
+    where = ['rol = "atleta"']
+    params = []
+    if current_user["rol"] == "entrenador":
+        where.append("entrenador_id = ?")
+        params.append(current_user["id"])
+    if busqueda:
+        where.append("(nombre LIKE ? OR apellidos LIKE ? OR email LIKE ?)")
+        like = f"%{busqueda}%"
+        params.extend([like, like, like])
+    if grupo:
+        where.append("grupo = ?")
+        params.append(grupo)
+    if subgrupo:
+        where.append("subgrupo = ?")
+        params.append(subgrupo)
+    if categoria:
+        where.append("categoria = ?")
+        params.append(categoria)
+
+    atletas = query_db(
+        f"""
+        SELECT id, nombre, apellidos, email, categoria, grupo, subgrupo, vdot_val, vdot_fecha
+        FROM usuarios
+        WHERE {' AND '.join(where)}
+        ORDER BY apellidos, nombre, id
+        """,
+        tuple(params),
+    )
+    return jsonify({
+        "atletas": [dict(a) for a in atletas],
+        "filtros": obtener_filtros_atletas_entrenador(current_user),
+    }), 200
+
+
+app.register_blueprint(create_configuracion_blueprint(
+    requires_roles=requires_roles,
+    query_db=query_db,
+    execute_db=execute_db,
+    get_db=get_db,
+    obtener_filtros_atletas_entrenador=obtener_filtros_atletas_entrenador,
+    obtener_atleta_configurable=obtener_atleta_configurable,
+    atleta_tiene_historial=atleta_tiene_historial,
+    row_get=row_get,
+    generar_password_temporal=generar_password_temporal,
+    crear_hash_password=crear_hash_password,
+    resetear_password_usuario=resetear_password_usuario,
+    temporary_password_response=temporary_password_response,
+))
+
+
+@app.route('/planificacion/biblioteca', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def planificacion_biblioteca(current_user):
+    termino = (request.args.get("q") or "").strip()
+    tipo = (request.args.get("tipo") or "").strip()
+
+    where = []
+    params = []
+    if current_user["rol"] == "entrenador":
+        where.append("(creador_id = ? OR creador_id IS NULL)")
+        params.append(current_user["id"])
+    if termino:
+        where.append("(nombre LIKE ? OR objetivo LIKE ? OR notas LIKE ?)")
+        like = f"%{termino}%"
+        params.extend([like, like, like])
+    if tipo:
+        where.append("(bloque_principal LIKE ? OR objetivo LIKE ? OR nombre LIKE ?)")
+        like = f"%{tipo}%"
+        params.extend([like, like, like])
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+
+    entrenamientos = query_db(
+        f"""
+        SELECT e.id, e.nombre, e.objetivo, e.notas, e.bloque_principal, e.km_totales,
+               (
+                 SELECT ed.tipo_paso
+                 FROM entrenamientos_detalle ed
+                 WHERE ed.entrenamiento_id = e.id
+                 ORDER BY
+                   CASE WHEN ed.tipo_paso IN ('warmup', 'cooldown') THEN 1 ELSE 0 END,
+                   ed.parent_id IS NOT NULL, ed.orden, ed.id
+                 LIMIT 1
+               ) AS tipo_principal
+        FROM entrenamientos
+        e
+        {where_sql}
+        ORDER BY e.id DESC
+        """,
+        tuple(params),
+    )
+    return jsonify({
+        "entrenamientos": [dict(e) for e in entrenamientos],
+    }), 200
+
+
+@app.route('/semanas_tipo', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def listar_semanas_tipo(current_user):
+    where = ""
+    params = []
+    if current_user["rol"] == "entrenador":
+        where = "WHERE m.creador_id = ?"
+        params.append(current_user["id"])
+
+    micros = query_db(
+        f"""
+        SELECT m.id, m.nombre, m.objetivo, m.created_at,
+               COUNT(me.id) AS sesiones,
+               COALESCE(SUM(e.km_totales), 0) AS km_totales
+        FROM microciclos m
+        LEFT JOIN microciclos_entrenamientos me ON me.microciclo_id = m.id
+        LEFT JOIN entrenamientos e ON e.id = me.entrenamiento_id
+        {where}
+        GROUP BY m.id, m.nombre, m.objetivo, m.created_at
+        ORDER BY m.created_at DESC, m.id DESC
+        """,
+        tuple(params),
+    )
+    return jsonify([dict(m) for m in micros]), 200
+
+
+@app.route('/semanas_tipo/<int:micro_id>', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def obtener_semana_tipo(current_user, micro_id):
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT id, nombre, objetivo, created_at, creador_id
+            FROM microciclos
+            WHERE id = ?
+            """,
+            (micro_id,),
+        )
+        micro = cur.fetchone()
+        if not micro:
+            return jsonify({"error": "Semana tipo no encontrada"}), 404
+        if current_user["rol"] == "entrenador" and micro.get("creador_id") not in (None, current_user["id"]):
+            return jsonify({"error": "No tienes permiso para ver esta Semana tipo"}), 403
+
+        cur.execute(
+            """
+            SELECT me.id, me.dia_relativo, me.sesion_indice, me.franja, me.orden,
+                   me.entrenamiento_id, me.notas,
+                   e.nombre AS entrenamiento_nombre,
+                   e.objetivo AS entrenamiento_objetivo,
+                   e.notas AS entrenamiento_notas,
+                   e.km_totales
+            FROM microciclos_entrenamientos me
+            LEFT JOIN entrenamientos e ON e.id = me.entrenamiento_id
+            WHERE me.microciclo_id = ?
+            ORDER BY me.dia_relativo, me.franja, me.orden, me.sesion_indice, me.id
+            """,
+            (micro_id,),
+        )
+        sesiones = []
+        for row in cur.fetchall():
+            row_data = dict(row)
+            sesiones.append({
+                "id": row_data["id"],
+                "dia_semana": row_data["dia_relativo"],
+                "dia_relativo": row_data["dia_relativo"],
+                "franja": row_data.get("franja") or "manana",
+                "orden": row_data["orden"] or row_data["sesion_indice"] or 1,
+                "sesion_indice": row_data["sesion_indice"],
+                "entrenamiento_id": row_data["entrenamiento_id"],
+                "nombre": row_data["entrenamiento_nombre"],
+                "objetivo": row_data["entrenamiento_objetivo"],
+                "notas": row_data["entrenamiento_notas"] or row_data["notas"],
+                "km_totales": row_data["km_totales"] or 0,
+            })
+        data = dict(micro)
+        data["sesiones"] = sesiones
+        return jsonify(data), 200
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/planificacion/semanal/asignar', methods=['POST'])
+@requires_roles('admin', 'entrenador')
+def asignar_planificacion_semanal(current_user):
+    data = request.get_json(silent=True) or {}
+    atletas_ids = data.get("atletas_ids") or data.get("atletas") or []
+    sesiones = data.get("sesiones") or []
+    fecha_inicio_str = (data.get("fecha_inicio") or "").strip()
+
+    try:
+        fecha_inicio = datetime.strptime(fecha_inicio_str, "%Y-%m-%d").date()
+    except Exception:
+        return jsonify({"error": "Fecha de inicio inválida"}), 400
+
+    atletas_limpios = []
+    for atleta_id in atletas_ids:
+        try:
+            atletas_limpios.append(int(atleta_id))
+        except Exception:
+            pass
+    atletas_limpios = sorted(set(atletas_limpios))
+    if not atletas_limpios:
+        return jsonify({"error": "Selecciona al menos un atleta"}), 400
+    if not sesiones:
+        return jsonify({"error": "Añade al menos una sesión a la semana"}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        if current_user["rol"] == "entrenador":
+            placeholders = ",".join(["?"] * len(atletas_limpios))
+            cur.execute(
+                f"""
+                SELECT id FROM usuarios
+                WHERE rol = "atleta" AND entrenador_id = ? AND id IN ({placeholders})
+                """,
+                tuple([current_user["id"]] + atletas_limpios),
+            )
+            permitidos = {row["id"] for row in cur.fetchall()}
+            if permitidos != set(atletas_limpios):
+                return jsonify({"error": "Hay atletas fuera de tu equipo"}), 403
+
+        creados = []
+        for atleta_id in atletas_limpios:
+            for idx, sesion in enumerate(sesiones, start=1):
+                entrenamiento_id = sesion.get("entrenamiento_id")
+                try:
+                    entrenamiento_id = int(entrenamiento_id)
+                except Exception:
+                    raise ValueError("Todas las sesiones deben tener entrenamiento_id")
+                dia = normalizar_dia_semana(sesion.get("dia_semana") or sesion.get("dia_relativo"))
+                fecha = (fecha_inicio + timedelta(days=dia - 1)).isoformat()
+                asignado_id = clonar_entrenamiento_planificacion(
+                    cur,
+                    atleta_id=atleta_id,
+                    fecha=fecha,
+                    entrenamiento_id=entrenamiento_id,
+                    meta={
+                        "ciclo_tipo": "semana",
+                        "ciclo_id": data.get("semana_tipo_id"),
+                        "microciclo_id": data.get("semana_tipo_id"),
+                        "franja": sesion.get("franja"),
+                    },
+                    nombre=sesion.get("nombre"),
+                )
+                creados.append({
+                    "id": asignado_id,
+                    "atleta_id": atleta_id,
+                    "fecha": fecha,
+                    "dia_semana": dia,
+                    "franja": normalizar_franja(sesion.get("franja")),
+                    "orden": sesion.get("orden") or idx,
+                })
+        conn.commit()
+        return jsonify({
+            "message": "Semana asignada correctamente",
+            "creados": len(creados),
+            "ids": [c["id"] for c in creados],
+            "entrenamientos": creados,
+            "visible": 0,
+        }), 201
+    except ValueError as ve:
+        conn.rollback()
+        return jsonify({"error": str(ve)}), 400
+    except Exception as e:
+        conn.rollback()
+        print("Error en asignar_planificacion_semanal:", e)
+        return jsonify({"error": "No se pudo asignar la semana"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/planificacion/semanal/guardar_semana_tipo', methods=['POST'])
+@requires_roles('admin', 'entrenador')
+def guardar_planificacion_como_semana_tipo(current_user):
+    data = request.get_json(silent=True) or {}
+    nombre = (data.get("nombre") or "").strip()
+    objetivo = (data.get("objetivo") or "").strip() or None
+    sesiones = data.get("sesiones") or []
+    if not nombre:
+        return jsonify({"error": "El nombre de la Semana tipo es obligatorio"}), 400
+    if not sesiones:
+        return jsonify({"error": "Añade al menos una sesión antes de guardar"}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        now = datetime.now().isoformat(" ")
+        cur.execute(
+            """
+            INSERT INTO microciclos (mesociclo_id, nombre, objetivo, created_at, creador_id)
+            VALUES (NULL, ?, ?, ?, ?)
+            """,
+            (nombre, objetivo, now, current_user["id"]),
+        )
+        micro_id = cur.lastrowid
+        for idx, sesion in enumerate(sesiones, start=1):
+            entrenamiento_id = int(sesion.get("entrenamiento_id"))
+            dia = normalizar_dia_semana(sesion.get("dia_semana") or sesion.get("dia_relativo"))
+            franja = normalizar_franja(sesion.get("franja"))
+            orden = int(sesion.get("orden") or idx)
+            cur.execute(
+                """
+                INSERT INTO microciclos_entrenamientos (
+                    microciclo_id, dia_relativo, sesion_indice,
+                    entrenamiento_id, notas, orden, franja, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (micro_id, dia, orden, entrenamiento_id, sesion.get("notas"), orden, franja, now),
+            )
+        conn.commit()
+        return jsonify({"message": "Semana tipo guardada", "id": micro_id}), 201
+    except Exception as e:
+        conn.rollback()
+        print("Error al guardar Semana tipo:", e)
+        return jsonify({"error": "No se pudo guardar la Semana tipo"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/planificacion/atleta/<int:atleta_id>/calendario', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def calendario_planificacion_atleta(current_user, atleta_id):
+    if not puede_gestionar_atleta(current_user, atleta_id):
+        return jsonify({"error": "No autorizado"}), 403
+
+    mes = (request.args.get("mes") or "").strip()
+    try:
+        ref = datetime.strptime(mes, "%Y-%m").date() if mes else datetime.now().date()
+    except Exception:
+        return jsonify({"error": "Mes inválido"}), 400
+    inicio = ref.replace(day=1)
+    if inicio.month == 12:
+        siguiente = inicio.replace(year=inicio.year + 1, month=1)
+    else:
+        siguiente = inicio.replace(month=inicio.month + 1)
+
+    filas = query_db(
+        """
+        SELECT id, atleta_id, fecha, entrenamiento_id, nombre, objetivo, notas,
+               visible, franja, publicar_en, km_previstos,
+               (
+                 SELECT ead.tipo_paso
+                 FROM entrenamientos_asignados_detalle ead
+                 WHERE ead.entrenamiento_asignado_id = entrenamientos_asignados.id
+                 ORDER BY
+                   CASE WHEN ead.tipo_paso IN ('warmup', 'cooldown') THEN 1 ELSE 0 END,
+                   ead.parent_id IS NOT NULL, ead.orden, ead.id
+                 LIMIT 1
+               ) AS tipo_principal
+        FROM entrenamientos_asignados
+        WHERE atleta_id = ?
+          AND DATE(fecha) >= DATE(?)
+          AND DATE(fecha) < DATE(?)
+        ORDER BY fecha, franja, id
+        """,
+        (atleta_id, inicio.isoformat(), siguiente.isoformat()),
+    )
+    sesiones = []
+    for row in filas:
+        item = dict(row)
+        item["fecha"] = fecha_iso(item.get("fecha"))
+        item["estado_visibilidad"] = estado_visibilidad_asignado(item)
+        item["franja"] = normalizar_franja(item.get("franja"))
+        sesiones.append(item)
+    atleta = query_db(
+        "SELECT id, nombre, apellidos, categoria, grupo, subgrupo FROM usuarios WHERE id = ? AND rol = 'atleta'",
+        (atleta_id,),
+        one=True,
+    )
+    return jsonify({
+        "atleta": dict(atleta) if atleta else {"id": atleta_id},
+        "mes": inicio.strftime("%Y-%m"),
+        "sesiones": sesiones,
+    }), 200
+
+
+@app.route('/planificacion/atleta/<int:atleta_id>/dia', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def dia_planificacion_atleta(current_user, atleta_id):
+    if not puede_gestionar_atleta(current_user, atleta_id):
+        return jsonify({"error": "No autorizado"}), 403
+    fecha = _normalizar_fecha(request.args.get("fecha"))
+    if not fecha:
+        return jsonify({"error": "Fecha inválida"}), 400
+
+    filas = query_db(
+        """
+        SELECT id, atleta_id, fecha, entrenamiento_id, nombre, objetivo, notas,
+               visible, franja, publicar_en, km_previstos, vdot_usado, zonas_metodo,
+               (
+                 SELECT ead.tipo_paso
+                 FROM entrenamientos_asignados_detalle ead
+                 WHERE ead.entrenamiento_asignado_id = entrenamientos_asignados.id
+                 ORDER BY
+                   CASE WHEN ead.tipo_paso IN ('warmup', 'cooldown') THEN 1 ELSE 0 END,
+                   ead.parent_id IS NOT NULL, ead.orden, ead.id
+                 LIMIT 1
+               ) AS tipo_principal
+        FROM entrenamientos_asignados
+        WHERE atleta_id = ? AND DATE(fecha) = DATE(?)
+        ORDER BY franja, id
+        """,
+        (atleta_id, fecha),
+    )
+    sesiones = []
+    for row in filas:
+        item = dict(row)
+        item["fecha"] = fecha_iso(item.get("fecha"))
+        item["estado_visibilidad"] = estado_visibilidad_asignado(item)
+        item["franja"] = normalizar_franja(item.get("franja"))
+        sesiones.append(item)
+    return jsonify({"fecha": fecha, "sesiones": sesiones}), 200
+
+
+@app.route('/planificacion/atleta/<int:atleta_id>/sesiones', methods=['POST'])
+@requires_roles('admin', 'entrenador')
+def agregar_sesion_planificacion_atleta(current_user, atleta_id):
+    if not puede_gestionar_atleta(current_user, atleta_id):
+        return jsonify({"error": "No autorizado"}), 403
+    data = request.get_json(silent=True) or {}
+    fecha = _normalizar_fecha(data.get("fecha"))
+    if not fecha:
+        return jsonify({"error": "Fecha inválida"}), 400
+    try:
+        entrenamiento_id = int(data.get("entrenamiento_id"))
+    except Exception:
+        return jsonify({"error": "Entrenamiento inválido"}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        asignado_id = clonar_entrenamiento_planificacion(
+            cur,
+            atleta_id=atleta_id,
+            fecha=fecha,
+            entrenamiento_id=entrenamiento_id,
+            meta={"franja": data.get("franja")},
+            nombre=data.get("nombre"),
+        )
+        conn.commit()
+        return jsonify({"message": "Sesión añadida", "id": asignado_id, "visible": 0}), 201
+    except ValueError as ve:
+        conn.rollback()
+        return jsonify({"error": str(ve)}), 400
+    except Exception as e:
+        conn.rollback()
+        print("Error al añadir sesión de planificación:", e)
+        return jsonify({"error": "No se pudo añadir la sesión"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/planificacion/sesiones/<int:asignado_id>', methods=['PUT'])
+@requires_roles('admin', 'entrenador')
+def editar_sesion_planificacion(current_user, asignado_id):
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        asignado, error = obtener_asignado_seguro(cur, current_user, asignado_id, escritura=True)
+        if error:
+            return error
+
+        fecha = _normalizar_fecha(data.get("fecha") or asignado.get("fecha"))
+        if not fecha:
+            return jsonify({"error": "Fecha inválida"}), 400
+        nombre = (data.get("nombre") or asignado.get("nombre") or "").strip()
+        if not nombre:
+            return jsonify({"error": "El nombre es obligatorio"}), 400
+        franja = normalizar_franja(data.get("franja") or asignado.get("franja"))
+        notas = data.get("notas", asignado.get("notas"))
+        objetivo = data.get("objetivo", asignado.get("objetivo"))
+        visible = asignado.get("visible")
+        if data.get("visible") is not None:
+            visible = 1 if str(data.get("visible")) in ("1", "true", "True") else 0
+        publicar_en = data.get("publicar_en")
+        if publicar_en == "":
+            publicar_en = None
+
+        zonas_snapshot = obtener_zonas_snapshot(cur, asignado["atleta_id"], fecha)
+        now = datetime.now().isoformat(" ")
+        cur.execute(
+            """
+            UPDATE entrenamientos_asignados
+            SET fecha = ?, nombre = ?, objetivo = ?, notas = ?, visible = ?,
+                franja = ?, publicar_en = ?, vdot_usado = ?, zonas_metodo = ?,
+                personalizado = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                fecha,
+                nombre,
+                objetivo,
+                notas,
+                visible,
+                franja,
+                publicar_en,
+                zonas_snapshot.get("vdot_usado"),
+                zonas_snapshot.get("zonas_metodo"),
+                1 if zonas_snapshot.get("vdot_usado") or zonas_snapshot.get("zonas_metodo") else asignado.get("personalizado") or 0,
+                now,
+                asignado_id,
+            ),
+        )
+        conn.commit()
+        return jsonify({"message": "Sesión actualizada"}), 200
+    except Exception as e:
+        conn.rollback()
+        print("Error editando sesión de planificación:", e)
+        return jsonify({"error": "No se pudo actualizar la sesión"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/planificacion/sesiones/<int:asignado_id>/visibilidad', methods=['PUT'])
+@requires_roles('admin', 'entrenador')
+def visibilidad_sesion_planificacion(current_user, asignado_id):
+    data = request.get_json(silent=True) or {}
+    estado = (data.get("estado") or "").strip().lower()
+    if estado not in ("oculto", "visible", "programado"):
+        return jsonify({"error": "Estado inválido"}), 400
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        if estado == "visible":
+            result, error = publicar_asignado(cur, current_user, asignado_id)
+            if error:
+                return error
+        elif estado == "programado":
+            result, error = programar_asignado(cur, current_user, asignado_id, data.get("publicar_en"))
+            if error:
+                return error
+        else:
+            _, error = obtener_asignado_seguro(cur, current_user, asignado_id, escritura=True)
+            if error:
+                return error
+            cur.execute(
+                """
+                UPDATE entrenamientos_asignados
+                SET visible = 0, publicar_en = NULL, updated_at = ?
+                WHERE id = ?
+                """,
+                (datetime.now().isoformat(" "), asignado_id),
+            )
+            result = {"id": asignado_id, "estado": "oculto"}
+        conn.commit()
+        return jsonify({"message": "Visibilidad actualizada", "resultado": result}), 200
+    except Exception as e:
+        conn.rollback()
+        print("Error actualizando visibilidad individual:", e)
+        return jsonify({"error": "No se pudo actualizar la visibilidad"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/planificacion/publicacion/pendientes', methods=['GET'])
+@requires_roles('admin', 'entrenador')
+def listar_pendientes_publicacion(current_user):
+    filtro = (request.args.get("filtro") or "hoy").strip().lower()
+    busqueda = (request.args.get("q") or "").strip()
+    hoy = datetime.now().date()
+    where = ["COALESCE(ea.visible, 0) = 0", "ea.publicado_en IS NULL"]
+    params = []
+    if current_user["rol"] == "entrenador":
+        where.append("u.entrenador_id = ?")
+        params.append(current_user["id"])
+    if filtro == "hoy":
+        where.append("DATE(ea.fecha) = DATE(?)")
+        params.append(hoy.isoformat())
+    elif filtro == "manana":
+        where.append("DATE(ea.fecha) = DATE(?)")
+        params.append((hoy + timedelta(days=1)).isoformat())
+    elif filtro == "semana":
+        inicio = hoy - timedelta(days=hoy.weekday())
+        fin = inicio + timedelta(days=7)
+        where.append("DATE(ea.fecha) >= DATE(?) AND DATE(ea.fecha) < DATE(?)")
+        params.extend([inicio.isoformat(), fin.isoformat()])
+    elif filtro != "todos":
+        return jsonify({"error": "Filtro inválido"}), 400
+    if busqueda:
+        like = f"%{busqueda}%"
+        where.append("(ea.nombre LIKE ? OR ea.objetivo LIKE ? OR u.nombre LIKE ? OR u.apellidos LIKE ?)")
+        params.extend([like, like, like, like])
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        procesadas = procesar_programadas_vencidas(cur, current_user)
+        cur.execute(
+            f"""
+            SELECT ea.id, ea.atleta_id, ea.fecha, ea.nombre, ea.objetivo, ea.notas,
+                   ea.visible, ea.publicar_en, ea.publicado_en, ea.km_previstos,
+                   u.nombre AS atleta_nombre, u.apellidos AS atleta_apellidos,
+                   (
+                     SELECT ead.tipo_paso
+                     FROM entrenamientos_asignados_detalle ead
+                     WHERE ead.entrenamiento_asignado_id = ea.id
+                     ORDER BY
+                       CASE WHEN ead.tipo_paso IN ('warmup', 'cooldown') THEN 1 ELSE 0 END,
+                       ead.parent_id IS NOT NULL, ead.orden, ead.id
+                     LIMIT 1
+                   ) AS tipo_principal
+            FROM entrenamientos_asignados ea
+            JOIN usuarios u ON u.id = ea.atleta_id
+            WHERE {' AND '.join(where)}
+            ORDER BY ea.fecha, ea.publicar_en IS NULL, ea.publicar_en, ea.id
+            """,
+            tuple(params),
+        )
+        sesiones = []
+        for row in cur.fetchall():
+            item = dict(row)
+            item["fecha"] = fecha_iso(item.get("fecha"))
+            item["estado_visibilidad"] = estado_visibilidad_asignado(item)
+            item["atleta"] = " ".join(
+                part for part in (item.pop("atleta_nombre", None), item.pop("atleta_apellidos", None)) if part
+            ).strip()
+            sesiones.append(item)
+        conn.commit()
+        return jsonify({"sesiones": sesiones, "procesadas": procesadas}), 200
+    except Exception as e:
+        conn.rollback()
+        print("Error listando pendientes de publicación:", e)
+        return jsonify({"error": "No se pudieron cargar los pendientes"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/planificacion/publicacion/publicar', methods=['POST'])
+@requires_roles('admin', 'entrenador')
+def publicar_pendientes_planificacion(current_user):
+    data = request.get_json(silent=True) or {}
+    ids = data.get("ids") or []
+    ids_limpios = []
+    for item in ids:
+        try:
+            ids_limpios.append(int(item))
+        except Exception:
+            pass
+    ids_limpios = sorted(set(ids_limpios))
+    if not ids_limpios:
+        return jsonify({"error": "Selecciona al menos un entrenamiento"}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        publicados = []
+        for asignado_id in ids_limpios:
+            result, error = publicar_asignado(cur, current_user, asignado_id)
+            if error:
+                conn.rollback()
+                return error
+            publicados.append(result)
+        conn.commit()
+        return jsonify({"message": "Entrenamientos publicados", "publicados": publicados}), 200
+    except Exception as e:
+        conn.rollback()
+        print("Error publicando entrenamientos:", e)
+        return jsonify({"error": "No se pudieron publicar los entrenamientos"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/planificacion/publicacion/programar', methods=['POST'])
+@requires_roles('admin', 'entrenador')
+def programar_pendientes_planificacion(current_user):
+    data = request.get_json(silent=True) or {}
+    ids = data.get("ids") or []
+    publicar_en = data.get("publicar_en")
+    ids_limpios = []
+    for item in ids:
+        try:
+            ids_limpios.append(int(item))
+        except Exception:
+            pass
+    ids_limpios = sorted(set(ids_limpios))
+    if not ids_limpios:
+        return jsonify({"error": "Selecciona al menos un entrenamiento"}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        programados = []
+        for asignado_id in ids_limpios:
+            result, error = programar_asignado(cur, current_user, asignado_id, publicar_en)
+            if error:
+                conn.rollback()
+                return error
+            programados.append(result)
+        conn.commit()
+        return jsonify({"message": "Publicación programada", "programados": programados}), 200
+    except Exception as e:
+        conn.rollback()
+        print("Error programando publicaciones:", e)
+        return jsonify({"error": "No se pudo programar la publicación"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/planificacion/sesiones/<int:asignado_id>/duplicar', methods=['POST'])
+@requires_roles('admin', 'entrenador')
+def duplicar_sesion_planificacion(current_user, asignado_id):
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        asignado, error = obtener_asignado_seguro(cur, current_user, asignado_id, escritura=True)
+        if error:
+            return error
+        fecha = _normalizar_fecha(data.get("fecha") or asignado.get("fecha"))
+        if not fecha:
+            return jsonify({"error": "Fecha inválida"}), 400
+        nuevo_id = clonar_entrenamiento_planificacion(
+            cur,
+            atleta_id=asignado["atleta_id"],
+            fecha=fecha,
+            entrenamiento_id=asignado["entrenamiento_id"],
+            meta={"franja": data.get("franja") or asignado.get("franja")},
+            nombre=data.get("nombre") or asignado.get("nombre"),
+        )
+        conn.commit()
+        return jsonify({"message": "Sesión duplicada", "id": nuevo_id, "visible": 0}), 201
+    except Exception as e:
+        conn.rollback()
+        print("Error duplicando sesión:", e)
+        return jsonify({"error": "No se pudo duplicar la sesión"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
+@app.route('/planificacion/sesiones/<int:asignado_id>', methods=['DELETE'])
+@requires_roles('admin', 'entrenador')
+def eliminar_sesion_planificacion(current_user, asignado_id):
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        _, error = obtener_asignado_seguro(cur, current_user, asignado_id, escritura=True)
+        if error:
+            return error
+        cur.execute("DELETE FROM entrenamientos_asignados_detalle WHERE entrenamiento_asignado_id = ?", (asignado_id,))
+        cur.execute("DELETE FROM entrenamientos_asignados WHERE id = ?", (asignado_id,))
+        conn.commit()
+        return jsonify({"message": "Sesión eliminada"}), 200
+    except Exception as e:
+        conn.rollback()
+        print("Error eliminando sesión de planificación:", e)
+        return jsonify({"error": "No se pudo eliminar la sesión"}), 500
+    finally:
+        cur.close()
+        conn.close()
 
 def asignar_ciclo_interno(tipo, ciclo_id, atletas, fecha_inicio_str, notas=None, anclar_en=None):
     """
@@ -2687,7 +3585,7 @@ def enviar_feedback(current_user):
         conn = get_db()
         cur = conn.cursor()
         cur.execute(
-            "SELECT id FROM entrenamientos_asignados WHERE id = ? AND atleta_id = ?",
+            "SELECT id FROM entrenamientos_asignados WHERE id = ? AND atleta_id = ? AND COALESCE(visible, 0) = 1",
             (entrenamiento_id, atleta_id),
         )
         if not cur.fetchone():
@@ -2840,6 +3738,21 @@ def feedbacks_no_leidos(current_user):
 @requires_roles('entrenador')
 def marcar_feedback_leido(current_user, feedback_id):
     try:
+        feedback = query_db(
+            """
+            SELECT f.id
+            FROM feedbacks f
+            JOIN usuarios u ON f.atleta_id = u.id
+            WHERE f.id = ?
+              AND u.entrenador_id = ?
+            """,
+            (feedback_id, current_user["id"]),
+            one=True
+        )
+
+        if not feedback:
+            return jsonify({"error": "No autorizado"}), 403
+
         data = request.get_json(silent=True) or {}
         nuevo_estado = data.get('leido', 1)  # Por defecto marcar como leído
 
@@ -3239,6 +4152,7 @@ def detalle_resultado_entrenador(current_user, asignado_id):
     try:
         conn = get_db()
         cur = conn.cursor()
+        ensure_resultados_km_column(cur)
 
         cur.execute(
             """
@@ -3287,6 +4201,7 @@ def detalle_resultado_entrenador(current_user, asignado_id):
                 paso_detalle_id,
                 repeticion,
                 tiempo_real_seg,
+                km_realizados,
                 fecha
             FROM resultados_entrenamientos
             WHERE entrenamiento_asignado_id = ?
@@ -3395,6 +4310,149 @@ def detalle_resultado_entrenador(current_user, asignado_id):
     except Exception as e:
         print("Error obteniendo detalle de resultado:", e)
         return jsonify({'error': 'No se pudo obtener el detalle del entrenamiento'}), 500
+
+
+@app.route('/historial/entrenador/atletas/<int:atleta_id>/calendario', methods=['GET'])
+@requires_roles('entrenador', 'admin')
+def historial_calendario_atleta(current_user, atleta_id):
+    mes = (request.args.get("mes") or datetime.now().strftime("%Y-%m")).strip()
+    try:
+        inicio = datetime.strptime(f"{mes}-01", "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({"error": "Mes inválido"}), 400
+    fin = inicio.replace(year=inicio.year + 1, month=1) if inicio.month == 12 else inicio.replace(month=inicio.month + 1)
+
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT id, nombre, apellidos, email, entrenador_id, rol
+            FROM usuarios
+            WHERE id = ?
+            """,
+            (atleta_id,),
+        )
+        atleta = cur.fetchone()
+        if not atleta or atleta["rol"] != "atleta":
+            return jsonify({"error": "Atleta no encontrado"}), 404
+        if current_user["rol"] == "entrenador" and atleta["entrenador_id"] != current_user["id"]:
+            return jsonify({"error": "No tienes permiso para ver este atleta"}), 403
+
+        cur.execute(
+            """
+            SELECT
+                ea.id, ea.fecha, ea.nombre, ea.objetivo, ea.notas, ea.visible,
+                ea.estado_envio, ea.publicar_en, ea.publicado_en, ea.km_previstos,
+                kre.km_planificados, kre.km_realizados,
+                sr.id AS sesion_realizada_id, sr.km_real, sr.duracion_real_seg, sr.origen_datos,
+                f.id AS feedback_id, f.fecha AS feedback_fecha, f.rpe AS feedback_rpe,
+                f.sensacion AS feedback_sensacion, f.fatiga AS feedback_fatiga,
+                f.dolor AS feedback_dolor, f.zona_dolor AS feedback_zona_dolor,
+                f.completado AS feedback_completado,
+                (
+                  SELECT COUNT(*)
+                  FROM resultados_entrenamientos re
+                  WHERE re.entrenamiento_asignado_id = ea.id
+                ) AS resultados_count,
+                (
+                  SELECT ead.tipo_paso
+                  FROM entrenamientos_asignados_detalle ead
+                  WHERE ead.entrenamiento_asignado_id = ea.id
+                  ORDER BY
+                    CASE WHEN ead.tipo_paso IN ('warmup', 'cooldown') THEN 1 ELSE 0 END,
+                    ead.parent_id IS NOT NULL, ead.orden, ead.id
+                  LIMIT 1
+                ) AS tipo_principal
+            FROM entrenamientos_asignados ea
+            LEFT JOIN km_realizados_entrenamientos kre ON kre.entrenamiento_asignado_id = ea.id
+            LEFT JOIN sesiones_realizadas sr ON sr.entrenamiento_asignado_id = ea.id
+            LEFT JOIN feedbacks f
+              ON f.id = (
+                SELECT id
+                FROM feedbacks fb
+                WHERE fb.entrenamiento_asignado_id = ea.id
+                ORDER BY fb.fecha DESC
+                LIMIT 1
+              )
+            WHERE ea.atleta_id = ?
+              AND DATE(ea.fecha) >= DATE(?)
+              AND DATE(ea.fecha) < DATE(?)
+            ORDER BY ea.fecha, ea.id
+            """,
+            (atleta_id, inicio.isoformat(), fin.isoformat()),
+        )
+        sesiones = []
+        for row in cur.fetchall():
+            item = dict(row)
+            resultados_count = int(item.get("resultados_count") or 0)
+            tiene_realizado = bool(
+                item.get("sesion_realizada_id")
+                or resultados_count
+                or item.get("km_realizados") is not None
+                or item.get("km_real") is not None
+            )
+            feedback_id = item.get("feedback_id")
+            feedback_completado = item.get("feedback_completado")
+            if not feedback_id:
+                feedback_estado = "sin_feedback"
+            elif feedback_completado in (0, False, "0"):
+                feedback_estado = "no_completado"
+            else:
+                feedback_estado = "completado"
+            sesiones.append(
+                {
+                    "id": item["id"],
+                    "fecha": fecha_iso(item.get("fecha")),
+                    "nombre": item.get("nombre") or "Entrenamiento",
+                    "objetivo": item.get("objetivo"),
+                    "notas": item.get("notas"),
+                    "visible": item.get("visible"),
+                    "estado_envio": item.get("estado_envio"),
+                    "publicar_en": item.get("publicar_en"),
+                    "publicado_en": item.get("publicado_en"),
+                    "km_previstos": item.get("km_previstos"),
+                    "km_planificados": item.get("km_planificados"),
+                    "km_realizados": item.get("km_realizados") if item.get("km_realizados") is not None else item.get("km_real"),
+                    "duracion_real_seg": item.get("duracion_real_seg"),
+                    "origen_datos": item.get("origen_datos"),
+                    "tipo_principal": item.get("tipo_principal") or "custom",
+                    "estado_ejecucion": "realizado" if tiene_realizado else "planificado",
+                    "resultados_count": resultados_count,
+                    "feedback": {
+                        "id": feedback_id,
+                        "estado": feedback_estado,
+                        "fecha": item.get("feedback_fecha"),
+                        "rpe": item.get("feedback_rpe"),
+                        "sensacion": item.get("feedback_sensacion"),
+                        "fatiga": item.get("feedback_fatiga"),
+                        "dolor": item.get("feedback_dolor"),
+                        "zona_dolor": item.get("feedback_zona_dolor"),
+                        "completado": feedback_completado,
+                    },
+                }
+            )
+
+        return jsonify(
+            {
+                "atleta": {
+                    "id": atleta["id"],
+                    "nombre": atleta["nombre"],
+                    "apellidos": atleta.get("apellidos"),
+                    "email": atleta.get("email"),
+                },
+                "mes": mes,
+                "sesiones": sesiones,
+            }
+        ), 200
+    except Exception as e:
+        print("Error cargando historial calendario atleta:", e)
+        return jsonify({"error": "No se pudo cargar el historial del atleta"}), 500
+    finally:
+        cur.close()
+        conn.close()
+
+
 @app.route('/feedbacks', methods=['GET'])
 @requires_roles('entrenador')
 def obtener_todos_los_feedbacks(current_user):
@@ -3472,9 +4530,13 @@ def entrenamientos_proximos(current_user):
         return jsonify({'error': 'No se pudieron obtener los entrenamientos'}), 500
 
 @app.route('/calcular_zonas/<int:atleta_id>', methods=['POST'])
-@requires_roles('entrenador')
+@requires_roles('entrenador', 'admin')
 def calcular_zonas(current_user, atleta_id):
     try:
+        _, error = obtener_atleta_configurable(current_user, atleta_id)
+        if error:
+            return error
+
         data = request.get_json()
         minutos = int(data['minutos'])
         segundos = int(data['segundos'])
@@ -3537,7 +4599,7 @@ def calcular_zonas(current_user, atleta_id):
         return jsonify({'error': 'No se pudieron calcular las zonas'}), 500
 
 @app.route('/guardar_zonas', methods=['POST'])
-@requires_roles('entrenador')
+@requires_roles('entrenador', 'admin')
 def guardar_zonas(current_user):
     try:
         data = request.get_json()
@@ -3555,11 +4617,16 @@ def guardar_zonas(current_user):
         fc_z4 = data.get("fc_z4")
         fc_z5 = data.get("fc_z5")
         fc_z6 = data.get("fc_z6")
+        vdot_val = data.get("vdot_val")
         metodo = (data.get("metodo") or "vam").strip().lower()
         fecha_inicio = data.get("fecha_inicio") or datetime.utcnow().date().isoformat()
 
-        if not all([atleta_id, vam, z1, z2, z3, z4, z5, z6]):
+        if not all([atleta_id, vam, z1, z2, z3, z4, z5]):
             return jsonify({"error": "Datos incompletos"}), 400
+
+        _, error = obtener_atleta_configurable(current_user, int(atleta_id))
+        if error:
+            return error
 
         try:
             fin_anterior = (datetime.fromisoformat(fecha_inicio) - timedelta(days=1)).date().isoformat()
@@ -3573,10 +4640,10 @@ def guardar_zonas(current_user):
 
         execute_db(
             '''
-            INSERT INTO zonas_entrenamiento (atleta_id, vam, z1, z2, z3, z4, z5, z6, fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6, fecha_inicio, metodo)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO zonas_entrenamiento (atleta_id, vam, vdot_val, z1, z2, z3, z4, z5, z6, fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6, fecha_inicio, metodo)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
-            (atleta_id, vam, z1, z2, z3, z4, z5, z6, fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6, fecha_inicio, metodo)
+            (atleta_id, vam, vdot_val, z1, z2, z3, z4, z5, z6, fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6, fecha_inicio, metodo)
         )
 
         return jsonify({"message": "Zonas guardadas correctamente"}), 200
@@ -3624,7 +4691,8 @@ def _fecha_iso(value):
         return str(value)
 
 @app.route('/entrenamientos_asignados/visibilidad', methods=['POST'])
-def actualizar_visibilidad_entrenamientos_asignados():
+@requires_roles('entrenador')
+def actualizar_visibilidad_entrenamientos_asignados(current_user):
     """
     Acepta JSON:
       { "atletas": [3,4], "fecha": "2025-11-21", "visible": 1, "modo": "dia|semana" }
@@ -3642,6 +4710,11 @@ def actualizar_visibilidad_entrenamientos_asignados():
 
     if not isinstance(atletas, list) or len(atletas) == 0:
         return jsonify({'error': 'Faltan atletas'}), 400
+
+    for atleta_id in atletas:
+        if not atleta_pertenece_a_entrenador(atleta_id, current_user["id"]):
+            return jsonify({"error": "No autorizado"}), 403
+
     if visible is None:
         return jsonify({'error': 'Falta campo visible'}), 400
 
@@ -3663,7 +4736,7 @@ def actualizar_visibilidad_entrenamientos_asignados():
             query = f"""
                 UPDATE entrenamientos_asignados
                    SET visible = ?
-                 WHERE asignacion_id = ?
+                 WHERE id = ?
                    AND atleta_id IN ({placeholders})
             """
             params.append(asignacion_id)
@@ -3744,7 +4817,7 @@ def obtener_detalle_entrenamiento_asignado(current_user, asignado_id):
     """
     # Comprobamos que el entrenamiento asignado existe
     ent = query_db(
-        "SELECT atleta_id FROM entrenamientos_asignados WHERE id = ?",
+        "SELECT atleta_id, visible FROM entrenamientos_asignados WHERE id = ?",
         (asignado_id,),
         one=True
     )
@@ -3753,6 +4826,10 @@ def obtener_detalle_entrenamiento_asignado(current_user, asignado_id):
 
     # Si es atleta, sólo puede ver los suyos
     if current_user['rol'] == 'atleta' and current_user['id'] != ent['atleta_id']:
+        return jsonify({'error': 'No tienes permiso para ver este entrenamiento'}), 403
+    if current_user['rol'] == 'atleta' and int(ent['visible'] or 0) != 1:
+        return jsonify({'error': 'Entrenamiento no disponible'}), 404
+    if current_user['rol'] == 'entrenador' and not atleta_pertenece_a_entrenador(ent['atleta_id'], current_user['id']):
         return jsonify({'error': 'No tienes permiso para ver este entrenamiento'}), 403
 
     filas = query_db(
@@ -3803,12 +4880,14 @@ def actualizar_detalle_entrenamiento_asignado(current_user, id):
 
     # Comprobar que el entrenamiento asignado existe
     asignado = query_db(
-        "SELECT id FROM entrenamientos_asignados WHERE id = ?",
+        "SELECT id, atleta_id FROM entrenamientos_asignados WHERE id = ?",
         (id,),
         one=True
     )
     if not asignado:
         return jsonify({"error": "Entrenamiento asignado no encontrado"}), 404
+    if current_user["rol"] == "entrenador" and not atleta_pertenece_a_entrenador(asignado["atleta_id"], current_user["id"]):
+        return jsonify({"error": "No autorizado"}), 403
 
     conn = get_db()
     conn.row_factory = sqlite3.Row
@@ -3887,12 +4966,16 @@ def actualizar_pasos_entrenamiento_asignado(current_user, id):
 @requires_roles('entrenador', 'atleta')
 def obtener_zonas_atleta(current_user, atleta_id):
     try:
+        _, error = obtener_atleta_configurable(current_user, atleta_id)
+        if error:
+            return error
+
         fecha_ref = request.args.get("fecha")
         params = [atleta_id]
         if fecha_ref:
             params.extend([fecha_ref, fecha_ref])
             query = '''
-                SELECT vam, z1, z2, z3, z4, z5, z6, fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6, metodo, fecha_inicio, fecha_fin
+                SELECT vam, vdot_val, z1, z2, z3, z4, z5, z6, fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6, metodo, fecha_inicio, fecha_fin
                 FROM zonas_entrenamiento
                 WHERE atleta_id = ?
                   AND fecha_inicio <= ?
@@ -3902,7 +4985,7 @@ def obtener_zonas_atleta(current_user, atleta_id):
             '''
         else:
             query = '''
-                SELECT vam, z1, z2, z3, z4, z5, z6, fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6, metodo, fecha_inicio, fecha_fin
+                SELECT vam, vdot_val, z1, z2, z3, z4, z5, z6, fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6, metodo, fecha_inicio, fecha_fin
                 FROM zonas_entrenamiento
                 WHERE atleta_id = ?
                 ORDER BY fecha_inicio DESC
@@ -3913,8 +4996,8 @@ def obtener_zonas_atleta(current_user, atleta_id):
             data = dict(resultado)
             vdot_row = query_db("SELECT vdot_val, vdot_fecha FROM usuarios WHERE id = ?", (atleta_id,), one=True)
             if vdot_row:
-                data["vdot_val"] = vdot_row.get("vdot_val")
-                data["vdot_fecha"] = vdot_row.get("vdot_fecha")
+                data["vdot_val"] = data.get("vdot_val") or row_get(vdot_row, "vdot_val")
+                data["vdot_fecha"] = row_get(vdot_row, "vdot_fecha")
             return jsonify(data), 200
         else:
             return jsonify({'message': 'No hay zonas guardadas para este atleta'}), 404
@@ -3961,16 +5044,16 @@ def obtener_historial_zonas_atleta(current_user, atleta_id):
             (atleta_id,),
             one=True,
         )
-        if not atleta or atleta.get('rol') != 'atleta':
+        if not atleta or row_get(atleta, 'rol') != 'atleta':
             return jsonify({'error': 'Atleta no encontrado'}), 404
         if current_user['rol'] == 'atleta' and current_user['id'] != atleta_id:
             return jsonify({'error': 'Acceso no autorizado'}), 403
-        if current_user['rol'] == 'entrenador' and atleta.get('entrenador_id') not in (None, current_user['id']):
+        if current_user['rol'] == 'entrenador' and row_get(atleta, 'entrenador_id') not in (None, current_user['id']):
             return jsonify({'error': 'No tienes permiso'}), 403
 
         filas = query_db(
             '''
-            SELECT vam, z1, z2, z3, z4, z5, z6,
+            SELECT vam, vdot_val, z1, z2, z3, z4, z5, z6,
                    fc_z1, fc_z2, fc_z3, fc_z4, fc_z5, fc_z6,
                    metodo, fecha_inicio, fecha_fin
             FROM zonas_entrenamiento
@@ -4110,6 +5193,7 @@ def crear_microciclo(current_user):
         for s in sesiones:
             dia = int(s.get('dia_relativo') or 1)
             sesion_idx = int(s.get('sesion_indice') or 1)
+            franja = normalizar_franja(s.get('franja'))
             entrenamiento_id = s.get('entrenamiento_id')
             notas = s.get('notas')
             orden = s.get('orden')
@@ -4117,10 +5201,10 @@ def crear_microciclo(current_user):
                 """
                 INSERT INTO microciclos_entrenamientos
                     (microciclo_id, dia_relativo, sesion_indice,
-                     entrenamiento_id, notas, orden, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                     entrenamiento_id, notas, orden, franja, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (micro_id, dia, sesion_idx, entrenamiento_id, notas, orden, now)
+                (micro_id, dia, sesion_idx, entrenamiento_id, notas, orden, franja, now)
             )
 
         conn.commit()
@@ -4183,6 +5267,7 @@ def actualizar_microciclo(current_user, micro_id):
         for s in sesiones:
             dia = int(s.get('dia_relativo') or 1)
             sesion_idx = int(s.get('sesion_indice') or 1)
+            franja = normalizar_franja(s.get('franja'))
             entrenamiento_id = s.get('entrenamiento_id')
             notas = s.get('notas')
             orden = s.get('orden')
@@ -4190,10 +5275,10 @@ def actualizar_microciclo(current_user, micro_id):
                 """
                 INSERT INTO microciclos_entrenamientos
                     (microciclo_id, dia_relativo, sesion_indice,
-                     entrenamiento_id, notas, orden, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                     entrenamiento_id, notas, orden, franja, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (micro_id, dia, sesion_idx, entrenamiento_id, notas, orden, now)
+                (micro_id, dia, sesion_idx, entrenamiento_id, notas, orden, franja, now)
             )
 
         conn.commit()
@@ -4277,6 +5362,7 @@ def listar_entrenamientos_microciclo(current_user, micro_id):
             me.microciclo_id,
             me.dia_relativo,
             me.sesion_indice,
+            me.franja,
             me.entrenamiento_id,
             me.orden,
             e.nombre   AS entrenamiento_nombre,
@@ -4293,16 +5379,18 @@ def listar_entrenamientos_microciclo(current_user, micro_id):
 
     detalles = []
     for r in rows:
+        row_data = dict(r)
         detalles.append(
             {
-                "id": r["id"],
-                "microciclo_id": r["microciclo_id"],
-                "dia_relativo": r["dia_relativo"],
-                "sesion_indice": r["sesion_indice"],
-                "entrenamiento_id": r["entrenamiento_id"],
-                "orden": r["orden"],
-                "entrenamiento_nombre": r["entrenamiento_nombre"],
-                "entrenamiento_objetivo": r["entrenamiento_objetivo"],
+                "id": row_data["id"],
+                "microciclo_id": row_data["microciclo_id"],
+                "dia_relativo": row_data["dia_relativo"],
+                "sesion_indice": row_data["sesion_indice"],
+                "franja": row_data.get("franja") or "manana",
+                "entrenamiento_id": row_data["entrenamiento_id"],
+                "orden": row_data["orden"],
+                "entrenamiento_nombre": row_data["entrenamiento_nombre"],
+                "entrenamiento_objetivo": row_data["entrenamiento_objetivo"],
             }
         )
 
@@ -4850,8 +5938,9 @@ def obtener_resultados_entrenamiento(current_user, entrenamiento_id):
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     try:
+        ensure_resultados_km_column(cur)
         cur.execute("""
-            SELECT ea.atleta_id
+            SELECT ea.atleta_id, ea.visible
             FROM entrenamientos_asignados ea
             WHERE ea.id = ?
         """ , (entrenamiento_id,))
@@ -4861,9 +5950,12 @@ def obtener_resultados_entrenamiento(current_user, entrenamiento_id):
         atleta_id = ent['atleta_id'] if isinstance(ent, dict) else ent[0]
         if current_user['rol'] == 'atleta' and current_user['id'] != atleta_id:
             return jsonify({'error': 'No tienes permiso para ver este entrenamiento'}), 403
+        visible = ent['visible'] if isinstance(ent, dict) else ent[1]
+        if current_user['rol'] == 'atleta' and int(visible or 0) != 1:
+            return jsonify({'error': 'Entrenamiento no disponible'}), 404
 
         cur.execute("""
-            SELECT paso_detalle_id, repeticion, tiempo_real_seg, fecha
+            SELECT paso_detalle_id, repeticion, tiempo_real_seg, km_realizados, fecha
             FROM resultados_entrenamientos
             WHERE entrenamiento_asignado_id = ?
             ORDER BY fecha
@@ -5186,11 +6278,12 @@ def guardar_resultados_series(current_user, entrenamiento_id):
             )
     except Exception as e:
         print("Aviso: no se pudo asegurar la tabla km_realizados_entrenamientos", e)
+    ensure_resultados_km_column(cur)
 
     # ---------------- Comprobar que el entrenamiento pertenece al atleta actual ----------------
     cur.execute(
         """
-        SELECT ea.id, ea.atleta_id, ea.km_previstos, ea.fecha
+        SELECT ea.id, ea.atleta_id, ea.km_previstos, ea.fecha, ea.visible
         FROM entrenamientos_asignados ea
         WHERE ea.id = ?
         """,
@@ -5208,9 +6301,11 @@ def guardar_resultados_series(current_user, entrenamiento_id):
         km_previstos_asignado = None
 
     # Si tienes current_user["atleta_id"] o similar, comprueba propiedad
-    atleta_id_usuario = user_data.get("atleta_id")
-    if atleta_id_usuario and atleta["atleta_id"] != atleta_id_usuario:
+    atleta_id_usuario = user_data.get("atleta_id") or user_data.get("id")
+    if atleta["atleta_id"] != atleta_id_usuario:
         return jsonify({"error": "No tienes permiso para modificar este entrenamiento."}), 403
+    if int(atleta["visible"] or 0) != 1:
+        return jsonify({"error": "Entrenamiento no disponible."}), 404
 
     # ---------------- Cache de pasos para saber distancia ----------------
     pasos_cache = {}
@@ -5270,6 +6365,7 @@ def guardar_resultados_series(current_user, entrenamiento_id):
     for item in resultados or []:
         paso_id = item.get("repeticion_id") or item.get("paso_detalle_id")
         tiempo_real_seg = item.get("tiempo_real_seg")
+        km_realizado_bloque = item.get("km_realizados")
 
         # Si no hay paso, asumimos que es un entrenamiento sin intervalos; se manejará más abajo
         if not paso_id:
@@ -5283,16 +6379,28 @@ def guardar_resultados_series(current_user, entrenamiento_id):
         if tiempo_real_seg is None:
             tiempo_real_seg = None
 
+        try:
+            km_realizado_bloque = float(km_realizado_bloque)
+        except (TypeError, ValueError):
+            km_realizado_bloque = None
+        if km_realizado_bloque is not None and km_realizado_bloque < 0:
+            km_realizado_bloque = None
+
         registros.append(
             {
                 "paso_id": paso_id,
                 "tiempo_real_seg": tiempo_real_seg,
                 "repeticion": repeticion,
                 "km_plan": km_plan,
+                "km_realizados": km_realizado_bloque,
             }
         )
 
     km_real_total_val = km_real_total if isinstance(km_real_total, (int, float)) else None
+    if km_real_total_val is None:
+        km_por_bloques = [r["km_realizados"] for r in registros if r["km_realizados"] is not None]
+        if km_por_bloques:
+            km_real_total_val = sum(km_por_bloques)
 
     # Si hay registros por paso, no escalamos: usamos los km planificados por paso.
     # El total de km_real_total se usa solo para el resumen de kms (tabla km_realizados_entrenamientos).
@@ -5320,9 +6428,13 @@ def guardar_resultados_series(current_user, entrenamiento_id):
 
     for registro in registros:
         km_realizados = (
-            registro["km_plan"] * factor
-            if km_real_total_val is not None
-            else registro["km_plan"]
+            registro["km_realizados"]
+            if registro["km_realizados"] is not None
+            else (
+                registro["km_plan"] * factor
+                if km_real_total_val is not None
+                else registro["km_plan"]
+            )
         )
         km_real_suma += km_realizados
 
@@ -5333,15 +6445,17 @@ def guardar_resultados_series(current_user, entrenamiento_id):
                 paso_detalle_id,
                 repeticion,
                 tiempo_real_seg,
+                km_realizados,
                 fecha
             )
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 entrenamiento_id,
                 registro["paso_id"] or paso_fallback_id,
                 registro["repeticion"],
                 registro["tiempo_real_seg"],
+                km_realizados,
                 now_ts,
             ),
         )
@@ -5353,23 +6467,24 @@ def guardar_resultados_series(current_user, entrenamiento_id):
     elif km_real_suma > 0:
         km_total_guardar = km_real_suma
 
-    if km_total_guardar is not None:
+    fecha_entrenamiento = None
+    try:
+        fecha_entrenamiento = atleta["fecha"]
+    except Exception:
         fecha_entrenamiento = None
-        try:
-            fecha_entrenamiento = atleta["fecha"]
-        except Exception:
-            fecha_entrenamiento = None
-        if not fecha_entrenamiento:
-            cur.execute(
-                "SELECT fecha FROM entrenamientos_asignados WHERE id = ?",
-                (entrenamiento_id,)
-            )
-            fila_fecha = cur.fetchone()
-            if fila_fecha:
-                try:
-                    fecha_entrenamiento = fila_fecha["fecha"]
-                except Exception:
-                    fecha_entrenamiento = None
+    if not fecha_entrenamiento:
+        cur.execute(
+            "SELECT fecha FROM entrenamientos_asignados WHERE id = ?",
+            (entrenamiento_id,)
+        )
+        fila_fecha = cur.fetchone()
+        if fila_fecha:
+            try:
+                fecha_entrenamiento = fila_fecha["fecha"]
+            except Exception:
+                fecha_entrenamiento = None
+
+    if km_total_guardar is not None:
         upsert_km_realizados(
             cur,
             entrenamiento_id,
@@ -5378,256 +6493,29 @@ def guardar_resultados_series(current_user, entrenamiento_id):
             fecha_entrenamiento or now_ts,
         )
 
-        # Guardar sesion_realizada (V2)
+    # Guardar sesion_realizada (V2)
+    duracion_real = None
+    try:
+        tiempos = [r.get('tiempo_real_seg') for r in registros if r.get('tiempo_real_seg') is not None]
+        if tiempos:
+            duracion_real = int(sum(tiempos))
+    except Exception:
         duracion_real = None
-        try:
-            tiempos = [r.get('tiempo_real_seg') for r in registros if r.get('tiempo_real_seg') is not None]
-            if tiempos:
-                duracion_real = int(sum(tiempos))
-        except Exception:
-            duracion_real = None
-        fecha_real = fecha_entrenamiento or now_ts
+    if km_total_guardar is not None or duracion_real is not None:
         upsert_sesion_realizada(
             conn,
             entrenamiento_asignado_id=entrenamiento_id,
             atleta_id=atleta["atleta_id"],
-            fecha_real=fecha_real,
+            fecha_real=fecha_entrenamiento or now_ts,
             km_real=km_total_guardar,
             duracion_real_seg=duracion_real,
             origen_datos='manual',
         )
-    
-        conn.commit()
-    
-        return jsonify({"status": "ok"}), 200
+
+    conn.commit()
+    return jsonify({"status": "ok", "resultados": len(registros), "km_realizados": km_total_guardar}), 200
 
 
-
-def _parse_fit_metrics_fitparse(file_path):
-    try:
-        from fitparse import FitFile  # type: ignore
-    except Exception as exc:
-        raise RuntimeError('fitparse no está instalado') from exc
-
-    fit = FitFile(file_path)
-
-    def _get_value(msg, name):
-        try:
-            return msg.get_value(name)
-        except Exception:
-            return None
-
-    metrics = {
-        'duracion_seg': None,
-        'distancia_m': None,
-        'ritmo_medio_seg_km': None,
-        'fc_media': None,
-        'fc_max': None,
-        'cadencia_media': None,
-    }
-
-    session_msg = None
-    for msg in fit.get_messages('session'):
-        session_msg = msg
-        break
-
-    if session_msg is not None:
-        duracion = _get_value(session_msg, 'total_timer_time')
-        distancia = _get_value(session_msg, 'total_distance')
-        avg_speed = _get_value(session_msg, 'avg_speed')
-        fc_media = _get_value(session_msg, 'avg_heart_rate')
-        fc_max = _get_value(session_msg, 'max_heart_rate')
-        cadencia = _get_value(session_msg, 'avg_cadence')
-
-        if duracion is not None:
-            metrics['duracion_seg'] = float(duracion)
-        if distancia is not None:
-            metrics['distancia_m'] = float(distancia)
-        if avg_speed:
-            try:
-                avg_speed = float(avg_speed)
-                if avg_speed > 0:
-                    metrics['ritmo_medio_seg_km'] = 1000.0 / avg_speed
-            except Exception:
-                pass
-        if fc_media is not None:
-            metrics['fc_media'] = float(fc_media)
-        if fc_max is not None:
-            metrics['fc_max'] = float(fc_max)
-        if cadencia is not None:
-            metrics['cadencia_media'] = float(cadencia)
-
-    needs_fallback = any(metrics[k] is None for k in ('duracion_seg', 'distancia_m', 'fc_media', 'fc_max', 'cadencia_media'))
-    if needs_fallback:
-        timestamps = []
-        distances = []
-        hr_values = []
-        cad_values = []
-        for msg in fit.get_messages('record'):
-            ts = _get_value(msg, 'timestamp')
-            dist = _get_value(msg, 'distance')
-            hr = _get_value(msg, 'heart_rate')
-            cad = _get_value(msg, 'cadence')
-            if ts is not None:
-                timestamps.append(ts)
-            if dist is not None:
-                distances.append(dist)
-            if hr is not None:
-                hr_values.append(hr)
-            if cad is not None:
-                cad_values.append(cad)
-
-        if metrics['duracion_seg'] is None and len(timestamps) >= 2:
-            try:
-                metrics['duracion_seg'] = (max(timestamps) - min(timestamps)).total_seconds()
-            except Exception:
-                pass
-        if metrics['distancia_m'] is None and distances:
-            try:
-                metrics['distancia_m'] = float(max(distances))
-            except Exception:
-                pass
-        if metrics['fc_media'] is None and hr_values:
-            metrics['fc_media'] = float(sum(hr_values) / len(hr_values))
-        if metrics['fc_max'] is None and hr_values:
-            metrics['fc_max'] = float(max(hr_values))
-        if metrics['cadencia_media'] is None and cad_values:
-            metrics['cadencia_media'] = float(sum(cad_values) / len(cad_values))
-
-        if metrics['ritmo_medio_seg_km'] is None:
-            dist = metrics['distancia_m']
-            dur = metrics['duracion_seg']
-            if dist and dur and dist > 0:
-                metrics['ritmo_medio_seg_km'] = float(dur) / (float(dist) / 1000.0)
-
-    return metrics
-
-
-def _parse_fit_metrics_fitdecode(file_path):
-    try:
-        from fitdecode import FitReader  # type: ignore
-        from fitdecode.records import FitDataMessage  # type: ignore
-    except Exception as exc:
-        raise RuntimeError('fitdecode no está instalado') from exc
-
-    import warnings
-
-    metrics = {
-        'duracion_seg': None,
-        'distancia_m': None,
-        'ritmo_medio_seg_km': None,
-        'fc_media': None,
-        'fc_max': None,
-        'cadencia_media': None,
-    }
-
-    def _get_value(msg, name):
-        try:
-            return msg.get_value(name)
-        except Exception:
-            return None
-
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore')
-        session_msg = None
-        records = []
-        with FitReader(file_path) as fit:
-            for frame in fit:
-                if not isinstance(frame, FitDataMessage):
-                    continue
-                if frame.name == 'session' and session_msg is None:
-                    session_msg = frame
-                if frame.name == 'record':
-                    records.append(frame)
-
-        if session_msg is not None:
-            duracion = _get_value(session_msg, 'total_timer_time')
-            distancia = _get_value(session_msg, 'total_distance')
-            avg_speed = _get_value(session_msg, 'avg_speed')
-            fc_media = _get_value(session_msg, 'avg_heart_rate')
-            fc_max = _get_value(session_msg, 'max_heart_rate')
-            cadencia = _get_value(session_msg, 'avg_cadence')
-
-            if duracion is not None:
-                metrics['duracion_seg'] = float(duracion)
-            if distancia is not None:
-                metrics['distancia_m'] = float(distancia)
-            if avg_speed:
-                try:
-                    avg_speed = float(avg_speed)
-                    if avg_speed > 0:
-                        metrics['ritmo_medio_seg_km'] = 1000.0 / avg_speed
-                except Exception:
-                    pass
-            if fc_media is not None:
-                metrics['fc_media'] = float(fc_media)
-            if fc_max is not None:
-                metrics['fc_max'] = float(fc_max)
-            if cadencia is not None:
-                metrics['cadencia_media'] = float(cadencia)
-
-        needs_fallback = any(metrics[k] is None for k in ('duracion_seg', 'distancia_m', 'fc_media', 'fc_max', 'cadencia_media'))
-        if needs_fallback and records:
-            timestamps = []
-            distances = []
-            hr_values = []
-            cad_values = []
-            for rec in records:
-                ts = _get_value(rec, 'timestamp')
-                dist = _get_value(rec, 'distance')
-                hr = _get_value(rec, 'heart_rate')
-                cad = _get_value(rec, 'cadence')
-                if ts is not None:
-                    timestamps.append(ts)
-                if dist is not None:
-                    distances.append(dist)
-                if hr is not None:
-                    hr_values.append(hr)
-                if cad is not None:
-                    cad_values.append(cad)
-
-            if metrics['duracion_seg'] is None and len(timestamps) >= 2:
-                try:
-                    metrics['duracion_seg'] = (max(timestamps) - min(timestamps)).total_seconds()
-                except Exception:
-                    pass
-            if metrics['distancia_m'] is None and distances:
-                try:
-                    metrics['distancia_m'] = float(max(distances))
-                except Exception:
-                    pass
-            if metrics['fc_media'] is None and hr_values:
-                metrics['fc_media'] = float(sum(hr_values) / len(hr_values))
-            if metrics['fc_max'] is None and hr_values:
-                metrics['fc_max'] = float(max(hr_values))
-            if metrics['cadencia_media'] is None and cad_values:
-                metrics['cadencia_media'] = float(sum(cad_values) / len(cad_values))
-
-            if metrics['ritmo_medio_seg_km'] is None:
-                dist = metrics['distancia_m']
-                dur = metrics['duracion_seg']
-                if dist and dur and dist > 0:
-                    metrics['ritmo_medio_seg_km'] = float(dur) / (float(dist) / 1000.0)
-
-    return metrics
-
-
-def _parse_fit_metrics(file_path):
-    try:
-        return _parse_fit_metrics_fitparse(file_path)
-    except Exception as exc_fitparse:
-        try:
-            return _parse_fit_metrics_fitdecode(file_path)
-        except Exception as exc_fitdecode:
-            raise RuntimeError(f"fitparse: {exc_fitparse}; fitdecode: {exc_fitdecode}")
-
-
-def _hash_file_sha256(file_path):
-    h = hashlib.sha256()
-    with open(file_path, 'rb') as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b''):
-            h.update(chunk)
-    return h.hexdigest()
 
 @app.route('/sesiones/<int:entrenamiento_id>/archivo', methods=['POST'])
 @requires_roles('atleta')
@@ -5637,9 +6525,11 @@ def registrar_archivo_sesion(current_user, entrenamiento_id):
 
     if not archivo or not archivo.filename:
         return jsonify({'error': 'Archivo FIT requerido'}), 400
+    if not is_allowed_fit_upload(archivo):
+        return jsonify({'error': 'Formato de archivo no permitido. Solo se aceptan .fit'}), 400
 
     asignado = query_db(
-        "SELECT id, atleta_id, fecha, km_previstos FROM entrenamientos_asignados WHERE id = ?",
+        "SELECT id, atleta_id, fecha, km_previstos, visible FROM entrenamientos_asignados WHERE id = ?",
         (entrenamiento_id,),
         one=True,
     )
@@ -5647,26 +6537,28 @@ def registrar_archivo_sesion(current_user, entrenamiento_id):
         return jsonify({'error': 'Entrenamiento asignado no encontrado'}), 404
     if asignado['atleta_id'] != current_user['id']:
         return jsonify({'error': 'No tienes permiso para este entrenamiento'}), 403
+    if int(asignado['visible'] or 0) != 1:
+        return jsonify({'error': 'Entrenamiento no disponible'}), 404
 
     base_dir = os.path.join(os.path.dirname(__file__), 'uploads', 'fit')
     os.makedirs(base_dir, exist_ok=True)
 
     original_name = secure_filename(archivo.filename)
     stamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
-    stored_name = f"{current_user['id']}_{entrenamiento_id}_{stamp}_{original_name}"
+    stored_name = f"{current_user['id']}_{entrenamiento_id}_{stamp}_{secrets.token_hex(8)}.fit"
     stored_path = os.path.join(base_dir, stored_name)
 
     try:
         archivo.save(stored_path)
         tamano = os.path.getsize(stored_path)
-        hash_sha256 = _hash_file_sha256(stored_path)
+        hash_sha256 = hash_file_sha256(stored_path)
     except Exception as e:
         return jsonify({'error': 'No se pudo guardar el archivo', 'details': str(e)}), 500
 
     metrics = {}
     parse_error = None
     try:
-        metrics = _parse_fit_metrics(stored_path)
+        metrics = parse_fit_metrics(stored_path)
     except Exception as e:
         parse_error = str(e)
 
@@ -5806,11 +6698,6 @@ def registrar_archivo_sesion(current_user, entrenamiento_id):
     finally:
         cur.close()
         conn.close()
-
-@app.route('/')
-def index():
-    return redirect(url_for('static', filename='login.html'))
-
 
 def format_segundos(seg):
     if seg is None:
@@ -6764,7 +7651,7 @@ def upsert_sesion_realizada(conn, *, entrenamiento_asignado_id, atleta_id, fecha
                 '''
                 INSERT INTO sesiones_realizadas (
                     entrenamiento_asignado_id, atleta_id, fecha_real, km_real, duracion_real_seg, origen_datos
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     atleta_id = VALUES(atleta_id),
                     fecha_real = VALUES(fecha_real),
@@ -6800,7 +7687,7 @@ def actualizar_sesion_feedback(conn, *, entrenamiento_asignado_id, atleta_id, co
                 '''
                 INSERT INTO sesiones_realizadas (
                     entrenamiento_asignado_id, atleta_id, comentario, rpe, sensacion, fatiga, dolor, zona_dolor, completado
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE
                     comentario = VALUES(comentario),
                     rpe = VALUES(rpe),
@@ -6817,7 +7704,7 @@ def actualizar_sesion_feedback(conn, *, entrenamiento_asignado_id, atleta_id, co
                 '''
                 INSERT INTO sesiones_realizadas (
                     entrenamiento_asignado_id, atleta_id, comentario, rpe, sensacion, fatiga, dolor, zona_dolor, completado
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(entrenamiento_asignado_id) DO UPDATE SET
                     comentario = excluded.comentario,
                     rpe = excluded.rpe,

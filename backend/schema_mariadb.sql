@@ -1,15 +1,16 @@
 -- Esquema adaptado para MariaDB / MySQL
 -- El orden de los DROP/CREATE respeta dependencias de claves foráneas.
 
+DROP TABLE IF EXISTS alertas;
+DROP TABLE IF EXISTS entrenamientos_envios;
 DROP TABLE IF EXISTS resultados_entrenamientos;
 DROP TABLE IF EXISTS km_realizados_entrenamientos;
-DROP TABLE IF EXISTS alertas_entrenamientos;
+DROP TABLE IF EXISTS sesion_metricas;
+DROP TABLE IF EXISTS sesion_archivos;
+DROP TABLE IF EXISTS sesiones_realizadas;
+DROP TABLE IF EXISTS feedbacks;
 DROP TABLE IF EXISTS entrenamientos_asignados_detalle;
 DROP TABLE IF EXISTS entrenamientos_asignados;
-DROP TABLE IF EXISTS feedbacks;
-DROP TABLE IF EXISTS sesion_archivos;
-DROP TABLE IF EXISTS sesion_metricas;
-DROP TABLE IF EXISTS sesiones_realizadas;
 DROP TABLE IF EXISTS alertas_reglas;
 DROP TABLE IF EXISTS entrenamiento_bloques;
 DROP TABLE IF EXISTS entrenamientos_detalle;
@@ -38,33 +39,21 @@ CREATE TABLE usuarios (
     grupo VARCHAR(50),
     subgrupo VARCHAR(50),
     aprobado TINYINT DEFAULT 0,
+    activo TINYINT DEFAULT 1,
     foto_url VARCHAR(255),
     force_password_change TINYINT DEFAULT 0,
     vdot_val DOUBLE,
     vdot_fecha DATE,
-    vdot_distancia_m DOUBLE,
+    vdot_distancia_m INT,
     vdot_tiempo_seg INT,
     INDEX idx_usuarios_entrenador (entrenador_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-
-DROP TABLE IF EXISTS vdot_historial;
-CREATE TABLE vdot_historial (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    atleta_id INT NOT NULL,
-    vdot_val DOUBLE NOT NULL,
-    vdot_fecha DATE NULL,
-    vdot_distancia_m DOUBLE NULL,
-    vdot_tiempo_seg INT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_vdot_hist_atleta (atleta_id),
-    CONSTRAINT fk_vdot_hist_atleta FOREIGN KEY (atleta_id) REFERENCES usuarios(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE zonas_entrenamiento (
     id INT AUTO_INCREMENT PRIMARY KEY,
     atleta_id INT NOT NULL,
     vam DOUBLE NOT NULL,
+    vdot_val DOUBLE,
     z1 DOUBLE,
     z2 DOUBLE,
     z3 DOUBLE,
@@ -77,7 +66,7 @@ CREATE TABLE zonas_entrenamiento (
     fc_z4 DOUBLE,
     fc_z5 DOUBLE,
     fc_z6 DOUBLE,
-    metodo VARCHAR(20),
+    metodo VARCHAR(50),
     fecha_inicio DATE NOT NULL DEFAULT (CURRENT_DATE),
     fecha_fin DATE NULL,
     fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -104,7 +93,9 @@ CREATE TABLE entrenamientos (
     enfriamiento_tipo VARCHAR(50),
     enfriamiento_valor INT,
     notas TEXT,
-    km_totales DOUBLE DEFAULT 0
+    km_totales DOUBLE DEFAULT 0,
+    creador_id INT NULL,
+    INDEX idx_entrenamientos_creador (creador_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE entrenamientos_detalle (
@@ -132,7 +123,9 @@ CREATE TABLE macrociclos (
     fecha_inicio DATE,
     fecha_fin DATE,
     objetivo_general TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    creador_id INT NULL,
+    INDEX idx_macrociclos_creador (creador_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE mesociclos (
@@ -143,6 +136,7 @@ CREATE TABLE mesociclos (
     fecha_fin DATE,
     objetivo TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    creador_id INT NULL,
     CONSTRAINT fk_mesociclo_macro FOREIGN KEY (macrociclo_id) REFERENCES macrociclos(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -152,6 +146,7 @@ CREATE TABLE microciclos (
     nombre VARCHAR(255) NOT NULL,
     objetivo TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    creador_id INT NULL,
     CONSTRAINT fk_microciclo_meso FOREIGN KEY (mesociclo_id) REFERENCES mesociclos(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -182,6 +177,7 @@ CREATE TABLE microciclos_entrenamientos (
     microciclo_id INT NOT NULL,
     dia_relativo INT,
     sesion_indice INT,
+    franja VARCHAR(20) DEFAULT 'manana',
     entrenamiento_id INT,
     notas TEXT,
     orden INT,
@@ -208,6 +204,9 @@ CREATE TABLE entrenamientos_asignados (
     fecha DATE NOT NULL,
     entrenamiento_id INT NOT NULL,
     visible TINYINT DEFAULT 1,
+    franja VARCHAR(20) DEFAULT 'manana',
+    publicar_en DATETIME,
+    publicado_en DATETIME,
     ciclo_tipo VARCHAR(10),
     ciclo_id INT,
     macrociclo_id INT,
@@ -219,8 +218,26 @@ CREATE TABLE entrenamientos_asignados (
     created_at DATETIME,
     updated_at DATETIME,
     km_previstos DOUBLE DEFAULT 0,
+    vdot_usado DOUBLE,
+    zonas_metodo VARCHAR(50),
+    estado_envio VARCHAR(30) DEFAULT 'pendiente',
+    fecha_envio DATETIME,
+    plantilla_version INT,
+    canal_comunicacion VARCHAR(30),
+    personalizado TINYINT DEFAULT 0,
     CONSTRAINT fk_ent_asig_atleta FOREIGN KEY (atleta_id) REFERENCES usuarios(id),
     CONSTRAINT fk_ent_asig_entrenamiento FOREIGN KEY (entrenamiento_id) REFERENCES entrenamientos(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE alertas_reglas (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    entrenador_id INT NOT NULL,
+    codigo VARCHAR(80) NOT NULL,
+    parametros_json TEXT,
+    activo TINYINT DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_alertas_reglas_entrenador FOREIGN KEY (entrenador_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+    INDEX idx_alertas_reglas_entrenador (entrenador_id, activo)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE entrenamientos_asignados_detalle (
@@ -248,83 +265,116 @@ CREATE TABLE feedbacks (
     fecha DATETIME,
     entrenamiento_asignado_id INT,
     atleta_id INT,
-    rpe INT NULL,
-    sensacion VARCHAR(20) NULL,
-    fatiga VARCHAR(20) NULL,
-    dolor TINYINT DEFAULT 0,
-    zona_dolor VARCHAR(50) NULL,
-    completado TINYINT DEFAULT 1,
     leido TINYINT DEFAULT 0,
     respuesta TEXT,
     url_datos TEXT,
+    rpe INT,
+    sensacion VARCHAR(50),
+    fatiga INT,
+    dolor TINYINT DEFAULT 0,
+    zona_dolor VARCHAR(100),
+    completado TINYINT,
     CONSTRAINT fk_feedback_entrenamiento FOREIGN KEY (entrenamiento_asignado_id) REFERENCES entrenamientos_asignados(id),
     CONSTRAINT fk_feedback_atleta FOREIGN KEY (atleta_id) REFERENCES usuarios(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE sesiones_realizadas (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    entrenamiento_asignado_id INT NOT NULL UNIQUE,
+    entrenamiento_asignado_id INT NOT NULL,
     atleta_id INT NOT NULL,
-    fecha_real DATETIME NULL,
-    km_real DOUBLE DEFAULT 0,
-    duracion_real_seg INT NULL,
-    rpe INT NULL,
-    sensacion VARCHAR(20) NULL,
-    fatiga VARCHAR(20) NULL,
+    fecha_real DATETIME,
+    km_real DOUBLE,
+    duracion_real_seg INT,
+    rpe INT,
+    sensacion VARCHAR(50),
+    fatiga INT,
     dolor TINYINT DEFAULT 0,
-    zona_dolor VARCHAR(50) NULL,
-    completado TINYINT DEFAULT 1,
+    zona_dolor VARCHAR(100),
+    completado TINYINT,
     comentario TEXT,
-    origen_datos VARCHAR(20) DEFAULT 'manual',
+    origen_datos VARCHAR(50),
     archivo_principal_id INT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_sesion_atleta (atleta_id),
     CONSTRAINT fk_sesion_entrenamiento FOREIGN KEY (entrenamiento_asignado_id) REFERENCES entrenamientos_asignados(id) ON DELETE CASCADE,
-    CONSTRAINT fk_sesion_atleta FOREIGN KEY (atleta_id) REFERENCES usuarios(id) ON DELETE CASCADE
+    CONSTRAINT fk_sesion_atleta FOREIGN KEY (atleta_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+    INDEX idx_sesiones_atleta_fecha (atleta_id, fecha_real)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE sesion_archivos (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    sesion_id INT NOT NULL,
+    atleta_id INT NOT NULL,
+    origen VARCHAR(50),
+    filename VARCHAR(255) NOT NULL,
+    mime VARCHAR(100),
+    tamano BIGINT,
+    ruta_storage TEXT,
+    hash_sha256 CHAR(64),
+    fecha_subida DATETIME DEFAULT CURRENT_TIMESTAMP,
+    procesado TINYINT DEFAULT 0,
+    error_procesado TEXT,
+    CONSTRAINT fk_sesion_archivo_sesion FOREIGN KEY (sesion_id) REFERENCES sesiones_realizadas(id) ON DELETE CASCADE,
+    CONSTRAINT fk_sesion_archivo_atleta FOREIGN KEY (atleta_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+    INDEX idx_sesion_archivos_sesion (sesion_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE sesion_metricas (
     id INT AUTO_INCREMENT PRIMARY KEY,
     sesion_id INT NOT NULL,
-    metrica VARCHAR(50) NOT NULL,
-    valor DOUBLE NOT NULL,
-    unidad VARCHAR(20),
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_metricas_sesion (sesion_id),
-    CONSTRAINT fk_metricas_sesion FOREIGN KEY (sesion_id) REFERENCES sesiones_realizadas(id) ON DELETE CASCADE
+    metrica VARCHAR(80) NOT NULL,
+    valor DOUBLE,
+    unidad VARCHAR(30),
+    CONSTRAINT fk_sesion_metrica_sesion FOREIGN KEY (sesion_id) REFERENCES sesiones_realizadas(id) ON DELETE CASCADE,
+    INDEX idx_sesion_metricas_sesion (sesion_id, metrica)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE sesion_archivos (
+ALTER TABLE sesiones_realizadas
+    ADD CONSTRAINT fk_sesion_archivo_principal
+    FOREIGN KEY (archivo_principal_id) REFERENCES sesion_archivos(id) ON DELETE SET NULL;
+
+CREATE TABLE entrenamientos_envios (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    sesion_id INT NULL,
+    entrenamiento_asignado_id INT NOT NULL,
     atleta_id INT NOT NULL,
-    origen VARCHAR(20) DEFAULT 'manual',
-    filename VARCHAR(255),
-    mime VARCHAR(100),
-    tamano INT NULL,
-    ruta_storage TEXT,
-    hash_sha256 VARCHAR(64),
-    fecha_subida DATETIME DEFAULT CURRENT_TIMESTAMP,
-    procesado TINYINT DEFAULT 0,
-    error_procesado TEXT,
-    INDEX idx_archivo_sesion (sesion_id),
-    INDEX idx_archivo_atleta (atleta_id),
-    CONSTRAINT fk_archivo_sesion FOREIGN KEY (sesion_id) REFERENCES sesiones_realizadas(id) ON DELETE SET NULL,
-    CONSTRAINT fk_archivo_atleta FOREIGN KEY (atleta_id) REFERENCES usuarios(id) ON DELETE CASCADE
+    entrenador_id INT NOT NULL,
+    canal VARCHAR(30) NOT NULL DEFAULT 'whatsapp',
+    telefono_destino VARCHAR(50),
+    mensaje_generado TEXT,
+    url_publica TEXT,
+    estado VARCHAR(30) NOT NULL DEFAULT 'pendiente',
+    provider_message_id VARCHAR(255),
+    error TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    sent_at DATETIME,
+    CONSTRAINT fk_envio_entrenamiento FOREIGN KEY (entrenamiento_asignado_id) REFERENCES entrenamientos_asignados(id) ON DELETE CASCADE,
+    CONSTRAINT fk_envio_atleta FOREIGN KEY (atleta_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+    CONSTRAINT fk_envio_entrenador FOREIGN KEY (entrenador_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+    INDEX idx_envios_entrenamiento (entrenamiento_asignado_id),
+    INDEX idx_envios_estado (estado)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE alertas_reglas (
+CREATE TABLE alertas (
     id INT AUTO_INCREMENT PRIMARY KEY,
     entrenador_id INT NOT NULL,
-    codigo VARCHAR(50) NOT NULL,
-    parametros_json JSON NULL,
-    activo TINYINT DEFAULT 1,
+    atleta_id INT NOT NULL,
+    entrenamiento_asignado_id INT,
+    feedback_id INT,
+    sesion_id INT,
+    tipo VARCHAR(80) NOT NULL,
+    severidad VARCHAR(30),
+    titulo VARCHAR(255) NOT NULL,
+    mensaje TEXT,
+    estado VARCHAR(30) NOT NULL DEFAULT 'nueva',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_reglas_entrenador (entrenador_id),
-    CONSTRAINT fk_regla_entrenador FOREIGN KEY (entrenador_id) REFERENCES usuarios(id) ON DELETE CASCADE
+    resolved_at DATETIME,
+    CONSTRAINT fk_alerta_entrenador FOREIGN KEY (entrenador_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+    CONSTRAINT fk_alerta_atleta FOREIGN KEY (atleta_id) REFERENCES usuarios(id) ON DELETE CASCADE,
+    CONSTRAINT fk_alerta_entrenamiento FOREIGN KEY (entrenamiento_asignado_id) REFERENCES entrenamientos_asignados(id) ON DELETE SET NULL,
+    CONSTRAINT fk_alerta_feedback FOREIGN KEY (feedback_id) REFERENCES feedbacks(id) ON DELETE SET NULL,
+    CONSTRAINT fk_alerta_sesion FOREIGN KEY (sesion_id) REFERENCES sesiones_realizadas(id) ON DELETE SET NULL,
+    INDEX idx_alertas_entrenador_estado (entrenador_id, estado),
+    INDEX idx_alertas_atleta (atleta_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
 
 CREATE TABLE km_realizados_entrenamientos (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -335,27 +385,14 @@ CREATE TABLE km_realizados_entrenamientos (
     CONSTRAINT fk_km_entrenamiento FOREIGN KEY (entrenamiento_asignado_id) REFERENCES entrenamientos_asignados(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE alertas_entrenamientos (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    entrenamiento_asignado_id INT NOT NULL,
-    atleta_id INT NOT NULL,
-    tipo VARCHAR(10) NOT NULL,
-    codigo VARCHAR(50) NOT NULL,
-    mensaje TEXT NOT NULL,
-    fecha_detectada DATETIME NOT NULL,
-    activo TINYINT DEFAULT 1,
-    UNIQUE KEY uniq_alerta_entreno (entrenamiento_asignado_id, codigo),
-    INDEX idx_alerta_atleta (atleta_id),
-    CONSTRAINT fk_alerta_entrenamiento FOREIGN KEY (entrenamiento_asignado_id) REFERENCES entrenamientos_asignados(id) ON DELETE CASCADE,
-    CONSTRAINT fk_alerta_atleta FOREIGN KEY (atleta_id) REFERENCES usuarios(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
 CREATE TABLE resultados_entrenamientos (
     id INT AUTO_INCREMENT PRIMARY KEY,
     entrenamiento_asignado_id INT NOT NULL,
     paso_detalle_id INT NOT NULL,
     repeticion INT,
     tiempo_real_seg INT NOT NULL,
+    km_realizados DOUBLE,
     fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_resultado_entrenamiento FOREIGN KEY (entrenamiento_asignado_id) REFERENCES entrenamientos_asignados(id) ON DELETE CASCADE
+    CONSTRAINT fk_resultado_entrenamiento FOREIGN KEY (entrenamiento_asignado_id) REFERENCES entrenamientos_asignados(id) ON DELETE CASCADE,
+    CONSTRAINT fk_resultado_paso FOREIGN KEY (paso_detalle_id) REFERENCES entrenamientos_asignados_detalle(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

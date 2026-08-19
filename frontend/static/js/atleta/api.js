@@ -4,19 +4,19 @@ export const API =
     ? window.location.origin
     : "http://127.0.0.1:5000");
 
-export const authHeader = () =>
-  "Basic " +
-  btoa(
-    `${localStorage.getItem("userEmail") ?? ""}:${
-      localStorage.getItem("userPassword") ?? ""
-    }`
-  );
+export const authHeader = () => {
+  const email = localStorage.getItem("userEmail");
+  const password = localStorage.getItem("userPassword");
+  if (!email || !password) return null;
+  return `Basic ${btoa(`${email}:${password}`)}`;
+};
 
 export const getAtletaId = () => localStorage.getItem("userId");
 
-export const defaultHeaders = () => ({
-  Authorization: authHeader()
-});
+export const defaultHeaders = () => {
+  const authorization = authHeader();
+  return authorization ? { Authorization: authorization } : {};
+};
 
 export const getCsrfToken = async () => {
   if (window.CSRF?.ensureToken) {

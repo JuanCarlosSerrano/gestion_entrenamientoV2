@@ -78,3 +78,7 @@ Thumbs.db
 # Backups y scripts locales
 backups/
 backend/uploads/
+__pycache__/
+*.pyc
+flask_session/
+diag_network_*/

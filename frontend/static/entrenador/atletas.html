@@ -3,109 +3,82 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Mis Atletas</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+  <title>Atletas · MindPace</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="../css/style.css">
+  <link rel="stylesheet" href="../css/planificacion_semanal.css">
   <link rel="stylesheet" href="../css/atletas.css">
   <link rel="shortcut icon" href="../favicon.ico" type="image/x-icon">
   <script src="../js/utils/csrf.js"></script>
   <script src="../js/script.js"></script>
-  <script src="../js/utils/partials.js"></script>
-</head>
-<body class="app-bg">
-  <div class="container app-container">
-    <div data-include="../partials/header.html" data-nav-active="atletas"></div>
-    <div class="page-context-bar page-context-bar--hero">
-      <div>
-        <p class="eyebrow eyebrow--subtle">Panel de entrenador</p>
-        <h1 class="page-context-title">Mis atletas</h1>
-      </div>
-      <div class="page-context-actions gap-2">
-        <a href="perfil_atleta.html?modo=nuevo" class="btn btn-brand btn-sm">
-          <i class="bi bi-person-plus"></i> Alta atleta
-        </a>
-      </div>
-    </div>
-
-    <div id="atletas-list-container" class="app-card">
-      <div class="row" id="atletas-cards"></div>
-    </div>
-    <div data-include="../partials/footer.html"></div>
-  </div>
-
-  <div class="modal fade" id="modalEditarAtleta" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title">Editar Atleta</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-        </div>
-        <div class="modal-body">
-          <form id="form-editar-atleta">
-            <input type="hidden" id="edit-atleta-id">
-            <div class="mb-2">
-              <label class="form-label">Nombre</label>
-              <input type="text" id="edit-nombre" class="form-control" required>
-            </div>
-            <div class="mb-2">
-              <label class="form-label">Apellidos</label>
-              <input type="text" id="edit-apellidos" class="form-control" required>
-            </div>
-            <div class="mb-2">
-              <label class="form-label">Email</label>
-              <input type="email" id="edit-email" class="form-control" required>
-            </div>
-            <div class="mb-2">
-              <label class="form-label">Teléfono</label>
-              <input type="text" id="edit-telefono" class="form-control">
-            </div>
-            <div class="mb-2">
-              <label class="form-label">Fecha de nacimiento</label>
-              <input type="date" id="edit-fecha-nacimiento" class="form-control">
-            </div>
-            <div class="mb-2">
-              <label class="form-label">Categoría</label>
-              <input type="text" id="edit-categoria" class="form-control">
-            </div>
-            <div class="mb-2">
-              <label class="form-label">Grupo</label>
-              <input type="text" id="edit-grupo" class="form-control">
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Subgrupo</label>
-              <input type="text" id="edit-subgrupo" class="form-control">
-            </div>
-            <div class="d-flex justify-content-between">
-              <button type="submit" class="btn btn-primary">Guardar cambios</button>
-              <button type="button" id="btn-eliminar-atleta" class="btn btn-danger">Eliminar atleta</button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="modal fade" id="modalConfirmacion" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title">Confirmar</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-        </div>
-        <div class="modal-body">
-          <p id="modal-confirmacion-texto">¿Seguro que deseas continuar?</p>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button type="button" class="btn btn-danger" id="modal-confirmacion-aceptar">Aceptar</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/js/bootstrap.bundle.min.js"></script>
-  <script type="module" src="../js/entrenador/main.js"></script>
   <script type="module" src="../js/entrenador/atletas.js"></script>
+</head>
+<body class="trainer-control weekly-planning-page">
+  <div class="trainer-shell">
+    <aside class="trainer-sidebar" aria-label="Navegación del entrenador">
+      <a class="trainer-brand" href="index.html" aria-label="MindPace">
+        <img src="../img/logo_sin_fondo.png" alt="" class="trainer-brand__mark">
+        <span>MindPace</span>
+      </a>
+
+      <nav class="trainer-nav">
+        <a class="trainer-nav__link" href="index.html"><span>⌂</span> Inicio</a>
+        <a class="trainer-nav__link" href="planificacion_semanal.html"><span>▦</span> Planificar</a>
+        <a class="trainer-nav__link is-active" href="atletas.html"><span>👥</span> Atletas</a>
+        <a class="trainer-nav__link" href="estadisticas.html"><span>↗</span> Historial</a>
+        <a class="trainer-nav__link" href="alertas.html"><span>!</span> Actividad</a>
+        <a class="trainer-nav__link" href="utilidades.html"><span>⚙</span> Configuración</a>
+      </nav>
+
+      <div class="trainer-sidebar__footer">
+        <div class="trainer-sidebar-user">
+          <span id="sidebar-trainer-initials">E</span>
+          <div>
+            <strong id="sidebar-trainer-name">Entrenador</strong>
+            <small>Entrenador</small>
+          </div>
+        </div>
+        <button class="trainer-logout" id="btn-logout" type="button">Salir</button>
+        <div class="trainer-version">
+          <img src="../img/logo_sin_fondo.png" alt="" class="trainer-version__icon">
+          <div>
+            <strong>MindPace V2</strong>
+            <span>Planificación individual</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="trainer-main weekly-main">
+      <header class="trainer-topbar weekly-topbar">
+        <div>
+          <h1>Atletas</h1>
+          <p>Selecciona un atleta para consultar su planificación.</p>
+        </div>
+        <div class="trainer-topbar__meta">
+          <a class="btn btn-outline-secondary" href="index.html">Centro de Control</a>
+          <a class="btn btn-brand" href="perfil_atleta.html?modo=nuevo">Alta atleta</a>
+        </div>
+      </header>
+
+      <section class="planner-step" aria-label="Selección de atleta">
+        <div class="athlete-toolbar">
+          <input type="search" id="athlete-search" class="form-control" placeholder="Buscar atleta...">
+          <select id="filter-group" class="form-select" aria-label="Grupo">
+            <option value="">Todos los grupos</option>
+          </select>
+          <select id="filter-subgroup" class="form-select" aria-label="Subgrupo">
+            <option value="">Todos los subgrupos</option>
+          </select>
+          <select id="filter-category" class="form-select" aria-label="Categoría">
+            <option value="">Todas las categorías</option>
+          </select>
+        </div>
+        <div class="athlete-list athlete-list--planning" id="atletas-cards" aria-live="polite"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

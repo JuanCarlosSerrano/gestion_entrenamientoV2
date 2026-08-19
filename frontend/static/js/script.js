@@ -57,6 +57,12 @@ if (loginForm) {
                     }
                 }
 
+                if (Number(result.force_password_change || 0) === 1) {
+                    alert('Debes cambiar la contraseña temporal antes de continuar.');
+                    window.location.href = 'cambiar_password.html';
+                    return;
+                }
+
                 alert(result.message);
 
                 // 4️⃣ Redirigir según rol

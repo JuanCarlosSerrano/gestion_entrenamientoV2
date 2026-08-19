@@ -6,10 +6,33 @@ const API_BASE =
 window.API_BASE = API_BASE;
 
 const tablaBody = document.getElementById("tabla-alertas");
+const tablaWrap = document.getElementById("alertas-table-wrap");
 const vacio = document.getElementById("alertas-vacio");
 const btnRefrescar = document.getElementById("btn-refrescar");
 const filtroTipo = document.getElementById("filtro-tipo");
 const filtroEstado = document.getElementById("filtro-estado");
+
+const setupTrainerIdentity = () => {
+  const nameEl = document.getElementById("sidebar-trainer-name");
+  const initialsEl = document.getElementById("sidebar-trainer-initials");
+  if (!nameEl || !initialsEl) return;
+  const storedName = localStorage.getItem("userName") || localStorage.getItem("userEmail") || "Entrenador";
+  const displayName = storedName.includes("@") ? storedName.split("@")[0] : storedName;
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+  nameEl.textContent = displayName;
+  initialsEl.textContent = initials || "E";
+};
+
+const getCsrfToken = async () => {
+  if (window.CSRF?.ensureToken) return window.CSRF.ensureToken(true);
+  return localStorage.getItem("csrfToken");
+};
 
 const tipoBadge = (tipo) => {
   const t = (tipo || "info").toLowerCase();
@@ -39,9 +62,11 @@ const renderTabla = (alertas = []) => {
   tablaBody.innerHTML = "";
 
   if (!alertas.length) {
+    tablaWrap?.classList.add("d-none");
     vacio?.classList.remove("d-none");
     return;
   }
+  tablaWrap?.classList.remove("d-none");
   vacio?.classList.add("d-none");
 
   const rows = alertas
@@ -108,9 +133,13 @@ const cargarAlertas = async (refresh = true) => {
 
 const resolverAlerta = async (alertaId) => {
   try {
+    const token = await getCsrfToken();
     const res = await fetch(`${API_BASE}/alertas/entrenador/${alertaId}/resolver`, {
       method: "PUT",
       credentials: "include",
+      headers: {
+        ...(token ? { "X-CSRF-Token": token } : {}),
+      },
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -125,9 +154,13 @@ const resolverAlerta = async (alertaId) => {
 
 const reactivarAlerta = async (alertaId) => {
   try {
+    const token = await getCsrfToken();
     const res = await fetch(`${API_BASE}/alertas/entrenador/${alertaId}/reactivar`, {
       method: "PUT",
       credentials: "include",
+      headers: {
+        ...(token ? { "X-CSRF-Token": token } : {}),
+      },
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -141,6 +174,7 @@ const reactivarAlerta = async (alertaId) => {
 };
 
 document.addEventListener("DOMContentLoaded", () => {
+  setupTrainerIdentity();
   cargarAlertas(true);
   btnRefrescar?.addEventListener("click", () => cargarAlertas(true));
   filtroTipo?.addEventListener("change", () => cargarAlertas(false));

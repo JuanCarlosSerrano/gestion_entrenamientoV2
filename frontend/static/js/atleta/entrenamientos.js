@@ -1,712 +1,393 @@
 import { API, getAtletaId, fetchJSON, authHeader, getCsrfToken } from "./api.js";
-import { buildTreeFromFlat, renderPasos, calcularTiempoDesdeZona } from "./pasos.js";
+import { buildTreeFromFlat, renderPasos } from "./pasos.js";
 
-const contenedor = document.getElementById("entrenamientos-asignados");
-const template = document.getElementById("entrenamiento-card-template");
-const modalEl = document.getElementById("modalRegistrarTiempos");
-const listaIntervalos = document.getElementById("lista-intervalos-tiempos");
-const kmInput = document.getElementById("km-realizados");
-const kmHelper = document.getElementById("km-realizados-helper");
-const comentarioInput = document.getElementById("comentario-feedback");
-const urlDatosInput = document.getElementById("url-datos");
-const fitFileInput = document.getElementById("fit-file");
-const fitOrigenSelect = document.getElementById("fit-origen");
-const fitStatus = document.getElementById("fit-status");
-const rpeInput = document.getElementById("rpe");
-const rpeValor = document.getElementById("rpe-valor");
-const rpeAyuda = document.getElementById("rpe-ayuda");
-const sensacionSelect = document.getElementById("sensacion");
-const fatigaSelect = document.getElementById("fatiga");
-const dolorCheck = document.getElementById("dolor-check");
-const zonaDolorSelect = document.getElementById("zona-dolor");
-const zonaDolorWrapper = document.getElementById("zona-dolor-wrapper");
-const completadoCheck = document.getElementById("completado");
-const btnGuardarTiempos = document.getElementById("btn-guardar-tiempos");
-const btnGuardarLabel = btnGuardarTiempos ? btnGuardarTiempos.textContent : "Guardar tiempos";
-const modalTitulo = modalEl?.querySelector(".modal-title");
-const modalRegistrar = modalEl ? new window.bootstrap.Modal(modalEl) : null;
-const registroStatus = document.getElementById("registro-status");
+const $ = (selector) => document.querySelector(selector);
 
-const resultadosCache = new Map();
-let feedbacksEnviados = new Set();
-const entrenamientosPorId = new Map();
-let zonasAtleta = null;
-let entrenamientoActivo = null;
-
-const parseFechaAsignada = (valor) => {
-  if (!valor) return null;
-  const isoMatch = valor.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (isoMatch) {
-    const [_, y, m, d] = isoMatch;
-    const date = new Date(Number(y), Number(m) - 1, Number(d));
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-  const esMatch = valor.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (esMatch) {
-    const [_, d, m, y] = esMatch;
-    const date = new Date(Number(y), Number(m) - 1, Number(d));
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-  const date = new Date(valor);
-  return Number.isNaN(date.getTime()) ? null : date;
+const state = {
+  weekStart: null,
+  entrenos: [],
+  byId: new Map(),
+  selected: null,
+  zonas: null,
+  step: 0,
+  feedback: {},
+  fitFile: null,
 };
 
-const formatearFechaAsignada = (valor) => {
-  const fecha = parseFechaAsignada(valor);
-  if (!fecha) return "--/--/----";
-  return fecha.toLocaleDateString("es-ES", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric"
+const parseDate = (value) => {
+  const match = String(value || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const isoLocal = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+const startOfWeek = (date) => {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay() || 7;
+  d.setDate(d.getDate() - day + 1);
+  return d;
+};
+
+const addDays = (date, days) => {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+};
+
+const formatShort = (date) => date.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+const formatFull = (date) => date.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" });
+const summary = (ent) => [ent.objetivo, ent.notas].filter(Boolean).join(" · ") || "Sesión planificada";
+
+const parseTimeToSeconds = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  const match = text.match(/^(\d{1,2})(?::([0-5]?\d))(?::([0-5]?\d))?$/);
+  if (!match) return Number.NaN;
+  const first = Number(match[1]);
+  const second = Number(match[2] || 0);
+  const third = match[3] == null ? null : Number(match[3]);
+  return third == null ? first * 60 + second : first * 3600 + second * 60 + third;
+};
+
+const parseKm = (value) => {
+  const text = String(value || "").trim().replace(",", ".");
+  if (!text) return null;
+  const num = Number(text);
+  return Number.isFinite(num) && num >= 0 ? num : Number.NaN;
+};
+
+const loadZonas = async (atletaId) => {
+  try {
+    state.zonas = await fetchJSON(`${API}/zonas_atleta/${atletaId}`);
+  } catch {
+    state.zonas = null;
+  }
+};
+
+const loadDetail = async (ent) => {
+  if (ent.pasos) return ent;
+  try {
+    const flat = await fetchJSON(`${API}/entrenamientos_asignados/${ent.id}/detalle`);
+    ent.pasos = buildTreeFromFlat(flat);
+  } catch {
+    ent.pasos = [];
+  }
+  return ent;
+};
+
+const renderWeek = () => {
+  const start = state.weekStart;
+  const end = addDays(start, 6);
+  $("#week-label").textContent = `Semana ${Math.ceil((((start - new Date(start.getFullYear(), 0, 1)) / 86400000) + 1) / 7)}`;
+  $("#week-range").textContent = `${formatShort(start)} - ${formatShort(end)}`;
+  const todayIso = isoLocal(new Date());
+  const grid = $("#week-grid");
+  grid.innerHTML = "";
+  for (let i = 0; i < 7; i += 1) {
+    const date = addDays(start, i);
+    const iso = isoLocal(date);
+    const dayItems = state.entrenos.filter((ent) => String(ent.fecha || "").slice(0, 10) === iso);
+    const day = document.createElement("article");
+    day.className = `athlete-day ${iso === todayIso ? "is-today" : ""}`;
+    day.innerHTML = `
+      <div>
+        <div class="athlete-muted">${date.toLocaleDateString("es-ES", { weekday: "long" })}</div>
+        <div class="athlete-day__date">${date.getDate()}</div>
+      </div>
+      <div class="athlete-day__sessions"></div>
+    `;
+    const list = day.querySelector(".athlete-day__sessions");
+    if (!dayItems.length) {
+      list.innerHTML = '<div class="athlete-muted">Descanso</div>';
+    } else {
+      dayItems.forEach((ent) => {
+        const btn = document.createElement("button");
+        btn.className = "athlete-session-pill";
+        btn.type = "button";
+        btn.innerHTML = `${ent.franja ? `<small>${String(ent.franja).toUpperCase()}</small>` : ""}${ent.nombre || "Entrenamiento"}<small>${summary(ent)}</small>`;
+        btn.addEventListener("click", () => selectTraining(ent.id));
+        list.appendChild(btn);
+      });
+    }
+    grid.appendChild(day);
+  }
+};
+
+const selectTraining = async (id) => {
+  const ent = state.byId.get(Number(id));
+  if (!ent) return;
+  state.selected = await loadDetail(ent);
+  $("#detail-date").textContent = formatFull(parseDate(ent.fecha) || new Date());
+  $("#detail-title").textContent = ent.nombre || "Entrenamiento";
+  $("#detail-summary").textContent = summary(ent);
+  $("#detail-blocks").innerHTML = renderPasos(ent.pasos || [], state.zonas, { editableResults: true });
+  resetWizard();
+  $("#feedback-empty").classList.add("athlete-hidden");
+  $("#feedback-wizard").classList.remove("athlete-hidden");
+  $("#feedback-confirmation").classList.add("athlete-hidden");
+  renderWizardStep();
+};
+
+const choiceGrid = (items, key) => `
+  <div class="athlete-choice-grid ${key === "rpe" ? "athlete-choice-grid--rpe" : ""}">
+    ${items.map((item) => `
+      <button class="athlete-choice ${state.feedback[key] === item.value ? "is-selected" : ""}" type="button" data-choice-key="${key}" data-choice-value="${item.value}">
+        ${item.label}
+      </button>
+    `).join("")}
+  </div>`;
+
+const steps = [
+  () => ({ question: "¿Completaste el entrenamiento?", html: choiceGrid([
+    { label: "Sí", value: "si" },
+    { label: "Parcialmente", value: "parcial" },
+    { label: "No", value: "no" },
+  ], "completado") }),
+  () => ({ question: "¿Cómo de duro fue?", html: choiceGrid(Array.from({ length: 10 }, (_, i) => ({ label: String(i + 1), value: String(i + 1) })), "rpe") }),
+  () => ({ question: "¿Cómo te sentiste?", html: choiceGrid([
+    { label: "Muy bien", value: "muy bien" },
+    { label: "Bien", value: "bien" },
+    { label: "Normal", value: "normal" },
+    { label: "Mal", value: "mal" },
+    { label: "Muy mal", value: "muy mal" },
+  ], "sensacion") }),
+  () => ({ question: "Fatiga", html: choiceGrid([
+    { label: "Baja", value: "baja" },
+    { label: "Normal", value: "normal" },
+    { label: "Alta", value: "alta" },
+    { label: "Muy alta", value: "muy alta" },
+  ], "fatiga") }),
+  () => ({
+    question: "¿Tienes molestias?",
+    html: choiceGrid([{ label: "No", value: "no" }, { label: "Sí", value: "si" }], "dolor"),
+    extra: state.feedback.dolor === "si"
+      ? `<label class="form-label fw-semibold">Zona de dolor<input class="form-control" id="feedback-zona-dolor" placeholder="Rodilla, gemelo, isquio..."></label>
+         <label class="form-label fw-semibold">Comentario breve<textarea class="form-control" id="feedback-dolor-comentario" rows="2" placeholder="Qué notas y cuándo aparece"></textarea></label>`
+      : "",
+  }),
+  () => ({ question: "¿Quieres añadir algo?", html: '<textarea class="form-control" id="feedback-comentario" rows="4" placeholder="Comentario opcional"></textarea>' }),
+  () => ({ question: "Subir archivo FIT", html: `
+    <input class="form-control" type="file" id="feedback-fit-file" accept=".fit">
+    <div class="athlete-muted mt-2">Puedes terminar sin FIT y subirlo más adelante.</div>
+  ` }),
+];
+
+const resetWizard = () => {
+  state.step = 0;
+  state.feedback = {};
+  state.fitFile = null;
+};
+
+const renderWizardStep = () => {
+  const data = steps[state.step]();
+  $("#feedback-step-label").textContent = `Paso ${state.step + 1} de ${steps.length}`;
+  $("#feedback-question").textContent = data.question;
+  $("#feedback-options").innerHTML = data.html;
+  $("#feedback-extra").innerHTML = data.extra || "";
+  $("#feedback-prev").disabled = state.step === 0;
+  $("#feedback-next").textContent = state.step === steps.length - 1 ? "Terminar" : "Siguiente";
+  $("#feedback-options").querySelectorAll("[data-choice-key]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.feedback[btn.dataset.choiceKey] = btn.dataset.choiceValue;
+      renderWizardStep();
+    });
   });
 };
 
-const textoRpe = (valor) => {
-  const num = Number(valor);
-  if (Number.isNaN(num)) return "—";
-  if (num <= 3) return "Muy suave";
-  if (num <= 6) return "Controlado";
-  if (num <= 8) return "Exigente";
-  return "Máximo";
-};
-
-
-const setRegistroStatus = (msg, type = "info") => {
-  if (!registroStatus) return;
-  registroStatus.textContent = msg;
-  registroStatus.classList.remove("d-none", "registro-status--error", "registro-status--success");
-  if (type === "error") registroStatus.classList.add("registro-status--error");
-  if (type === "success") registroStatus.classList.add("registro-status--success");
-};
-
-const clearRegistroStatus = () => {
-  if (!registroStatus) return;
-  registroStatus.classList.add("d-none");
-  registroStatus.textContent = "";
-  registroStatus.classList.remove("registro-status--error", "registro-status--success");
-};
-
-
-const setGuardarLoading = (loading) => {
-  if (!btnGuardarTiempos) return;
-  if (loading) {
-    btnGuardarTiempos.disabled = true;
-    btnGuardarTiempos.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Guardando';
-  } else {
-    btnGuardarTiempos.disabled = false;
-    btnGuardarTiempos.textContent = btnGuardarLabel || 'Guardar tiempos';
-  }
-};
-
-
-const getRegistroGuardado = (entrenamientoId) => {
-  try {
-    const raw = localStorage.getItem(`registro_guardado_${entrenamientoId}`);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch (_) {
-    return null;
-  }
-};
-
-const actualizarRpeUI = () => {
-  if (!rpeInput || !rpeValor) return;
-  const val = Number(rpeInput.value);
-  rpeValor.textContent = Number.isNaN(val) ? "—" : `${val} · ${textoRpe(val)}`;
-  if (rpeAyuda) {
-    rpeAyuda.textContent =
-      val >= 9
-        ? "Sesión muy dura, ten en cuenta la recuperación."
-        : val >= 7
-          ? "Trabajo exigente, revisa la carga semanal."
-          : "Sesión controlada.";
-  }
-};
-
-const toggleZonaDolor = () => {
-  if (!zonaDolorWrapper || !dolorCheck) return;
-  zonaDolorWrapper.classList.toggle("d-none", !dolorCheck.checked);
-};
-
-rpeInput?.addEventListener("input", actualizarRpeUI);
-dolorCheck?.addEventListener("change", toggleZonaDolor);
-
-
-const setFitStatus = (msg, tipo = 'info') => {
-  if (!fitStatus) return;
-  fitStatus.textContent = msg;
-  fitStatus.classList.remove('text-muted', 'text-success', 'text-danger', 'text-warning');
-  const mapa = { success: 'text-success', danger: 'text-danger', warning: 'text-warning', info: 'text-muted' };
-  fitStatus.classList.add(mapa[tipo] || 'text-muted');
-};
-
-const registrarPlaceholderFit = async () => {
-  if (!entrenamientoActivo) {
-    setFitStatus('Selecciona un entrenamiento primero.', 'warning');
-    return;
-  }
-  if (!fitFileInput || !fitFileInput.files || !fitFileInput.files[0]) {
-    setFitStatus('Selecciona un archivo .fit', 'warning');
-    return;
-  }
-  const file = fitFileInput.files[0];
-  const formData = new FormData();
-  formData.append('archivo', file);
-  formData.append('origen', (fitOrigenSelect && fitOrigenSelect.value) || 'manual');
-  try {
-    setFitStatus('Registrando archivo...', 'info');
-    const csrfToken = await getCsrfToken();
-    await fetchJSON(`${API}/sesiones/${entrenamientoActivo.id}/archivo`, {
-      method: 'POST',
-      headers: {
-        ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {})
-      },
-      body: formData
-    });
-    setFitStatus('Archivo registrado.', 'success');
-  } catch (err) {
-    console.error('Error registrando FIT:', err);
-    setFitStatus('No se pudo registrar el archivo.', 'danger');
-  }
-};
-
-const obtenerFeedbacksSet = async () => {
-  try {
-    const datos = await fetchJSON(`${API}/mis_feedbacks`);
-    return new Set(
-      (datos || [])
-        .map((fb) => Number(fb.entrenamiento_id))
-        .filter((id) => !Number.isNaN(id))
-    );
-  } catch (err) {
-    console.warn("No se pudieron cargar feedbacks enviados:", err);
-    return new Set();
-  }
-};
-
-const obtenerResultadosEstado = async (entrenamientoId) => {
-  if (resultadosCache.has(entrenamientoId)) {
-    return resultadosCache.get(entrenamientoId);
-  }
-  try {
-    const datos = await fetchJSON(
-      `${API}/entrenamientos_asignados/${entrenamientoId}/resultados`
-    );
-    const hay =
-      (Array.isArray(datos) && datos.length > 0) ||
-      Boolean(datos?.km_realizados_total);
-    resultadosCache.set(entrenamientoId, hay);
-    return hay;
-  } catch (err) {
-    console.warn("No se pudieron obtener resultados del entrenamiento", entrenamientoId, err);
-    resultadosCache.set(entrenamientoId, false);
+const collectStep = () => {
+  const requiredByStep = {
+    0: ["completado", "Selecciona si completaste el entrenamiento."],
+    1: ["rpe", "Selecciona un RPE."],
+    2: ["sensacion", "Selecciona tus sensaciones."],
+    3: ["fatiga", "Selecciona la fatiga."],
+    4: ["dolor", "Indica si tienes molestias."],
+  };
+  const required = requiredByStep[state.step];
+  if (required && !state.feedback[required[0]]) {
+    alert(required[1]);
     return false;
   }
-};
-
-const cargarZonasAtleta = async (atletaId) => {
-  try {
-    zonasAtleta = await fetchJSON(`${API}/zonas_atleta/${atletaId}`);
-  } catch {
-    zonasAtleta = null;
-  }
-};
-
-const formatearTiempoDesdeSeg = (seg) => {
-  if (!Number.isFinite(seg)) return "";
-  const total = Math.max(0, Math.round(seg));
-  const min = Math.floor(total / 60);
-  const sec = total % 60;
-  return `${min}:${String(sec).padStart(2, "0")}`;
-};
-
-const autoFormatearValor = (valor) => {
-  const digits = valor.replace(/\D/g, "");
-  if (!digits) return "";
-  if (digits.length <= 2) return `0:${digits.padStart(2, "0")}`;
-  const minutos = digits.slice(0, -2);
-  const segundos = digits.slice(-2);
-  return `${Number(minutos)}:${segundos.padStart(2, "0")}`;
-};
-
-const tiempoAsegundos = (valor) => {
-  if (!valor) return null;
-  const match = valor.match(/^(\d+):([0-5]\d)$/);
-  if (!match) return null;
-  return Number(match[1]) * 60 + Number(match[2]);
-};
-
-const construirSeriesDesdePasos = (pasos) => {
-  const resultado = [];
-  const recorrer = (paso, repeatStack = []) => {
-    if (!paso) return;
-    if (paso.tipo_paso === "repeat") {
-      const reps = Number(paso.repeticiones) || 1;
-      for (let r = 1; r <= reps; r += 1) {
-        (paso.subpasos || []).forEach((sub) => recorrer(sub, [...repeatStack, r]));
-      }
-      return;
+  if (state.step === 4 && state.feedback.dolor === "si") {
+    state.feedback.zona_dolor = $("#feedback-zona-dolor")?.value.trim() || "";
+    state.feedback.comentario_dolor = $("#feedback-dolor-comentario")?.value.trim() || "";
+    if (!state.feedback.zona_dolor) {
+      alert("Indica la zona de dolor.");
+      return false;
     }
-    if (paso.tipo_paso === "interval") {
-      const repeticion = repeatStack.length ? repeatStack[repeatStack.length - 1] : 1;
-      resultado.push({
-        pasoId: paso.id,
-        repeticion,
-        distancia: paso.objetivo_valor ? `${paso.objetivo_valor}${paso.unidad || ""}` : "—",
-        tiempoObjetivo: calcularTiempoDesdeZona(paso, zonasAtleta),
-        descripcion: paso.descripcion || ""
-      });
-      return;
-    }
-    (paso.subpasos || []).forEach((sub) => recorrer(sub, repeatStack));
-  };
-
-  (pasos || []).forEach((p) => recorrer(p));
-  return resultado.map((serie, index) => ({ ...serie, indice: index + 1 }));
+  }
+  if (state.step === 5) state.feedback.comentario = $("#feedback-comentario")?.value.trim() || "";
+  if (state.step === 6) state.fitFile = $("#feedback-fit-file")?.files?.[0] || null;
+  return true;
 };
 
-const renderLineasRegistro = (series, resultadosPrevios = [], kmPrevistos = 0, kmRealizados = 0) => {
-  if (!listaIntervalos) return;
-  listaIntervalos.innerHTML = "";
-
-  if (!series.length) {
-    listaIntervalos.innerHTML =
-      '<p class="text-muted mb-0">Este entrenamiento no tiene intervalos para registrar.</p>';
-    return;
-  }
-
-  const prevMap = new Map();
-  resultadosPrevios.forEach((res) => {
-    const key = `${res.paso_detalle_id}-${res.repeticion}`;
-    prevMap.set(key, res);
-  });
-
-  series.forEach((serie) => {
-    const key = `${serie.pasoId}-${serie.repeticion}`;
-    const previo = prevMap.get(key);
-    const valorPrevio = previo ? formatearTiempoDesdeSeg(previo.tiempo_real_seg) : "";
-
-    const linea = document.createElement("div");
-    linea.className =
-      "registro-serie-line d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 border rounded-3 p-3";
-    linea.innerHTML = `
-      <div class="flex-grow-1">
-        <div class="fw-semibold">
-          Intervalo ${serie.indice}
-          <span class="text-muted ms-2">Repetición ${serie.repeticion}</span>
-        </div>
-        <div class="text-muted small">
-          ${serie.distancia}
-          ${
-            serie.tiempoObjetivo
-              ? `· Objetivo ${serie.tiempoObjetivo}`
-              : serie.descripcion
-              ? `· ${serie.descripcion}`
-              : ""
-          }
-        </div>
-      </div>
-      <div class="registro-serie-line__input">
-        <label class="form-label small mb-1">Tiempo real</label>
-        <input
-          type="text"
-          inputmode="numeric"
-          class="form-control"
-          placeholder="mm:ss"
-          value="${valorPrevio}"
-          data-paso-id="${serie.pasoId}"
-          data-rep="${serie.repeticion}"
-        />
-      </div>
-    `;
-
-    const input = linea.querySelector("input");
-    input.addEventListener("input", (event) => {
-      event.target.value = autoFormatearValor(event.target.value);
-    });
-    listaIntervalos.appendChild(linea);
-  });
-  if (kmInput) {
-    kmInput.value = kmRealizados
-      ? Number(kmRealizados).toFixed(2).replace(/\.?0+$/, "")
-      : "";
-  }
-  if (kmHelper) {
-    kmHelper.textContent = kmPrevistos
-      ? `Previstos: ${kmPrevistos} km. Introduce el volumen real completado.`
-      : "Introduce el volumen real completado.";
-  }
-};
-
-const abrirModalRegistro = async (entrenamientoId) => {
-  if (!modalRegistrar || !listaIntervalos) return;
-  const entrenamiento = entrenamientosPorId.get(entrenamientoId);
-  if (!entrenamiento) return;
-
-  entrenamientoActivo = entrenamiento;
-  if (modalTitulo) {
-    modalTitulo.textContent = `Registrar tiempos - ${entrenamiento.nombre || "Entrenamiento"}`;
-  }
-
-  let resultadosPrevios = [];
-  try {
-    resultadosPrevios = await fetchJSON(
-      `${API}/entrenamientos_asignados/${entrenamientoId}/resultados`
-    );
-  } catch (err) {
-    console.warn("No se pudieron cargar tiempos previos:", err);
-  }
-  const kmPrevistos = Number(entrenamiento.km_previstos || entrenamiento.km_totales || 0);
-  const kmRealizadosPrev = (resultadosPrevios || []).reduce(
-    (sum, res) => sum + (Number(res.km_realizados) || 0),
-    0
-  );
-  const series = construirSeriesDesdePasos(entrenamiento.pasos || []);
-  renderLineasRegistro(series, resultadosPrevios, kmPrevistos, kmRealizadosPrev);
-  if (rpeInput) {
-    rpeInput.value = rpeInput.value || 5;
-    actualizarRpeUI();
-  }
-  toggleZonaDolor();
-  if (completadoCheck) completadoCheck.checked = true;
-  modalRegistrar.show();
-};
-
-
-modalEl?.addEventListener("hidden.bs.modal", () => {
-  entrenamientoActivo = null;
-  if (listaIntervalos) listaIntervalos.innerHTML = "";
-  if (comentarioInput) comentarioInput.value = "";
-  if (kmInput) kmInput.value = "";
-  if (kmHelper) {
-    kmHelper.textContent = "Introduce el volumen real completado.";
-  }
-  
-  if (fitFileInput) fitFileInput.value = '';
-  if (fitStatus) fitStatus.textContent = 'Adjunta el .fit y guarda en un solo paso.';
-  clearRegistroStatus();
-if (urlDatosInput) urlDatosInput.value = "";
-  if (rpeInput) {
-    rpeInput.value = "";
-    actualizarRpeUI();
-  }
-  if (sensacionSelect) sensacionSelect.value = "";
-  if (fatigaSelect) fatigaSelect.value = "";
-  if (dolorCheck) {
-    dolorCheck.checked = false;
-    toggleZonaDolor();
-  }
-  if (zonaDolorSelect) zonaDolorSelect.value = "";
-  if (completadoCheck) completadoCheck.checked = true;
-});
-
-const renderEntreno = (ent) => {
-  const clone = template.content.cloneNode(true);
-  const card = clone.querySelector("article");
-  if (!card) return;
-  card.dataset.entrenamientoId = ent.id;
-  card.querySelector(".entrenamiento-nombre").textContent = ent.nombre || "Entrenamiento";
-  card.querySelector(".entrenamiento-objetivo").textContent =
-    [ent.objetivo, ent.notas].filter(Boolean).join(" · ") || "—";
-  card.querySelector(".entrenamiento-fecha").textContent = formatearFechaAsignada(ent.fecha);
-  const bloquesEl =
-    card.querySelector(".training-card-blocks") || card.querySelector(".bloques-preview");
-  if (bloquesEl) {
-    bloquesEl.innerHTML = renderPasos(ent.pasos || [], zonasAtleta);
-  }
-
-  const statusChip = document.createElement("span");
-  const guardado = getRegistroGuardado(ent.id);
-  const completado = Boolean(ent.estadoRegistro?.completado);
-  statusChip.className = `chip ${completado ? "chip-success" : "chip-warning"}`;
-  statusChip.textContent = completado ? "Completado" : "Pendiente";
-  card.querySelector(".training-card__header-main")?.appendChild(statusChip);
-
-  const fechaCard = parseFechaAsignada(ent.fecha);
-  const hoy = new Date();
-  hoy.setHours(0, 0, 0, 0);
-  const esHoy = fechaCard && fechaCard.getTime() === hoy.getTime();
-
-  const actionBtn = card.querySelector(".btn-abrir");
-  if (guardado && !completado) {
-    const savedChip = document.createElement("span");
-    savedChip.className = "chip chip-success ms-2";
-    savedChip.textContent = "Guardado";
-    card.querySelector(".training-card__header-main")?.appendChild(savedChip);
-  }
-
-  if (completado) {
-    card.classList.add("training-card--completed");
-    actionBtn.textContent = "Ver historial";
-    actionBtn.classList.remove("btn-outline-primary");
-    actionBtn.classList.add("btn-outline-success");
-    actionBtn.addEventListener("click", () => {
-      window.location.href = `historial.html#entreno-${ent.id}`;
-    });
-  } else {
-    actionBtn.textContent = esHoy ? "Registrar hoy" : "Registrar tiempos";
-    actionBtn.classList.toggle("btn-primary", esHoy);
-    actionBtn.classList.toggle("btn-outline-primary", !esHoy);
-    actionBtn.addEventListener("click", () => abrirModalRegistro(ent.id));
-    card.classList.add("training-card--pending");
-  }
-
-  contenedor.appendChild(clone);
-};
-
-const cargarEntrenamientos = async () => {
-  const atletaId = getAtletaId();
-  if (!atletaId) {
-    contenedor.innerHTML =
-      '<div class="alert alert-warning">No se pudo identificar al atleta.</div>';
-    return;
-  }
-  try {
-    entrenamientosPorId.clear();
-    await cargarZonasAtleta(atletaId);
-    const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0);
-    const hoyTS = hoy.getTime();
-    const entrenos = await fetchJSON(`${API}/entrenamientos_asignados/${atletaId}`);
-    feedbacksEnviados = await obtenerFeedbacksSet();
-    const normalizados = entrenos.map((ent) => {
-      const fecha = parseFechaAsignada(ent.fecha);
-      return {
-        ...ent,
-        _fecha: fecha ? fecha.getTime() : null
-      };
-    });
-
-    const futuros = normalizados
-      .filter((ent) => ent._fecha === null || ent._fecha >= hoyTS)
-      .sort((a, b) => {
-        if (a._fecha === null && b._fecha === null) return 0;
-        if (a._fecha === null) return 1;
-        if (b._fecha === null) return -1;
-        return a._fecha - b._fecha;
-      });
-
-    if (!futuros.length) {
-      contenedor.innerHTML =
-        '<div class="alert alert-info">Todavía no hay entrenamientos publicados.</div>';
-      return;
-    }
-
-    contenedor.innerHTML = "";
-    for (const ent of futuros) {
-      try {
-        const flat = await fetchJSON(`${API}/entrenamientos_asignados/${ent.id}/detalle`);
-        ent.pasos = buildTreeFromFlat(flat);
-      } catch (err) {
-        console.warn("No se pudo cargar detalle", ent.id, err);
-        ent.pasos = [];
-      }
-      const tieneResultados = await obtenerResultadosEstado(ent.id);
-      const tieneFeedback = feedbacksEnviados.has(Number(ent.id));
-      ent.estadoRegistro = {
-        tieneResultados,
-        tieneFeedback,
-        completado: tieneResultados && tieneFeedback
-      };
-      entrenamientosPorId.set(ent.id, ent);
-      renderEntreno(ent);
-    }
-
-    const hash = window.location.hash || "";
-    const match = hash.match(/#entreno-(\d+)/);
-    if (match) {
-      const entId = Number(match[1]);
-      const ent = entrenamientosPorId.get(entId);
-      const auto = /auto=1/.test(hash);
-      if (ent) {
-        const fecha = parseFechaAsignada(ent.fecha);
-        const hoyCheck = new Date();
-        hoyCheck.setHours(0, 0, 0, 0);
-        const esHoy = fecha && fecha.getTime() === hoyCheck.getTime();
-        const cardEl = contenedor.querySelector(`[data-entrenamiento-id="${entId}"]`);
-        cardEl?.scrollIntoView({ behavior: "smooth", block: "center" });
-        if (!ent.estadoRegistro?.completado && (auto || esHoy)) {
-          abrirModalRegistro(entId);
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Error al cargar entrenamientos:", err);
-    contenedor.innerHTML =
-      '<div class="alert alert-danger">No se pudieron cargar los entrenamientos.</div>';
-  }
-};
-
-document.addEventListener("DOMContentLoaded", cargarEntrenamientos);
-
-const construirPayloadFeedback = () => {
-  const rawRpe = rpeInput?.value;
-  const rpeVal = rawRpe === "" ? null : Number(rawRpe);
-  return {
-    comentario: comentarioInput?.value.trim() || "",
-    url_datos: urlDatosInput?.value?.trim() || null,
-    rpe: Number.isFinite(rpeVal) ? rpeVal : null,
-    sensacion: sensacionSelect?.value || null,
-    fatiga: fatigaSelect?.value || null,
-    dolor: !!dolorCheck?.checked,
-    zona_dolor: dolorCheck?.checked ? zonaDolorSelect?.value || null : null,
-    completado: completadoCheck ? !!completadoCheck.checked : true
-  };
-};
-
-const tieneDatosFeedback = (fb) => {
-  if (!fb) return false;
-  return Boolean(
-    fb.comentario ||
-      fb.url_datos ||
-      Number.isFinite(fb.rpe) ||
-      fb.sensacion ||
-      fb.fatiga ||
-      fb.dolor ||
-      fb.zona_dolor ||
-      fb.completado === false
-  );
-};
-
-const enviarFeedback = async (entrenamientoId, payload) => {
-  if (!payload || !tieneDatosFeedback(payload)) return;
+const sendFit = async () => {
+  if (!state.fitFile || !state.selected) return;
+  const data = new FormData();
+  data.append("archivo", state.fitFile);
+  data.append("origen", "manual");
   const csrf = await getCsrfToken();
+  await fetchJSON(`${API}/sesiones/${state.selected.id}/archivo`, {
+    method: "POST",
+    headers: { ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
+    body: data,
+  });
+};
+
+const collectWorkoutResults = () => {
+  const rows = Array.from(document.querySelectorAll("[data-result-step]"));
+  const series = [];
+  let kmTotal = 0;
+  let hasData = false;
+
+  for (const row of rows) {
+    const stepId = Number(row.dataset.resultStep);
+    const timeInput = row.querySelector("[data-result-time]");
+    const kmInput = row.querySelector("[data-result-km]");
+    const timeText = timeInput?.value || "";
+    const kmText = kmInput?.value || "";
+    const seconds = parseTimeToSeconds(timeText);
+    const km = parseKm(kmText);
+
+    if (Number.isNaN(seconds)) {
+      timeInput?.focus();
+      throw new Error("Introduce el tiempo con formato mm:ss o hh:mm:ss.");
+    }
+    if (Number.isNaN(km)) {
+      kmInput?.focus();
+      throw new Error("Introduce los kilómetros con un número válido.");
+    }
+    if (seconds == null && km == null) continue;
+
+    hasData = true;
+    if (km != null) kmTotal += km;
+    series.push({
+      paso_detalle_id: stepId,
+      repeticion: 1,
+      tiempo_real_seg: seconds,
+      km_realizados: km,
+    });
+  }
+
+  return hasData ? { series, km_realizados: kmTotal || null } : null;
+};
+
+const sendWorkoutResults = async (payload = null) => {
+  if (!state.selected) return;
+  const data = payload || collectWorkoutResults();
+  if (!data) return;
+  const csrf = await getCsrfToken();
+  await fetchJSON(`${API}/entrenamientos_asignados/${state.selected.id}/resultados`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(csrf ? { "X-CSRF-Token": csrf } : {}),
+    },
+    body: JSON.stringify(data),
+  });
+};
+
+const finishFeedback = async () => {
+  if (!state.selected) return;
+  const workoutResults = collectWorkoutResults();
+  const hasResults = Boolean(workoutResults);
+  const confirmMessage = state.fitFile
+    ? "Se guardará tu feedback, los datos introducidos por bloque y el archivo FIT seleccionado. ¿Quieres enviarlo ahora?"
+    : hasResults
+      ? "Se guardará tu feedback y los datos introducidos por bloque. ¿Quieres enviarlo ahora?"
+      : "Se guardará tu feedback del entrenamiento. ¿Quieres enviarlo ahora?";
+  if (!window.confirm(confirmMessage)) return;
+  await sendWorkoutResults(workoutResults);
+  const completedMap = { si: true, parcial: false, no: false };
+  const comentario = [state.feedback.comentario, state.feedback.comentario_dolor].filter(Boolean).join(" · ");
+  const payload = {
+    entrenamiento_id: state.selected.id,
+    completado: completedMap[state.feedback.completado],
+    rpe: state.feedback.rpe ? Number(state.feedback.rpe) : null,
+    sensacion: state.feedback.sensacion || null,
+    fatiga: state.feedback.fatiga || null,
+    dolor: state.feedback.dolor === "si",
+    zona_dolor: state.feedback.dolor === "si" ? state.feedback.zona_dolor : null,
+    comentario,
+  };
+  const csrf = await getCsrfToken();
+  const authorization = authHeader();
   const response = await fetch(`${API}/feedback`, {
     method: "POST",
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      Authorization: authHeader(),
-      ...(csrf ? { "X-CSRF-Token": csrf } : {})
+      ...(authorization ? { Authorization: authorization } : {}),
+      ...(csrf ? { "X-CSRF-Token": csrf } : {}),
     },
-    body: JSON.stringify({
-      entrenamiento_id: entrenamientoId,
-      ...payload
-    })
+    body: JSON.stringify(payload),
   });
-
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(data?.error || "No se pudo enviar el feedback");
+  if (!response.ok) throw new Error(data.error || "No se pudo guardar el feedback");
+  let fitStatus = "";
+  if (state.fitFile) {
+    try {
+      await sendFit();
+      fitStatus = " Archivo FIT guardado.";
+    } catch (err) {
+      fitStatus = " El feedback se guardó, pero el archivo FIT no pudo subirse.";
+      alert(fitStatus);
+    }
   }
-  return data;
+  $("#feedback-wizard").classList.add("athlete-hidden");
+  const success = $("#feedback-confirmation .config-success");
+  if (success) success.textContent = `Entrenamiento registrado correctamente.${fitStatus}`;
+  $("#feedback-confirmation").classList.remove("athlete-hidden");
 };
 
-btnGuardarTiempos?.addEventListener("click", async () => {
-  if (!entrenamientoActivo || !listaIntervalos) return;
-  const feedbackPayload = construirPayloadFeedback();
-  const inputs = Array.from(listaIntervalos.querySelectorAll("input[data-paso-id]"));
-  let kmRealizadosValor = kmInput ? parseFloat(kmInput.value) : null;
-  if (!Number.isFinite(kmRealizadosValor) || kmRealizadosValor < 0) {
-    kmRealizadosValor = null;
-  }
+const init = async () => {
+  const atletaId = getAtletaId();
+  state.weekStart = startOfWeek(new Date());
+  if (!atletaId) return;
+  await loadZonas(atletaId);
+  const entrenos = await fetchJSON(`${API}/entrenamientos_asignados/${atletaId}`);
+  state.entrenos = (entrenos || []).map((ent) => ({ ...ent, _date: parseDate(ent.fecha) })).filter((ent) => ent._date);
+  state.byId = new Map(state.entrenos.map((ent) => [Number(ent.id), ent]));
+  renderWeek();
+  const hash = window.location.hash.match(/entreno-(\d+)/);
+  if (hash) selectTraining(Number(hash[1]));
+};
 
-  const seriesPayload = [];
-  inputs.forEach((input) => {
-    const valor = input.value.trim();
-    if (!valor) return;
-    const segundos = tiempoAsegundos(valor);
-    if (segundos === null) {
-      input.classList.add("is-invalid");
-    } else {
-      input.classList.remove("is-invalid");
-      seriesPayload.push({
-        paso_detalle_id: Number(input.dataset.pasoId),
-        repeticion: Number(input.dataset.rep) || 1,
-        tiempo_real_seg: segundos
-      });
-    }
-  });
-
-  const invalidInputs = [];
-  const invalidTimes = Array.from(document.querySelectorAll('#lista-intervalos-tiempos input')).filter((input) => {
-    if (!input.value) return false;
-    return !/^\d+:([0-5]\d)$/.test(input.value);
-  });
-  invalidTimes.forEach((input) => input.classList.add('is-invalid'));
-  if (invalidTimes.length) {
-    invalidInputs.push('Revisa el formato de tiempos (mm:ss).');
-  }
-  if (Number.isFinite(kmRealizadosValor) && kmRealizadosValor < 0) {
-    kmInput?.classList.add('is-invalid');
-    invalidInputs.push('Los kilómetros no pueden ser negativos.');
-  }
-  if (invalidInputs.length) {
-    setRegistroStatus(invalidInputs[0], 'error');
-    return;
-  }
-  const hayResultados = seriesPayload.length > 0 || Number.isFinite(kmRealizadosValor);
-  const hayFeedback = tieneDatosFeedback(feedbackPayload);
-  const hayFit = Boolean(fitFileInput?.files?.[0]);
-
-  if (!hayResultados && !hayFeedback && !hayFit) {
-    setRegistroStatus("Añade tiempos/km, adjunta un .fit o completa algún campo de feedback para enviar.", "error");
-    return;
-  }
-
-  if (btnGuardarTiempos) {
-    setGuardarLoading(true);
-  }
-
-  try {
-    if (hayResultados) {
-      const csrf = await getCsrfToken();
-      const response = await fetch(
-        `${API}/entrenamientos_asignados/${entrenamientoActivo.id}/resultados`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: authHeader(),
-            ...(csrf ? { "X-CSRF-Token": csrf } : {})
-          },
-          body: JSON.stringify({
-            series: seriesPayload,
-            km_realizados: Number.isFinite(kmRealizadosValor) ? kmRealizadosValor : null
-          })
-        }
-      );
-
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data?.error || "No se pudieron guardar los tiempos");
-      }
-      resultadosCache.set(entrenamientoActivo.id, true);
-    }
-
-    if (hayFeedback) {
-      await enviarFeedback(entrenamientoActivo.id, feedbackPayload);
-      feedbacksEnviados.add(Number(entrenamientoActivo.id));
-    }
-
-    if (hayFit) {
-      await registrarPlaceholderFit();
-    }
-
-    const mensaje =
-      hayResultados && hayFeedback
-        ? "Tiempos y feedback enviados correctamente"
-        : hayResultados
-          ? "Tiempos guardados correctamente"
-          : hayFeedback
-            ? "Feedback enviado correctamente"
-            : "Archivo FIT registrado correctamente";
-
-    setRegistroStatus(mensaje, "success");
-    try {
-      const key = `registro_guardado_${entrenamientoActivo.id}`;
-      localStorage.setItem(key, JSON.stringify({ ts: Date.now(), msg: mensaje }));
-    } catch (_) {}
-    modalRegistrar?.hide();
-    await cargarEntrenamientos();
-  } catch (err) {
-    console.error("Error al guardar tiempos:", err);
-    alert(err.message || "No se pudieron guardar los tiempos");
-  } finally {
-    if (btnGuardarTiempos) {
-      btnGuardarTiempos.disabled = false;
-      btnGuardarTiempos.textContent = "Guardar tiempos";
-    }
+$("#prev-week")?.addEventListener("click", () => {
+  state.weekStart = addDays(state.weekStart, -7);
+  renderWeek();
+});
+$("#next-week")?.addEventListener("click", () => {
+  state.weekStart = addDays(state.weekStart, 7);
+  renderWeek();
+});
+$("#current-week")?.addEventListener("click", () => {
+  state.weekStart = startOfWeek(new Date());
+  renderWeek();
+});
+$("#feedback-prev")?.addEventListener("click", () => {
+  if (state.step > 0) {
+    state.step -= 1;
+    renderWizardStep();
   }
 });
+$("#feedback-next")?.addEventListener("click", async () => {
+  if (!collectStep()) return;
+  if (state.step < steps.length - 1) {
+    state.step += 1;
+    renderWizardStep();
+    return;
+  }
+  try {
+    $("#feedback-next").disabled = true;
+    await finishFeedback();
+  } catch (err) {
+    alert(err.message || "No se pudo registrar el entrenamiento.");
+  } finally {
+    $("#feedback-next").disabled = false;
+  }
+});
+
+document.addEventListener("DOMContentLoaded", init);
