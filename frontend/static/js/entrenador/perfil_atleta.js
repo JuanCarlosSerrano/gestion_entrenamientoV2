@@ -373,12 +373,13 @@ const pintarZonas = (zonas) => {
       });
   
       try {
+        const csrfToken = await ensureCsrfToken();
         const res = await fetch(`${window.API_BASE}/guardar_zonas`, {
           method: "POST",
           credentials: "include",
           headers: {
             "Content-Type": "application/json",
-            "X-CSRF-Token": window.CSRF?.token || localStorage.getItem("csrfToken") || "",
+            "X-CSRF-Token": csrfToken || "",
           },
           body: JSON.stringify(zonasPayload),
         });
@@ -486,23 +487,19 @@ function inicializarFormularioAlta(form) {
       const categoria = document.getElementById("alta-categoria").value;
       const grupo = document.getElementById("alta-grupo").value.trim();
       const subgrupo = document.getElementById("alta-subgrupo").value.trim();
-      const password = document.getElementById("alta-password").value;
-      const confirmPassword = document.getElementById("alta-password-confirm").value;
 
-      if (!nombre || !apellidos || !email || !categoria || !password) {
-        alert("Completa al menos nombre, apellidos, email, categoría y la contraseña.");
-        return;
-      }
-      if (password !== confirmPassword) {
-        alert("Las contraseñas no coinciden.");
+      if (!nombre || !apellidos || !email || !categoria) {
+        alert("Completa al menos nombre, apellidos, email y categoría.");
         return;
       }
 
+      // No se envía contraseña: el servidor siempre genera una temporal
+      // segura (por diseño, ver informe de seguridad) y la devuelve una
+      // única vez en la respuesta para mostrarla al entrenador.
       const payload = {
         nombre,
         apellidos,
         email,
-        password,
         telefono: telefono || null,
         fecha_nacimiento: fecha || null,
         categoria,
@@ -537,8 +534,12 @@ function inicializarFormularioAlta(form) {
           alert(data?.error || "No se pudo crear el atleta");
           return;
         }
-        const nuevoId = data?.id;
-        alert(data?.message || "Atleta creado correctamente");
+        const nuevoId = data?.atleta_id;
+        const tempPassword = data?.temporary_password || data?.password_temporal;
+        const aviso = tempPassword
+          ? `Atleta creado correctamente.\n\nContraseña temporal (apúntala, no se volverá a mostrar):\n${tempPassword}`
+          : (data?.message || "Atleta creado correctamente");
+        alert(aviso);
         if (nuevoId) {
           window.location.href = `perfil_atleta.html?atletaId=${nuevoId}`;
         } else {

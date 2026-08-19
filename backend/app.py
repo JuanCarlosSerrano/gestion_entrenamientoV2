@@ -2506,7 +2506,11 @@ def planificacion_atletas(current_user):
     subgrupo = (request.args.get("subgrupo") or "").strip()
     categoria = (request.args.get("categoria") or "").strip()
 
-    where = ['rol = "atleta"']
+    # Solo atletas activos: este listado alimenta los selectores de
+    # planificación (individual, semanal, grupo) y no tiene sentido
+    # poder planificar o asignar sobre un atleta archivado. La gestión
+    # de archivado/reactivación vive en /configuracion/atletas.
+    where = ['rol = "atleta"', 'COALESCE(activo, 1) = 1']
     params = []
     if current_user["rol"] == "entrenador":
         where.append("entrenador_id = ?")
@@ -3522,7 +3526,9 @@ def atletas_filtrados(current_user):
     subgrupo = request.args.get('subgrupo')
     categoria = request.args.get('categoria')
 
-    query = 'SELECT * FROM usuarios WHERE rol = "atleta" AND aprobado = 1 AND entrenador_id = ?'
+    # Solo atletas activos: alimenta el selector de asignación por grupo,
+    # no tiene sentido poder asignar entrenamiento a un atleta archivado.
+    query = 'SELECT * FROM usuarios WHERE rol = "atleta" AND aprobado = 1 AND COALESCE(activo, 1) = 1 AND entrenador_id = ?'
     params = [current_user['id']]
 
     if grupo:

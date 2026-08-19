@@ -24,7 +24,9 @@ CREATE TABLE usuarios (
     grupo TEXT,
     subgrupo TEXT,
     activo INTEGER DEFAULT 1,
-    foto_url TEXT
+    foto_url TEXT,
+    vdot_val REAL,
+    vdot_fecha TEXT
 );
 CREATE TABLE entrenamientos_asignados (
     id INTEGER PRIMARY KEY,
@@ -718,6 +720,36 @@ def test_entrenador_puede_leer_historial_de_su_propio_atleta(client):
     _set_session(client, user_id=1, rol="entrenador")
     resp = client.get("/entrenamientos_asignados/3")
     assert resp.status_code == 200
+
+
+def _archivar_atleta(db_path, atleta_id):
+    conn = sqlite3.connect(db_path)
+    conn.execute("UPDATE usuarios SET activo = 0 WHERE id = ?", (atleta_id,))
+    conn.commit()
+    conn.close()
+
+
+def test_planificacion_atletas_excluye_archivados(client):
+    # Regresión: un atleta archivado seguía apareciendo (y por tanto era
+    # asignable) en el selector de planificación individual/semanal.
+    _archivar_atleta(os.environ["DB_PATH"], 3)
+    _set_session(client, user_id=1, rol="entrenador")
+
+    resp = client.get("/planificacion/atletas")
+    assert resp.status_code == 200
+    ids = [a["id"] for a in resp.get_json()["atletas"]]
+    assert 3 not in ids
+
+
+def test_atletas_filtrados_excluye_archivados(client):
+    # Regresión: mismo problema en el selector de asignación por grupo.
+    _archivar_atleta(os.environ["DB_PATH"], 3)
+    _set_session(client, user_id=1, rol="entrenador")
+
+    resp = client.get("/atletas_filtrados")
+    assert resp.status_code == 200
+    ids = [a["id"] for a in resp.get_json()]
+    assert 3 not in ids
 
 
 def test_entrenador_no_puede_editar_plantilla_de_otro_entrenador(client):
