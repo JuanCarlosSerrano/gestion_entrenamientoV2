@@ -81,6 +81,40 @@ git pull
 ./run_main.sh
 ```
 
+## Producción
+
+MindPace V2 está publicado en `https://mind-pace.net`. Es un clon
+aparte de este repositorio (`gestion_entrenamiento_v2_prod`, misma
+máquina, `git remote` compartido con este), con su propia base de
+datos MariaDB separada de la de desarrollo — nunca se mezclan datos
+reales con datos de prueba.
+
+Cadena de publicación: Cloudflare (Named Tunnel, sin abrir puertos en
+el router) → `127.0.0.1:5000` → gunicorn → Flask. Gunicorn corre con
+**1 solo worker** a propósito: el hilo de publicaciones programadas y
+el limitador de intentos de login son locales al proceso, así que
+varios workers los duplicarían o fragmentarían (ver
+`run_prod.sh` y `docs/11_INFORME_SEGURIDAD_TECNICO.md`).
+
+Gestionado por `launchd` como `LaunchDaemon`
+(`/Library/LaunchDaemons/net.mindpace.gunicorn.plist`, copiado desde
+`ops/net.mindpace.gunicorn.plist` en el clon de producción): se
+reinicia solo si el proceso muere o si el Mac reinicia.
+
+Desplegar un cambio a producción:
+```bash
+# en el clon de desarrollo
+git push origin main
+
+# en el clon de producción
+git pull origin main
+# si cambió algún .py del backend, hace falta reiniciar gunicorn:
+pkill -f "gestion_entrenamiento_v2_prod/backend/.venv/bin/gunicorn"
+# launchd lo relanza solo en segundos (KeepAlive)
+```
+Los cambios de solo frontend (HTML/CSS/JS) no necesitan reinicio:
+Flask los sirve directamente desde disco en cada petición.
+
 ## Backup nocturno (producción)
 
 `ops/nightly_backup.sh` vuelca la BD de producción con `mysqldump` (vía

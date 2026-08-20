@@ -82,32 +82,29 @@ error (4xx/404).
     `js/entrenador/grupo_entrenamiento_datatable.js`) precisamente para
     poder evitarlo.
 
+## Webhook de WhatsApp (`/webhooks/whatsapp`)
+
+Única ruta pública sin sesión de toda la aplicación (Meta no manda cookie), y por eso exenta de la comprobación CSRF. Protegida en su lugar por:
+
+- `GET`: verificación de suscripción comprobando `hub.verify_token` contra `WHATSAPP_WEBHOOK_VERIFY_TOKEN`.
+- `POST`: verificación de firma `X-Hub-Signature-256` (HMAC-SHA256 sobre el cuerpo con `WHATSAPP_APP_SECRET`). Si ese secreto no está configurado, la petición se deja pasar con un aviso en el log en vez de bloquear — pendiente fijarlo antes de dar de alta el webhook de verdad en el panel de Meta.
+- Actualiza `entrenamientos_envios.estado`/`entrenamientos_asignados.estado_envio` a `error` (con el detalle real de Meta) cuando un mensaje que se había aceptado falla después de forma asíncrona — antes de esto esos fallos quedaban invisibles.
+
+## Auditoría de rutas de escritura y esquema (2026-08-20)
+
+Motivada por un fallo real en producción (`responder_feedback` sin comprobar que el feedback fuera de un atleta del entrenador). Detalle completo en `docs/11_INFORME_SEGURIDAD_TECNICO.md`; resumen:
+
+- Revisadas las ~36 rutas de escritura del backend: encontrado y corregido un segundo caso sistemático (5 rutas que asignaban/clonaban una plantilla de entrenamiento sin comprobar que fuera del entrenador o compartida). Nuevo helper `entrenamientos_fuera_de_equipo()`, mismo patrón que `atletas_fuera_de_equipo()`.
+- Auditado `schema.sql` contra `schema_mariadb.sql` campo a campo: cero divergencias de tipo o de `UNIQUE` tras corregir las que habían causado dos incidentes reales de datos (columna `fatiga` mal tipada, `UNIQUE` ausente en `sesiones_realizadas`).
+
 ## Variables relevantes
 
 - `SECRET_KEY`: obligatoria en entorno real.
-- `SESSION_COOKIE_SECURE=false`: desarrollo local.
-- `SESSION_COOKIE_SECURE=true`: producción con HTTPS.
-- `CORS_ORIGINS`: dominios permitidos separados por coma.
+- `SESSION_COOKIE_SECURE=false`: desarrollo local. `SESSION_COOKIE_SECURE=true`: producción real (`mind-pace.net`, HTTPS vía Cloudflare) — ya configurado, no solo recomendado.
+- `CORS_ORIGINS`: dominios permitidos separados por coma. En producción, `https://mind-pace.net,https://www.mind-pace.net` (ya no incluye `localhost`).
 - `MAX_CONTENT_LENGTH`: límite global de subida, por defecto 5 MB.
+- `WHATSAPP_WEBHOOK_VERIFY_TOKEN` / `WHATSAPP_APP_SECRET`: ver sección de webhook arriba.
 
-## Archivos sensibles detectados ya versionados
+## Archivos sensibles
 
-Estos archivos coinciden con patrones sensibles y ya aparecen en Git. No se han eliminado ni se ha limpiado historial porque requiere decisión explícita:
-
-- `backend/atletas.db-shm`
-- `backend/atletas.db-wal`
-- `backend/atletas_normalizado.db`
-- `backend/database.db`
-- `backend/flask_session/*`
-- `flask_session/*`
-- `backups/gestion_entrenamiento_v2.sql`
-
-Propuesta de limpieza del índice, sin borrar archivos locales:
-
-```bash
-git rm --cached backend/atletas.db-shm backend/atletas.db-wal backend/atletas_normalizado.db backend/database.db
-git rm --cached -r backend/flask_session flask_session backups
-git commit -m "chore: remove sensitive runtime artifacts from git tracking"
-```
-
-Si esos archivos contienen datos reales o secretos, además habría que rotar credenciales y limpiar el histórico Git con una herramienta específica antes de publicar el repositorio.
+**Resuelto** (verificado con `git ls-files`, sin resultados): los artefactos de runtime que el informe de seguridad de 18/08 encontró versionados (`atletas.db-shm`, `atletas.db-wal`, `atletas_normalizado.db`, `database.db`, `flask_session/*`, `backups/gestion_entrenamiento_v2.sql`) ya no están trackeados en ningún commit de `main`. `.gitignore` los cubre. Queda pendiente, si esos archivos llegaron a contener datos reales, limpiar el histórico Git con una herramienta específica antes de hacer público el repositorio — no es necesario mientras el repositorio siga siendo privado.

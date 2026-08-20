@@ -1,140 +1,105 @@
-# Informe tecnico de seguridad - MindPace V2
+# Informe técnico de seguridad — MindPace V2
 
-Fecha: 19-08-2026 (revision del informe del 18-08-2026)
-Alcance: backend Flask, autenticacion, autorizacion, gestion de usuarios, sesiones, CSRF, CORS, subida de ficheros, publicacion WhatsApp, archivado de atletas, configuracion y tests.
+Fecha: 20-08-2026 (revisión del informe del 19-08-2026)
+Alcance: backend Flask, autenticación, autorización, gestión de usuarios, sesiones, CSRF, CORS, cabeceras HTTP/CSP, subida de ficheros, publicación WhatsApp (envío y webhook de estado), archivado de atletas, esquema de base de datos, configuración de producción y tests.
 
-Metodo de esta revision: no se ha dado por buena la version anterior del informe. Cada control declarado se ha vuelto a verificar contra el codigo actual en `main` (`6faf09f`) y se ha vuelto a ejecutar la suite completa de tests, incluyendo el subconjunto especifico de seguridad.
+Método de esta revisión: no se ha dado por buena la versión anterior del informe. Cada control declarado se ha vuelto a verificar contra el código actual en `main` (`f908487`) y se ha vuelto a ejecutar la suite completa de tests.
 
-Contexto de producto: el desarrollo se centra ahora en tres pilares (crear entrenamiento, planificar, gestionar atletas); el modulo de analisis y estadistica queda en pausa hasta que esos tres esten probados. Esta revision de seguridad cubre igualmente toda la superficie ya construida, incluida la que queda en pausa funcional, porque el codigo sigue desplegado y accesible.
+Contexto de producto: el desarrollo sigue centrado en tres pilares (crear entrenamiento, planificar, gestionar atletas); el módulo de análisis y estadística sigue en pausa. Desde el informe anterior, **MindPace V2 pasó de "solo desarrollo" a publicado de verdad** en `https://mind-pace.net`, con un entrenador y un atleta reales usándolo — varios de los hallazgos de esta revisión (los dos incidentes de datos y la fuga de propiedad en `responder_feedback`) se descubrieron precisamente por ese uso real, no por auditoría preventiva.
 
-## Resumen ejecutivo tecnico
+## Resumen ejecutivo técnico
 
-Los controles del sprint de hardening anterior se mantienen en pie: no se ha detectado ninguna regresion. Ademas, la cobertura de tests de permisos ha crecido de forma notable desde el informe anterior, porque las funcionalidades construidas despues (planificacion individual por atleta, publicacion/WhatsApp, feedback) incorporaron sus propias comprobaciones de "atleta ajeno".
+Desde el informe del 19/08 se cerró producción de verdad (antes era una recomendación pendiente, "P2 — Flask development server") y, con uso real, aparecieron y se corrigieron una fuga de seguridad explotable y dos incidentes de integridad de datos. Motivado por eso, se hizo además una auditoría sistemática de las dos clases de fallo que los causaron, en vez de asumir que eran casos aislados — encontrando y cerrando más instancias del mismo patrón.
 
 Estado verificado hoy:
 
-- Registro publico sigue deshabilitado (`/register` devuelve 403 fijo, incluso para admin/entrenador autenticados).
-- Login sigue sin loguear credenciales; `session.clear()` antes de autenticar.
-- `SECRET_KEY` sigue siendo obligatoria fuera de SQLite/tests (`RuntimeError` si falta).
-- Contrasenas temporales generadas por servidor (`secrets`), guardadas solo como hash.
-- Cambio obligatorio de contrasena temporal sigue bloqueando el resto de la app (`force_password_change_gate`).
-- CSRF sigue activo para escrituras.
-- CORS sigue con lista explicita de origenes, sin `*` con credenciales.
-- Subidas siguen restringidas por extension y MIME (`backend/security/uploads.py`).
-- FIT sigue guardandose con nombre generado por servidor, fuera de rutas estaticas.
-- Atletas con historico se siguen archivando (`activo = 0`), no se borran.
-- El hallazgo P1 del informe anterior (archivos de runtime versionados en Git) **ya no existe**: verificado con `git ls-files`, ninguno de los ficheros senalados esta trackeado y el `.gitignore` los cubre.
-- Suite de tests: **85 passed** en total (antes 46); el subconjunto especifico de seguridad (`test_security.py`, `test_permissions.py`, `test_upload_security.py`, `test_auth_routes.py`, `test_auth_service.py`) sigue en **46 passed**, el resto son tests funcionales anadidos despues (configuracion, admin_users, publicacion, FIT, db helpers).
+- Registro público sigue deshabilitado.
+- CSRF sigue activo para escrituras; ruta del webhook de WhatsApp exenta a propósito (Meta no manda cookie de sesión) y protegida en su lugar por firma `X-Hub-Signature-256`.
+- **Producción real**: gunicorn (no el servidor de desarrollo de Flask), `CORS_ORIGINS` fijado a `https://mind-pace.net` y `https://www.mind-pace.net` (ya no `localhost`), `SESSION_COOKIE_SECURE=true` bajo HTTPS real vía Cloudflare Tunnel. Las tres recomendaciones "antes de producción" del informe anterior sobre esto están hechas.
+- **Cabeceras HTTP de seguridad y CSP**, ausentes en el informe anterior, añadidas: HSTS, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Content-Security-Policy` restrictiva (sin `unsafe-inline` en `script-src`; sí en `style-src`, limitación documentada — ver `docs/09_SEGURIDAD.md`).
+- **Corregido — fuga de propiedad real, explotada en el sentido de que el código lo permitía**: `POST /feedbacks/<id>/responder` no comprobaba que el feedback perteneciera a un atleta del entrenador que responde (su ruta hermana, `marcar_feedback_leido`, sí lo hacía). Cualquier entrenador autenticado podía responder al feedback de un atleta ajeno.
+- **Corregido — misma clase de fallo, encontrada por auditoría posterior de las ~36 rutas de escritura**: 5 rutas que asignan/clonan una plantilla de entrenamiento a un atleta comprobaban que el atleta fuera del entrenador, pero nunca que la plantilla (`entrenamiento_id`) lo fuera. Un entrenador podía usar el id de la plantilla privada de otro entrenador con solo adivinarlo.
+- **Corregido — dos incidentes de integridad de datos por divergencia entre el esquema de SQLite (tests) y MariaDB (real)**: una columna (`feedbacks.fatiga` / `sesiones_realizadas.fatiga`) tipada como entero cuando la aplicación siempre guarda texto, y una restricción `UNIQUE` ausente en `sesiones_realizadas.entrenamiento_asignado_id` de la que el código de "actualizar si existe" ya dependía. Ambos hicieron falta datos reales de producción para descubrirse: SQLite no los detecta por tipado débil. Auditados y corregidos también en `schema.sql`/`schema_mariadb.sql` de forma sistemática, no solo el caso puntual.
+- Suite de tests: **126 passed** (antes 85; 41 tests nuevos desde el informe anterior, entre ellos los de regresión de los tres hallazgos de arriba).
 
-## Verificacion punto por punto
+## Verificación punto por punto
 
-### Autenticacion y sesiones
+### Autenticación y sesiones
 
-- `backend/routes/auth.py`: `/login` limpia la sesion, guarda solo `user_id`/`user_rol`/`user_email`, nunca la contrasena. Confirmado por lectura directa del codigo.
-- `SECRET_KEY` (`backend/app.py:87-93`): si no hay variable de entorno y el motor no es SQLite ni estamos en tests, el arranque falla con `RuntimeError`. Sigue sin fallback conocido en produccion.
-- `SESSION_COOKIE_HTTPONLY = True`, `SESSION_COOKIE_SAMESITE = "Lax"` fijos en codigo; `SESSION_COOKIE_SECURE` sigue siendo variable de entorno (`backend/app.py:98`), por defecto `false` en `.env.example` — sigue pendiente activarla explicitamente en el entorno de produccion cuando exista.
-- Rate limiting de login (`login_rate_limited`, `backend/app.py:529`) sigue activo y sigue siendo en memoria del proceso (ver P2 mas abajo, sin cambios).
+- Sin cambios respecto al informe anterior en lo ya verificado (login no expone contraseñas, `SECRET_KEY` obligatoria, `force_password_change_gate` sigue bloqueando el resto de la app).
+- `SESSION_COOKIE_SECURE` **ya está activada en producción** (`backend/.env` real, `SESSION_COOKIE_SECURE=true`), verificado sirviendo tras HTTPS real. Deja de ser una recomendación pendiente.
 
-### Alta y reset de usuarios
+### CSRF, CORS y cabeceras HTTP
 
-- `/register` (`backend/routes/auth.py:17`) exige rol `admin` o `entrenador` y aun asi devuelve siempre 403: el alta publica esta deshabilitada por diseno, no solo protegida por rol.
-- Alta y reset de atleta viven en `backend/routes/configuracion.py` (blueprint extraido despues del informe anterior): `configuracion_crear_atleta`, `configuracion_reset_password_atleta`. Generan contrasena con `secrets`, fuerzan `force_password_change = 1`.
-- Test nuevo desde el informe anterior: `test_entrenador_no_puede_editar_atleta_ajeno`, `test_reset_password_respeta_permisos_y_genera_temporal_distinta` — cubren el blueprint nuevo, no solo el `app.py` original.
+- CSRF: lista de exención ahora incluye también `whatsapp_webhook_receive` — es la única ruta pública sin sesión que existe en la aplicación, y en su lugar se valida con la firma HMAC de Meta (`X-Hub-Signature-256` sobre `WHATSAPP_APP_SECRET`); si ese secreto no está configurado, la petición se deja pasar con aviso en el log en vez de bloquear el desarrollo — pendiente de fijarlo antes de dar de alta el webhook en Meta de verdad.
+- CORS (`backend/app.py`): en producción, `CORS_ORIGINS=https://mind-pace.net,https://www.mind-pace.net` — ya no incluye `localhost`. Verificado con petición real: origen permitido recibe `Access-Control-Allow-Origin`, uno no permitido no.
+- Cabeceras nuevas (`backend/security/headers.py`, `@app.after_request` en `app.py`), aplicadas a toda respuesta:
+  - `Strict-Transport-Security: max-age=31536000; includeSubDomains` (sin `preload`, decisión deliberada).
+  - `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`.
+  - `Referrer-Policy: strict-origin-when-cross-origin`.
+  - `Content-Security-Policy` construida a partir de un inventario real del frontend (no plantilla genérica): `script-src` sin `unsafe-inline` (se extrajeron los 2 únicos `<script>` inline que había en toda la app); `style-src` sí lo necesita — 22 atributos `style=""` en 6 páginas, refactor pendiente documentado en `09_SEGURIDAD.md`; `img-src 'self' data:` (Bootstrap embebe iconos SVG en `data:`); dominios externos limitados a los 3 CDN que realmente usa la app.
+  - 9 tests dedicados (`test_security_headers.py`) verifican presencia y valores exactos en respuestas HTML y JSON, y que CORS sigue funcionando con estas cabeceras activas.
 
-### Cambio obligatorio de contrasena
+### Esquema de base de datos (nuevo apartado)
 
-- `force_password_change_gate` (`backend/app.py:570`) sigue bloqueando el resto de la app mientras el flag este activo. Sin cambios respecto al informe anterior.
+- Auditoría campo a campo de `schema.sql` (SQLite) contra `schema_mariadb.sql` (el que se usa de verdad), motivada por los dos incidentes de datos de esta revisión. Resultado tras corregir: cero divergencias de tipo (numérico vs texto), cero de `UNIQUE`, cero columnas presentes en un motor y ausentes en el otro.
+- De paso, encontrada y corregida una tercera: `entrenamientos_asignados` en `schema.sql` tenía una columna heredada de la v1 (`bloque_principal`) declarada `NOT NULL` sin valor por defecto y sin uso real en esa tabla — cualquier inserción real en una instalación SQLite desde ese esquema habría fallado. No afecta a la base de datos real (MariaDB, ya correcta), pero sí a una hipotética instalación nueva desde `schema.sql`.
+- Corregido con `ALTER TABLE` directo en las bases de datos reales de desarrollo y producción (no solo en el fichero fuente), verificado con un reenvío real tras el arreglo.
 
-### CSRF y CORS
+### Auditoría de rutas de escritura (nuevo apartado)
 
-- CSRF sigue protegiendo escrituras; test `test_csrf_bloquea_feedback_sin_header` confirma que tambien cubre el modulo de feedback (construido despues del informe original).
-- CORS (`backend/app.py:73-82`) sigue usando lista explicita desde `CORS_ORIGINS`, por defecto solo `localhost`/`127.0.0.1`. Sigue pendiente fijar el dominio real cuando exista despliegue publico.
+- Revisadas las ~36 rutas de escritura (`POST`/`PUT`/`DELETE`) del backend buscando el mismo patrón que `responder_feedback` tenía: comprobación de propiedad ausente donde una ruta hermana sí la tiene. La inmensa mayoría ya estaba bien — la única clase de fallo encontrada y no cerrada previamente fue la de plantillas ajenas (ver resumen ejecutivo).
+- Nuevo helper `entrenamientos_fuera_de_equipo()` (mismo patrón que el ya existente `atletas_fuera_de_equipo()`), aplicado en los 5 puntos de entrada que faltaban.
 
-### Subida de archivos
+### Subida de archivos, archivado de atletas, WhatsApp (envío)
 
-- `backend/security/uploads.py` confirma extension + MIME para imagen (`.jpg/.jpeg/.png/.webp`) y FIT (`.fit`, MIME vacio/octet-stream/vnd.ant.fit), sin cambios respecto al informe anterior.
-- `MAX_CONTENT_LENGTH` sigue en 5 MB por defecto (`backend/app.py:98`), configurable por entorno.
+Sin cambios respecto al informe anterior; sigue verificado.
 
-### Archivado de atletas
+### WhatsApp — webhook de estado de entrega (nuevo desde el informe anterior)
 
-- `configuracion_estado_atleta` sigue desactivando (`activo = 0`) en vez de borrar cuando hay historico. Sin cambios.
-
-### WhatsApp
-
-- `backend/services/whatsapp_service.py` sigue leyendo el token desde entorno y sin exponerlo al frontend. `test_publicacion_de_atleta_ajeno_se_rechaza` y `test_entrenador_no_puede_publicar_atleta_ajeno` (nuevos desde el informe anterior) confirman que la publicacion respeta la propiedad entrenador-atleta.
+- Antes, un mensaje aceptado por la API de Meta (HTTP 200 + `wamid`) pero fallido después de forma asíncrona (p. ej. error 131047, "han pasado más de 24h desde la última respuesta del contacto") quedaba invisible: la base de datos seguía marcándolo como "enviado". Ocurrió de verdad en producción.
+- `GET/POST /webhooks/whatsapp`: verificación de suscripción por `hub.verify_token` y verificación de firma de cada evento (`WHATSAPP_APP_SECRET`, con aviso si no está configurado en vez de bloquear). Actualiza `entrenamientos_envios.estado`/`entrenamientos_asignados.estado_envio` a `error` con el detalle real de Meta cuando el estado es `failed`.
+- Pendiente (no es un fallo de código, es una limitación de producto): la ventana de 24h de WhatsApp no tiene solución en código — requiere plantillas aprobadas por Meta, trabajo fuera de esta aplicación.
 
 ## Matriz de riesgos (actualizada)
 
-| Riesgo | Severidad inicial | Estado hoy | Verificacion |
+| Riesgo | Severidad inicial | Estado hoy | Verificación |
 | --- | --- | --- | --- |
-| Registro publico con rol elegido por cliente | P0 | Corregido, sin regresion | Lectura de `auth.py` + test |
-| Login exponiendo password en logs | P0 | Corregido, sin regresion | Lectura de `auth.py` + `test_login_no_imprime_password_en_stdout` |
-| `SECRET_KEY` conocida por defecto | P0 | Corregido, sin regresion | Lectura de `app.py:87-93` |
-| Contrasena fija `cambiame` | P0 | Corregido, sin regresion | `test_password_temporal_no_es_fija_y_tiene_longitud_razonable` |
-| Cliente define contrasena temporal | P1 | Corregido, sin regresion | `test_entrenador_crea_atleta_propio_sin_aceptar_password_cliente` |
-| Usuario con password temporal usa app normal | P1 | Corregido, sin regresion | `test_force_password_change_bloquea_funciones_hasta_cambiar_password` |
-| Session fixation | P1 | Mitigado, sin regresion | Lectura de `auth.py` (`session.clear()`) |
-| Fuerza bruta en login | P1 | Mitigado, sin regresion | Rate limit en memoria (sigue siendo P2 para produccion, ver abajo) |
-| Subida de imagen arbitraria | P1 | Corregido, sin regresion | `test_upload_foto_rechaza_extension_no_permitida` |
-| Subida FIT con nombre usuario | P1 | Corregido, sin regresion | Lectura de `fit_service.py` |
-| Borrado destructivo de atleta con historico | P1 | Corregido, sin regresion | Lectura de `configuracion.py` |
-| Runtime artifacts versionados | P1 | **Resuelto desde el informe anterior** | `git ls-files` no devuelve ninguno de los ficheros senalados |
-| Atleta ajeno accesible via planificacion individual, publicacion o feedback (superficie nueva desde el informe anterior) | P1 | Cubierto | 8 tests dedicados (`*_atleta_ajeno`, `*_ajena`) en `test_permissions.py` y `test_security.py` |
+| (Todo lo del informe anterior: registro público, password en logs, `SECRET_KEY`, contraseña fija, session fixation, subida de ficheros, borrado destructivo, runtime artifacts, atleta ajeno en planificación/publicación/feedback) | — | Sin regresión | Sin cambios, ver informe del 19/08 |
+| `responder_feedback` sin comprobación de propiedad | P1 | **Corregido hoy** | `test_entrenador_no_puede_responder_feedback_de_atleta_ajeno` + positivo `test_entrenador_si_puede_responder_feedback_de_su_propio_atleta` |
+| Asignar/clonar plantilla de otro entrenador (5 rutas) | P1 | **Corregido hoy** | 5 tests dedicados, uno por ruta, en `test_security.py` |
+| `feedbacks.fatiga`/`sesiones_realizadas.fatiga` mal tipada en MariaDB | P1 (integridad de datos) | **Corregido hoy** | `test_feedback_acepta_fatiga_como_texto` + verificado en producción real |
+| `sesiones_realizadas` sin `UNIQUE`, duplicaba entrenamientos en el registro del atleta | P1 (integridad de datos) | **Corregido hoy** | `test_resultados_no_duplica_sesion_realizada_al_reenviar` (confirmado que detecta la regresión: falla si se quita el `UNIQUE`) |
+| Servidor de desarrollo de Flask en producción | P2 | **Corregido** | gunicorn real, verificado en `mind-pace.net` |
+| `CORS_ORIGINS`/`SESSION_COOKIE_SECURE` sin fijar para producción | P3 | **Corregido** | `backend/.env` de producción real |
+| Cabeceras de seguridad HTTP / CSP ausentes | P2 | **Corregido** | `test_security_headers.py`, 9 tests |
+| Webhook de WhatsApp sin verificación de firma | — (funcionalidad nueva) | Mitigado con degradación explícita si falta el secreto | Lectura de código + test de firma inválida |
 
-## Hallazgos pendientes (sin cambios desde el informe anterior salvo lo indicado)
+## Hallazgos pendientes
 
-### P2 - Rate limiting en memoria
+### P2 — Rate limiting y sesiones en memoria/filesystem, siguen sin cambios
 
-Sigue siendo local al proceso Flask. Adecuado para desarrollo con un solo worker; en produccion con multiples workers/replicas conviene moverlo a Redis o equivalente.
+Siguen siendo locales al proceso Flask. Mitigado en la práctica por una decisión deliberada: gunicorn en producción corre con **1 worker** (no varios), precisamente para no fragmentar el rate limit de login entre procesos ni duplicar el hilo de publicaciones programadas. Si en el futuro hace falta escalar a varios workers, esto hay que resolverlo antes (Redis o equivalente), no después.
 
-### P2 - Flask development server
+### P2 — CSP con `style-src 'unsafe-inline'`
 
-`run_main.sh` sigue arrancando con `flask run` (servidor de desarrollo). Para produccion sigue pendiente Gunicorn/uWSGI detras de proxy inverso con HTTPS.
+Documentado en `docs/09_SEGURIDAD.md` con la lista exacta de páginas afectadas (22 atributos `style=""` en 6 archivos). Requiere mover esos estilos a clases CSS; refactor de frontend fuera de alcance de la tarea que introdujo la CSP.
 
-### P2 - Gestion de sesiones filesystem
+### P3 — Plantillas de WhatsApp
 
-`SESSION_TYPE = "filesystem"` sigue igual. Sigue pendiente migrar a Redis o backend gestionado antes de un despliegue con varios workers.
+No es un hallazgo de seguridad sino un límite de producto: mensajes fuera de la ventana de 24h de WhatsApp no se pueden entregar sin plantillas aprobadas por Meta. El webhook nuevo hace visible el fallo; no lo evita.
 
-### P3 - `SESSION_COOKIE_SECURE` desactivada por defecto
-
-Es correcto en desarrollo (sin HTTPS local), pero hay que recordar activarla explicitamente (`SESSION_COOKIE_SECURE=true`) en cuanto exista un entorno servido por HTTPS. No es un fallo de codigo, es una tarea de configuracion de despliegue pendiente.
-
-## Evidencias de esta revision
+## Evidencias de esta revisión
 
 ```bash
-git ls-files | grep -E "atletas\.db-shm|atletas\.db-wal|atletas_normalizado\.db|database\.db|flask_session/|backups/gestion_entrenamiento_v2\.sql"
-# sin resultados
-
 cd backend && source .venv/bin/activate && cd ..
 python -m pytest -q backend/tests
-# 85 passed
-
-python -m pytest -q backend/tests/test_security.py backend/tests/test_permissions.py \
-  backend/tests/test_upload_security.py backend/tests/test_auth_routes.py backend/tests/test_auth_service.py
-# 46 passed
+# 126 passed
 ```
 
-## Tests de seguridad cubiertos (lista ampliada respecto al informe anterior)
+## Recomendaciones antes de escalar (ya no "antes de producción" — eso ya pasó)
 
-Los 18 del informe original siguen pasando, mas los siguientes anadidos por las funcionalidades construidas despues:
-
-- Entrenador no puede editar atleta ajeno (configuracion).
-- Entrenador no puede modificar zonas de atleta ajeno.
-- Entrenador no puede consultar/modificar planificacion de atleta ajeno.
-- Entrenador no puede modificar visibilidad de atleta ajeno.
-- Entrenador no puede publicar entrenamiento de atleta ajeno.
-- Entrenador no puede marcar feedback de atleta ajeno.
-- Admin lista usuarios sin exponer `password_hash`.
-- `obtener_atleta_autorizado` devuelve 403 para atleta ajeno; admin mantiene acceso.
-
-## Recomendaciones antes de produccion (sin cambios de fondo)
-
-1. ~~Limpiar runtime artifacts del indice Git~~ — ya resuelto, verificar que se mantenga en cada release.
-2. Configurar `SESSION_COOKIE_SECURE=true` bajo HTTPS en cuanto exista ese entorno.
-3. Definir `CORS_ORIGINS` solo con el dominio real de MindPace antes de exponerlo.
-4. Sustituir rate limit en memoria por Redis o equivalente si se despliega con mas de un worker.
-5. Migrar sesiones filesystem a backend robusto si se despliega con mas de un worker.
-6. Revisar politica de retencion de backups (`backups/` esta gitignorado; confirmar donde se guardan y con que control de acceso una vez exista un entorno fuera de esta maquina).
-7. Ejecutar un pentest externo antes de publicar internet-facing.
-
-Nota sobre el punto 6: el README describe un flujo de sincronizacion de BD entre "dos equipos" via `git add backups/...sql`, pero `backups/` esta en `.gitignore` desde antes de este informe, por lo que ese flujo documentado no se ejecuta tal cual esta escrito hoy. No es un riesgo — de hecho evita subir datos reales al repositorio — pero conviene saber que el README describe un procedimiento que no aplica mientras exista un unico entorno de desarrollo (ver nota anadida en `README.md`).
+1. Si se pasa a más de un worker de gunicorn: mover el rate limit de login y el hilo de publicaciones programadas a algo compartido entre procesos (Redis o equivalente) antes, no después.
+2. Completar la migración de `style-src` para poder quitar `'unsafe-inline'` de la CSP.
+3. Configurar `WHATSAPP_APP_SECRET` y dar de alta el webhook en el panel de Meta cuando se decida perseguir plantillas de WhatsApp (requiere trabajo en Meta Business Manager, no solo código).
+4. Pentest externo si en algún momento se maneja un volumen de atletas/datos que lo justifique.

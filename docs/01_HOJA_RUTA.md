@@ -38,6 +38,20 @@ El módulo de análisis y estadística (Fases 9 y 11, Módulos 10 y 11 del backl
 
 Consecuencia práctica: el trabajo pendiente real ahora mismo es hardening y pruebas sobre crear entrenamiento, planificación y gestión de atletas — no avanzar en análisis/estadísticas ni en la Fase 8, y tampoco seguir el orden original de fases 0→12 tal como está escrito abajo. El resto del documento se conserva como referencia de diseño de cada fase, no como plan de ejecución vigente.
 
+### Actualización 2026-08-20: producción publicada, ronda de hardening sobre los tres pilares
+
+Desde el 19/08 hasta hoy:
+
+- **MindPace V2 está publicado de verdad** en `https://mind-pace.net` (Cloudflare Tunnel → gunicorn → Flask), con base de datos de producción separada de la de desarrollo, backup nocturno automático y arranque gestionado por el sistema (se reinicia solo si el proceso muere o el Mac reinicia).
+- Con un entrenador y un atleta reales usando la app en producción, aparecieron y se corrigieron **más de 20 fallos concretos** sobre los tres pilares (crear entrenamiento, planificar, gestionar atletas) — detalle completo por módulo en `02_BACKLOG_FUNCIONAL.md`. Los más relevantes por impacto real:
+  - Dos incidentes de datos en producción por divergencia entre el esquema de SQLite (tests) y MariaDB (real): una columna mal tipada que impedía guardar feedback, y una restricción `UNIQUE` ausente que duplicaba entrenamientos en el registro del atleta.
+  - Una fuga de seguridad real explotable (responder feedback de un atleta ajeno) y, en la auditoría posterior de las ~36 rutas de escritura del backend, otra sistemática (asignar la plantilla privada de otro entrenador).
+  - Varios bugs de UX que impedían completar tareas básicas en tablet/móvil (selector de fecha, campos de tiempo sin ":", unidad bloqueada, semana ya planificada que no se podía editar).
+- Se hizo una **auditoría completa de dos clases de fallo** (divergencia de esquema SQLite/MariaDB, comprobaciones de propiedad ausentes en rutas de escritura) precisamente porque los dos incidentes de datos y la fuga de seguridad eran ejemplos de patrones, no casos aislados. Resultado: cerradas todas las instancias encontradas, con test de regresión por cada una.
+- **Panel de administración** homogeneizado con la estética del resto de la app (antes tenía un navbar genérico sin relación visual).
+
+**Valoración honesta para decidir el siguiente paso** (ver `docs/13_PROXIMOS_PASOS.md` para el detalle): los tres pilares llevan ya un ciclo real de uso en producción + corrección, no son solo teoría probada en desarrollo. Eso es una base bastante más sólida que hace 24h. Pero "sólido" aquí significa "los fallos que han aparecido se han corregido", no "ya no puede aparecer ninguno" — el criterio para pasar a análisis/estadísticas no es una fecha, es que el entrenador siga probando estos tres pilares unos días más sin encontrar nada que corregir.
+
 ## 1. Decisión principal
 
 MindPace V2 no se reinicia desde cero.
