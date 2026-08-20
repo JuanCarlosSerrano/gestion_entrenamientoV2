@@ -1,6 +1,14 @@
+// window.API_BASE_URL nunca lo define nada (el resto de la app usa
+// window.API_BASE, ya fijado por script.js a window.location.origin) --
+// como aquí no había un segundo "or" a ese valor correcto, siempre
+// caía en el puerto fijo 5002. En desarrollo eso coincide por
+// casualidad con el puerto real y no se notaba, pero en producción
+// (puerto 5000, sin nada escuchando en :5002) provocaba
+// "NetworkError when attempting to fetch resource" en cada petición.
 const API_BASE =
   window.API_BASE_URL ||
-  `${window.location.protocol}//${window.location.hostname}:5002`;
+  window.API_BASE ||
+  window.location.origin;
 
 const state = {
   filter: "hoy",
