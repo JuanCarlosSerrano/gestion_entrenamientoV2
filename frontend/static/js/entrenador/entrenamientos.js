@@ -58,7 +58,6 @@ const entrenamientosLayout = document.getElementById('entrenamientos-layout');
 const mainTabButtons = document.querySelectorAll('[data-main-tab-btn]');
 const mainTabPanels = document.querySelectorAll('[data-main-tab-panel]');
 const createFlow = document.getElementById('create-flow');
-const createFlowHeader = document.getElementById('create-flow-header');
 const createFlowTitle = document.getElementById('create-flow-title');
 const createFlowHelp = document.getElementById('create-flow-help');
 const createFlowScreens = document.querySelectorAll('[data-flow-screen]');
@@ -550,11 +549,14 @@ function showCreateFlowScreen(screen) {
   createFlowScreens.forEach((el) => el.classList.toggle('is-active', el.dataset.flowScreen === screen));
   const showsLayout = ['library', 'editor'].includes(screen);
   entrenamientosLayout?.classList.toggle('d-none', !showsLayout);
-  // Al llegar a "Mis entrenamientos" o al editor, esa pantalla ya trae su
-  // propia cabecera (la lista y el editor de bloques tienen la suya);
-  // sin esto se veían las dos apiladas, herencia de un paso intermedio
-  // de la v1 que ya no hace falta.
-  createFlowHeader?.classList.toggle('d-none', showsLayout);
+  // Al llegar a "Mis entrenamientos" o al editor, todo el recuadro
+  // create-flow (cabecera + la caja "Elige un entrenamiento guardado"
+  // de la pantalla "library") sobra: la lista y el editor de bloques
+  // ya traen su propia cabecera. Ocultar solo el título dejaba el
+  // recuadro (borde/sombra/relleno) vacío pero visible; se oculta el
+  // contenedor entero para que el resto suba y no quede hueco. Herencia
+  // de un paso intermedio de la v1 que ya no hace falta.
+  createFlow?.classList.toggle('d-none', showsLayout);
   if (!createFlowTitle || !createFlowHelp) return;
   const copy = {
     start: ['¿Cómo quieres empezar?', 'Diseña un entrenamiento nuevo o reutiliza una sesión guardada.'],
