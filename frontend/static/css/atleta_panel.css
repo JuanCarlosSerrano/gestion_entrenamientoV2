@@ -498,6 +498,15 @@
   color: #9a3412;
 }
 
+.athlete-coach-response {
+  background: #dcfce7;
+  border-left: 3px solid #16a34a;
+  border-radius: 6px;
+  color: #14532d;
+  margin-top: 10px;
+  padding: 10px 12px;
+}
+
 .athlete-metric-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }

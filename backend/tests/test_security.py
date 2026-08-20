@@ -865,6 +865,43 @@ def test_entrenador_no_puede_marcar_feedback_de_atleta_ajeno(client):
     assert resp.status_code == 403
 
 
+def test_entrenador_no_puede_responder_feedback_de_atleta_ajeno(client):
+    # responder_feedback() no comprobaba propiedad (a diferencia de su
+    # ruta hermana marcar_feedback_leido()): cualquier entrenador podía
+    # escribir una respuesta en el feedback de un atleta que no era suyo.
+    _set_session(client, user_id=1, rol="entrenador")
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+
+    resp = client.post(
+        "/feedbacks/5/responder",
+        json={"respuesta": "Intento de respuesta ajena"},
+        headers={"X-CSRF-Token": token},
+    )
+    assert resp.status_code == 403
+
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    respuesta = conn.execute("SELECT respuesta FROM feedbacks WHERE id = 5").fetchone()[0]
+    conn.close()
+    assert respuesta is None
+
+
+def test_entrenador_si_puede_responder_feedback_de_su_propio_atleta(client):
+    _set_session(client, user_id=2, rol="entrenador")
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+
+    resp = client.post(
+        "/feedbacks/5/responder",
+        json={"respuesta": "Buen trabajo"},
+        headers={"X-CSRF-Token": token},
+    )
+    assert resp.status_code == 200
+
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    respuesta = conn.execute("SELECT respuesta FROM feedbacks WHERE id = 5").fetchone()[0]
+    conn.close()
+    assert respuesta == "Buen trabajo"
+
+
 # --- Regresión: fugas de propiedad entrenador-atleta detectadas en la
 # revisión de 2026-08-19 (asignación de entrenamientos/ciclos, lectura de
 # historial, edición/borrado de plantillas y borrado de asignaciones). ---

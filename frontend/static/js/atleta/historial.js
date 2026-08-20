@@ -26,13 +26,19 @@ const renderList = () => {
     box.innerHTML = '<div class="athlete-muted">Todavía no hay sesiones en el historial.</div>';
     return;
   }
-  box.innerHTML = state.entrenos.map((ent) => `
+  box.innerHTML = state.entrenos.map((ent) => {
+    const fb = state.feedbacks.get(Number(ent.id));
+    return `
     <button class="athlete-history-row" type="button" data-history-id="${ent.id}">
       <span>${formatDate(ent.fecha)}</span>
       <span><strong>${ent.nombre || "Entrenamiento"}</strong><small class="athlete-muted d-block">${summary(ent)}</small></span>
-      <span class="athlete-status ${feedbackStatus(ent.id) ? "athlete-status--done" : "athlete-status--pending"}">${feedbackStatus(ent.id) ? "Completado" : "Pendiente"}</span>
+      <span class="d-flex flex-column align-items-end gap-1">
+        <span class="athlete-status ${feedbackStatus(ent.id) ? "athlete-status--done" : "athlete-status--pending"}">${feedbackStatus(ent.id) ? "Completado" : "Pendiente"}</span>
+        ${fb?.respuesta ? '<span class="athlete-status athlete-status--done">💬 Respuesta</span>' : ""}
+      </span>
     </button>
-  `).join("");
+  `;
+  }).join("");
   box.querySelectorAll("[data-history-id]").forEach((btn) => {
     btn.addEventListener("click", () => openDetail(Number(btn.dataset.historyId)));
   });
@@ -49,12 +55,16 @@ const formatDuration = (seconds) => {
 
 const feedbackSummary = (fb) => {
   if (!fb) return "Sin feedback registrado.";
-  return [
+  const datos = [
     fb.sensacion ? `Sensación: ${fb.sensacion}` : "",
     fb.fatiga ? `Fatiga: ${fb.fatiga}` : "",
     fb.dolor ? `Molestias: ${fb.zona_dolor || "sí"}` : "Sin molestias",
     fb.comentario ? `Comentario: ${fb.comentario}` : "",
   ].filter(Boolean).join("<br>");
+  const respuesta = fb.respuesta
+    ? `<div class="athlete-coach-response"><strong>Respuesta del entrenador:</strong><br>${fb.respuesta}</div>`
+    : "";
+  return datos + respuesta;
 };
 
 const openDetail = async (id) => {

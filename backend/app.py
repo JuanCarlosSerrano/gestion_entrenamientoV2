@@ -4405,6 +4405,24 @@ def responder_feedback(current_user, feedback_id):
         return jsonify({'error': 'Respuesta vacía'}), 400
 
     try:
+        # A diferencia de marcar_feedback_leido(), esta ruta no
+        # comprobaba que el feedback perteneciera a un atleta del
+        # entrenador que responde -- cualquier entrenador autenticado
+        # podía responder al feedback de un atleta ajeno.
+        feedback = query_db(
+            """
+            SELECT f.id
+            FROM feedbacks f
+            JOIN usuarios u ON f.atleta_id = u.id
+            WHERE f.id = ?
+              AND u.entrenador_id = ?
+            """,
+            (feedback_id, current_user["id"]),
+            one=True,
+        )
+        if not feedback:
+            return jsonify({'error': 'No autorizado'}), 403
+
         execute_db(
             'UPDATE feedbacks SET respuesta = ? WHERE id = ?',
             (respuesta, feedback_id)
