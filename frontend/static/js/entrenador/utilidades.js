@@ -375,6 +375,20 @@ const readNumber = (selector) => {
   return Number.isFinite(value) && value > 0 ? value : null;
 };
 
+// Los campos de tiempo/ritmo (mm:ss) usan inputmode="numeric" para que
+// en tablet salga el teclado numérico -- pero ese teclado no tiene ":",
+// así que sin esto era imposible escribir el formato que pide
+// parsePaceToMinutes. Con esto basta con teclear los dígitos (p.ej.
+// "630") y el campo va formateando solo el resultado ("6:30"), tomando
+// siempre los dos últimos dígitos como segundos.
+function autoFormatMmssInput(inputEl) {
+  if (!inputEl) return;
+  inputEl.addEventListener("input", () => {
+    const digits = inputEl.value.replace(/\D/g, "").slice(0, 4);
+    inputEl.value = digits.length > 2 ? `${digits.slice(0, -2)}:${digits.slice(-2)}` : digits;
+  });
+}
+
 const parsePaceToMinutes = (value) => {
   const raw = String(value || "").trim().replace(",", ".");
   if (!raw) return null;
@@ -837,6 +851,9 @@ document.addEventListener("DOMContentLoaded", () => {
     anioEl: $("#new-athlete-fecha-anio"),
     hiddenEl: $("#new-athlete-fecha-hidden"),
   });
+  ["#vam-2000-time", "#manual-z1", "#manual-z2", "#manual-z3", "#manual-z4", "#manual-z5"].forEach((selector) =>
+    autoFormatMmssInput($(selector))
+  );
   $$("[data-config-view]").forEach((btn) => btn.addEventListener("click", () => setView(btn.dataset.configView)));
   $("#btn-config-back")?.addEventListener("click", () => setView("home"));
   $("#btn-return-athletes")?.addEventListener("click", () => setView("atletas"));
