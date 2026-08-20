@@ -54,7 +54,13 @@ CREATE TABLE feedbacks (
     fecha TEXT DEFAULT CURRENT_TIMESTAMP,
     leido INTEGER DEFAULT 0,
     respuesta TEXT,
-    url_datos TEXT
+    url_datos TEXT,
+    rpe INTEGER,
+    sensacion TEXT,
+    fatiga TEXT,
+    dolor INTEGER DEFAULT 0,
+    zona_dolor TEXT,
+    completado INTEGER
 );
 CREATE TABLE entrenamientos_asignados (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -406,3 +412,34 @@ def test_resultados_guardan_km_por_bloque_y_total(client):
     rows = client.get("/entrenamientos_asignados/8/resultados").get_json()
     assert [row["km_realizados"] for row in rows] == [2.05, 1.45]
     assert rows[0]["km_realizados_total"] == pytest.approx(3.5)
+
+
+def test_feedback_acepta_fatiga_como_texto(client):
+    # Regresión de un fallo real en producción: el frontend siempre
+    # envía "fatiga" como una etiqueta de texto ("normal", "alta"...),
+    # igual que "sensacion", pero la columna feedbacks.fatiga (y
+    # sesiones_realizadas.fatiga) se creó como INTEGER en
+    # schema.sql/schema_mariadb.sql en vez de VARCHAR/TEXT como su
+    # columna hermana "sensacion". SQLite no lo detecta (tipado débil),
+    # pero MariaDB rechazaba el INSERT con "Incorrect integer value" y
+    # el atleta no podía terminar el feedback. Este test no puede
+    # reproducir el rechazo de MariaDB (limitación de correr contra
+    # SQLite), pero sí evita una regresión en el propio código Python
+    # si alguien reintrodujera un int(fatiga).
+    _set_session(client, user_id=4, rol="atleta")
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+
+    resp = client.post(
+        "/feedback",
+        json={
+            "entrenamiento_id": 8,
+            "completado": True,
+            "rpe": 6,
+            "sensacion": "bien",
+            "fatiga": "normal",
+            "dolor": False,
+        },
+        headers={"X-CSRF-Token": token},
+    )
+
+    assert resp.status_code == 200
