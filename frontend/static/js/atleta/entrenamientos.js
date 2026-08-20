@@ -390,4 +390,20 @@ $("#feedback-next")?.addEventListener("click", async () => {
   }
 });
 
+// Los campos "Tiempo real" (data-result-time, en pasos.js) usan
+// inputmode="numeric" para sacar el teclado numérico en tablet/móvil,
+// que no tiene ":" -- y parseTimeToSeconds exige mm:ss o hh:mm:ss. Con
+// esto basta con teclear los dígitos (p.ej. "4520") y el campo se
+// autoformatea ("45:20"), igual que ya se hace en utilidades.js.
+// Delegado en document (no en el contenedor de los pasos) porque
+// renderPasos() reemplaza ese HTML entero cada vez que se abre un
+// entrenamiento, y un listener puesto directamente en los <input> se
+// perdería con ese reemplazo.
+document.addEventListener("input", (event) => {
+  const input = event.target.closest("[data-result-time]");
+  if (!input) return;
+  const digits = input.value.replace(/\D/g, "").slice(0, 4);
+  input.value = digits.length > 2 ? `${digits.slice(0, -2)}:${digits.slice(-2)}` : digits;
+});
+
 document.addEventListener("DOMContentLoaded", init);
