@@ -366,7 +366,13 @@ const fillZonesAthleteSelect = () => {
 const initZonesView = async () => {
   if (!state.atletas.length) await loadAtletas();
   fillZonesAthleteSelect();
-  if (!$("#zones-start").value) $("#zones-start").value = new Date().toISOString().slice(0, 10);
+  // new Date().toISOString() puede devolver el día anterior entre
+  // medianoche y ~1-2h de madrugada (según la zona horaria), por
+  // convertir a UTC en vez de usar los componentes locales.
+  if (!$("#zones-start").value) {
+    const hoy = new Date();
+    $("#zones-start").value = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
+  }
   setZoneMethod(state.zoneMethod || "vam");
 };
 

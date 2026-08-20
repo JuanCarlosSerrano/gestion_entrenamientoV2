@@ -23,7 +23,20 @@ const escapeHtml = (value) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 
-const isoDate = (date) => date.toISOString().slice(0, 10);
+// date.toISOString() convierte a UTC: en una zona horaria adelantada a
+// UTC (como España) la medianoche local del día D cae en el día D-1 en
+// UTC, así que la celda del calendario etiquetada "D" acababa buscando
+// las sesiones de "D-1" -- una sesión del lunes se veía en la casilla
+// del martes. Se compone la fecha con los componentes locales en vez
+// de convertir a UTC, igual que ya se hace en calendario.js,
+// entrenamientos.js y planificacion_semanal.js.
+const isoDate = (date) => {
+  const d = new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 const monthKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 const normalizarFranja = (value) => (value === "tarde" ? "tarde" : "manana");
 const normalizarTipo = (value) => {
@@ -118,6 +131,7 @@ function renderCalendar() {
             </span>
           `).join("")}
           ${daySessions.length > shown.length ? `<span class="session-more">+${daySessions.length - shown.length}</span>` : ""}
+          ${!daySessions.length && d.getMonth() === month ? '<span class="session-badge session-badge--descanso">Descanso</span>' : ""}
         </span>
       </button>
     `);

@@ -154,6 +154,19 @@
   font-weight: 900;
 }
 
+/* Días sin ningún entrenamiento asignado: se etiquetan como "Descanso"
+   por defecto (no hay una fila real en BD, es solo la lectura de un
+   día vacío) para que se vea explícitamente en vez de una casilla en
+   blanco. Gris neutro, distinto de los tipos de bloque reales. */
+.session-badge--descanso {
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.35);
+  border-left-color: rgba(148, 163, 184, 0.6);
+  color: #5f6b7a;
+  cursor: default;
+  font-weight: 700;
+}
+
 .planning-day-modal .modal-header {
   background: #0a2c4c;
   color: #fff;

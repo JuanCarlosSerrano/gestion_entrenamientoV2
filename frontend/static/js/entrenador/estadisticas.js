@@ -24,7 +24,20 @@ const escapeHtml = (value) =>
     .replace(/'/g, "&#039;");
 
 const monthKey = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-const isoDate = (date) => date.toISOString().slice(0, 10);
+// date.toISOString() convierte a UTC: en una zona horaria adelantada a
+// UTC (como España) la medianoche local del día D cae en el día D-1 en
+// UTC, así que la celda del calendario etiquetada "D" acababa buscando
+// las sesiones de "D-1" -- un entrenamiento del lunes se veía en la
+// casilla del martes. Se compone la fecha con los componentes locales,
+// igual que en atleta_planificacion.js, calendario.js, entrenamientos.js
+// y planificacion_semanal.js.
+const isoDate = (date) => {
+  const d = new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 
 function setupIdentity() {
   const storedName = localStorage.getItem("userName") || localStorage.getItem("userEmail") || "Entrenador";

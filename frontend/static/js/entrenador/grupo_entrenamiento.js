@@ -231,7 +231,10 @@ document.addEventListener("DOMContentLoaded", async function () {
   // --- Visibilidad grupal ---
 
   if (visGrupoFecha && !visGrupoFecha.value) {
-    visGrupoFecha.value = new Date().toISOString().slice(0, 10);
+    // new Date().toISOString() puede devolver el día anterior entre
+    // medianoche y ~1-2h de madrugada, por convertir a UTC.
+    const hoy = new Date();
+    visGrupoFecha.value = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`;
   }
 
   async function actualizarVisibilidadGrupo(visible) {

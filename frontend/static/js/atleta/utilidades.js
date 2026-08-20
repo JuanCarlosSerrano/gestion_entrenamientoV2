@@ -435,11 +435,14 @@ const initVdot = () => {
 
     resultadosVdot.style.display = "block";
 
+    // new Date().toISOString() puede devolver el día anterior entre
+    // medianoche y ~1-2h de madrugada, por convertir a UTC.
+    const hoy = new Date();
     lastPayload = {
       vdot_val: Number(vdot.toFixed(1)),
       vdot_distancia_m: distanciaKm * 1000,
       vdot_tiempo_seg: totalSeg,
-      vdot_fecha: new Date().toISOString().slice(0, 10)
+      vdot_fecha: `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, "0")}-${String(hoy.getDate()).padStart(2, "0")}`
     };
   });
 
