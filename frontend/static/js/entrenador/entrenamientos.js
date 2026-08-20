@@ -58,10 +58,10 @@ const entrenamientosLayout = document.getElementById('entrenamientos-layout');
 const mainTabButtons = document.querySelectorAll('[data-main-tab-btn]');
 const mainTabPanels = document.querySelectorAll('[data-main-tab-panel]');
 const createFlow = document.getElementById('create-flow');
+const createFlowHeader = document.getElementById('create-flow-header');
 const createFlowTitle = document.getElementById('create-flow-title');
 const createFlowHelp = document.getElementById('create-flow-help');
 const createFlowScreens = document.querySelectorAll('[data-flow-screen]');
-const createFlowIndicators = document.querySelectorAll('[data-flow-step-indicator]');
 const flowStartButtons = document.querySelectorAll('[data-flow-start]');
 const trainingTypeButtons = document.querySelectorAll('[data-training-type]');
 const templatePreviewTitle = document.getElementById('template-preview-title');
@@ -548,9 +548,13 @@ function getTrainingTemplate(type) {
 
 function showCreateFlowScreen(screen) {
   createFlowScreens.forEach((el) => el.classList.toggle('is-active', el.dataset.flowScreen === screen));
-  const indicatorMap = { start: 'start', library: 'start', type: 'type', template: 'template', editor: 'editor' };
-  createFlowIndicators.forEach((el) => el.classList.toggle('is-active', el.dataset.flowStepIndicator === indicatorMap[screen]));
-  entrenamientosLayout?.classList.toggle('d-none', !['library', 'editor'].includes(screen));
+  const showsLayout = ['library', 'editor'].includes(screen);
+  entrenamientosLayout?.classList.toggle('d-none', !showsLayout);
+  // Al llegar a "Mis entrenamientos" o al editor, esa pantalla ya trae su
+  // propia cabecera (la lista y el editor de bloques tienen la suya);
+  // sin esto se veían las dos apiladas, herencia de un paso intermedio
+  // de la v1 que ya no hace falta.
+  createFlowHeader?.classList.toggle('d-none', showsLayout);
   if (!createFlowTitle || !createFlowHelp) return;
   const copy = {
     start: ['¿Cómo quieres empezar?', 'Diseña un entrenamiento nuevo o reutiliza una sesión guardada.'],
