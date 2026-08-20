@@ -20,6 +20,15 @@ const state = {
   weekTemplates: [],
   sessions: [],
   draggedSessionId: null,
+  // Cuando hay exactamente un atleta seleccionado, la mesa carga lo que
+  // ese atleta ya tiene asignado esa semana en vez de partir vacía.
+  // editingAthleteId marca ese modo; originalSessions guarda una copia
+  // de cómo estaba al cargar, para saber al guardar qué sesiones se
+  // movieron de día/franja; deletedSessionIds recoge las que se quitan
+  // de la mesa mientras se edita, para borrarlas de verdad al guardar.
+  editingAthleteId: null,
+  originalSessions: [],
+  deletedSessionIds: [],
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -62,6 +71,13 @@ const mondayOf = (date) => {
   return toLocalISODate(d);
 };
 
+// dia 1 = lunes de fechaInicioStr (YYYY-MM-DD), igual que dia_semana en el resto del módulo.
+const fechaParaDiaSemana = (fechaInicioStr, diaSemana) => {
+  const d = new Date(`${fechaInicioStr}T00:00:00`);
+  d.setDate(d.getDate() + (Number(diaSemana) || 1) - 1);
+  return toLocalISODate(d);
+};
+
 const sessionId = () => `s_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
 const formatKm = (value) => {
@@ -101,14 +117,18 @@ async function fetchJson(url, options = {}) {
 }
 
 async function postJson(url, payload) {
+  return writeJson(url, "POST", payload);
+}
+
+async function writeJson(url, method, payload) {
   const token = await getCsrfToken();
   return fetchJson(url, {
-    method: "POST",
+    method,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { "X-CSRF-Token": token } : {}),
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payload || {}),
   });
 }
 
@@ -149,12 +169,12 @@ function renderSessions() {
     );
     if (!target) return;
     const el = document.createElement("article");
-    el.className = "planned-session";
+    el.className = session.existente ? "planned-session is-existing" : "planned-session";
     el.draggable = true;
     el.dataset.sessionId = session.id;
     el.innerHTML = `
       <strong>${escapeHtml(session.nombre)}</strong>
-      <small>${escapeHtml(session.objetivo || "")}</small>
+      <small>${escapeHtml(session.objetivo || "")}${session.existente ? " · Ya asignado" : ""}</small>
       <div class="session-actions">
         <button type="button" data-action="duplicate" title="Duplicar">⧉</button>
         <button type="button" data-action="delete" title="Eliminar">×</button>
@@ -228,6 +248,12 @@ function duplicateSession(id) {
 }
 
 function deleteSession(id) {
+  const session = state.sessions.find((item) => item.id === id);
+  if (session?.existente) {
+    // Es una sesión real ya asignada: se borra de verdad al guardar
+    // cambios, no solo de la mesa en pantalla.
+    state.deletedSessionIds.push(id);
+  }
   state.sessions = state.sessions.filter((item) => item.id !== id);
   renderSessions();
 }
@@ -259,9 +285,89 @@ function renderAthletes() {
       if (state.selectedAthletes.has(id)) state.selectedAthletes.delete(id);
       else state.selectedAthletes.add(id);
       renderAthletes();
+      syncBoardWithSelection();
     });
   });
   updateSelectedCount();
+}
+
+// Si al cambiar la selección queda exactamente un atleta (y ya hay
+// semana elegida), carga lo que ese atleta ya tiene asignado esa
+// semana. Si la mesa venía de cargar la semana real de un atleta y la
+// selección deja de ser "ese mismo atleta solo" (a ninguno, a otro
+// distinto o a varios), se vacía: seguir con esas sesiones puestas
+// arriesgaría a duplicarlas como nuevas en otro atleta al asignar.
+function syncBoardWithSelection() {
+  const seleccionados = [...state.selectedAthletes];
+  const fechaInicio = $("#week-start")?.value;
+  if (seleccionados.length === 1 && fechaInicio) {
+    loadAthleteWeek(seleccionados[0], fechaInicio);
+    return;
+  }
+  if (state.editingAthleteId) {
+    state.sessions = [];
+    state.originalSessions = [];
+    state.deletedSessionIds = [];
+    state.editingAthleteId = null;
+    renderWeekBoard();
+    updateAssignButtonMode();
+    showStatus("Selección cambiada: mesa semanal reiniciada.", "info");
+  }
+}
+
+function updateAssignButtonMode() {
+  const btn = $("#btn-assign-week");
+  if (!btn) return;
+  btn.textContent = state.editingAthleteId ? "Guardar cambios en la semana" : "Asignar semana";
+}
+
+async function loadAthleteWeek(athleteId, fechaInicioStr) {
+  const inicio = new Date(`${fechaInicioStr}T00:00:00`);
+  const fin = new Date(inicio);
+  fin.setDate(fin.getDate() + 6);
+  const meses = new Set([
+    `${inicio.getFullYear()}-${String(inicio.getMonth() + 1).padStart(2, "0")}`,
+    `${fin.getFullYear()}-${String(fin.getMonth() + 1).padStart(2, "0")}`,
+  ]);
+  try {
+    const respuestas = await Promise.all(
+      [...meses].map((mes) => fetchJson(`/planificacion/atleta/${athleteId}/calendario?mes=${mes}`))
+    );
+    const todas = respuestas.flatMap((r) => r.sesiones || []);
+    const enSemana = todas.filter((s) => {
+      const f = new Date(`${String(s.fecha).slice(0, 10)}T00:00:00`);
+      return f >= inicio && f <= fin;
+    });
+    state.sessions = enSemana.map((s, idx) => {
+      const f = new Date(`${String(s.fecha).slice(0, 10)}T00:00:00`);
+      const diaSemana = Math.round((f - inicio) / 86400000) + 1;
+      return {
+        id: s.id,
+        existente: true,
+        entrenamiento_id: s.entrenamiento_id,
+        nombre: s.nombre,
+        objetivo: s.objetivo,
+        notas: s.notas,
+        km_totales: s.km_previstos || 0,
+        dia_semana: diaSemana,
+        franja: normalizarFranja(s.franja),
+        orden: idx + 1,
+      };
+    });
+    state.originalSessions = state.sessions.map((s) => ({ ...s }));
+    state.deletedSessionIds = [];
+    state.editingAthleteId = athleteId;
+    renderWeekBoard();
+    updateAssignButtonMode();
+    showStatus(
+      state.sessions.length
+        ? `Semana ya asignada cargada: ${state.sessions.length} sesión${state.sessions.length === 1 ? "" : "es"}. Muévelas, bórralas o añade más.`
+        : "Este atleta no tiene nada asignado esa semana. Añade entrenamientos a la mesa.",
+      "info"
+    );
+  } catch (error) {
+    showStatus(error.message || "No se pudo cargar la semana del atleta", "danger");
+  }
 }
 
 function updateSelectedCount() {
@@ -441,6 +547,59 @@ async function assignWeek() {
   }
 }
 
+// Guarda los cambios hechos sobre la semana real de un atleta (modo
+// edición: exactamente un atleta seleccionado con su semana cargada).
+// A diferencia de assignWeek() -- que siempre crea sesiones nuevas --
+// aquí solo se crean las que se han añadido de la biblioteca; las que
+// ya existían y se movieron de día/franja se actualizan in situ, y las
+// que se quitaron de la mesa se borran de verdad.
+async function saveWeekChanges() {
+  const athleteId = state.editingAthleteId;
+  const fechaInicio = $("#week-start")?.value;
+  if (!athleteId || !fechaInicio) return;
+
+  const nuevas = state.sessions.filter((s) => !s.existente);
+  const existentes = state.sessions.filter((s) => s.existente);
+  const originalesPorId = new Map(state.originalSessions.map((s) => [s.id, s]));
+
+  try {
+    if (nuevas.length) {
+      await postJson("/planificacion/semanal/asignar", {
+        fecha_inicio: fechaInicio,
+        atletas_ids: [athleteId],
+        sesiones: nuevas.map((session, index) => ({
+          entrenamiento_id: session.entrenamiento_id,
+          dia_semana: session.dia_semana,
+          franja: session.franja,
+          orden: session.orden || index + 1,
+          nombre: session.nombre,
+          notas: session.notas,
+        })),
+      });
+    }
+
+    for (const session of existentes) {
+      const original = originalesPorId.get(session.id);
+      if (original && original.dia_semana === session.dia_semana && original.franja === session.franja) {
+        continue; // no se ha movido, nada que actualizar
+      }
+      await writeJson(`/planificacion/sesiones/${session.id}`, "PUT", {
+        fecha: fechaParaDiaSemana(fechaInicio, session.dia_semana),
+        franja: session.franja,
+      });
+    }
+
+    for (const id of state.deletedSessionIds) {
+      await writeJson(`/planificacion/sesiones/${id}`, "DELETE");
+    }
+
+    showStatus("Cambios guardados en la semana del atleta.", "success");
+    await loadAthleteWeek(athleteId, fechaInicio);
+  } catch (error) {
+    showStatus(error.message || "No se pudieron guardar los cambios", "danger");
+  }
+}
+
 async function saveWeekTemplate(event) {
   event.preventDefault();
   const nombre = $("#week-template-name").value.trim();
@@ -477,16 +636,25 @@ function setupEvents() {
     const el = document.getElementById(id);
     el.addEventListener(id === "workout-search" ? "input" : "change", () => loadWorkouts());
   });
+  $("#week-start").addEventListener("change", () => syncBoardWithSelection());
   $("#btn-select-filtered").addEventListener("click", () => {
     state.athletes.forEach((athlete) => state.selectedAthletes.add(Number(athlete.id)));
     renderAthletes();
+    syncBoardWithSelection();
   });
   $("#btn-clear-week").addEventListener("click", () => {
     state.sessions = [];
+    state.originalSessions = [];
+    state.deletedSessionIds = [];
+    state.editingAthleteId = null;
     renderSessions();
+    updateAssignButtonMode();
     showStatus("Mesa semanal vacía.", "info");
   });
-  $("#btn-assign-week").addEventListener("click", assignWeek);
+  $("#btn-assign-week").addEventListener("click", () => {
+    if (state.editingAthleteId) saveWeekChanges();
+    else assignWeek();
+  });
   $("#save-week-form").addEventListener("submit", saveWeekTemplate);
   $("#btn-skip-save-week").addEventListener("click", goToControlCenter);
 
