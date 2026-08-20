@@ -37,13 +37,55 @@ const setupIdentity = async () => {
     ($("#athlete-sidebar-initials").textContent = name.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase() || "A");
 };
 
-const loadFeedbackSet = async () => {
+const loadFeedbacks = async () => {
   try {
-    const items = await fetchJSON(`${API}/mis_feedbacks`);
-    return new Set((items || []).map((fb) => Number(fb.entrenamiento_id)).filter(Boolean));
+    return await fetchJSON(`${API}/mis_feedbacks`);
+  } catch {
+    return [];
+  }
+};
+
+// No hay (todavía) forma de que el atleta marque una respuesta del
+// entrenador como "leída" en el servidor -- leido en feedbacks solo
+// indica si el entrenador ha leído el feedback del atleta, al revés.
+// Se recuerda en este navegador qué respuestas ya se han visto para no
+// mostrar el aviso para siempre una vez descartado.
+const RESPUESTAS_VISTAS_KEY = "respuestasEntrenadorVistas";
+const getRespuestasVistas = () => {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(RESPUESTAS_VISTAS_KEY) || "[]"));
   } catch {
     return new Set();
   }
+};
+const marcarRespuestaVista = (feedbackId) => {
+  const vistas = getRespuestasVistas();
+  vistas.add(Number(feedbackId));
+  localStorage.setItem(RESPUESTAS_VISTAS_KEY, JSON.stringify([...vistas]));
+};
+
+const renderRespuestasAviso = (feedbacks) => {
+  const box = $("#today-response-alert");
+  if (!box) return;
+  const vistas = getRespuestasVistas();
+  const nuevas = (feedbacks || []).filter((fb) => fb.respuesta && !vistas.has(Number(fb.id)));
+  if (!nuevas.length) {
+    box.innerHTML = "";
+    return;
+  }
+  box.innerHTML = nuevas.map((fb) => `
+    <div class="today-response-alert-card">
+      <span>💬</span>
+      <div>
+        <strong>Tu entrenador te ha respondido</strong>
+        <div class="athlete-muted">${fb.entrenamiento_nombre || "Entrenamiento"}</div>
+      </div>
+      <a class="btn btn-sm btn-outline-brand" href="historial.html#entreno-${fb.entrenamiento_id}" data-feedback-id="${fb.id}">Leer</a>
+    </div>
+  `).join("");
+  box.querySelectorAll("[data-feedback-id]").forEach((link) => {
+    link.addEventListener("click", () => marcarRespuestaVista(link.dataset.feedbackId));
+  });
 };
 
 const renderToday = (items) => {
@@ -114,12 +156,14 @@ const loadHome = async () => {
   }
   await setupIdentity();
   try {
-    const [entrenos, feedbackSet] = await Promise.all([
+    const [entrenos, feedbacks] = await Promise.all([
       fetchJSON(`${API}/entrenamientos_asignados/${atletaId}`),
-      loadFeedbackSet(),
+      loadFeedbacks(),
     ]);
+    const feedbackSet = new Set((feedbacks || []).map((fb) => Number(fb.entrenamiento_id)).filter(Boolean));
     const todayIso = isoLocal(new Date());
     const todayItems = (entrenos || []).filter((ent) => String(ent.fecha || "").slice(0, 10) === todayIso);
+    renderRespuestasAviso(feedbacks);
     renderToday(todayItems);
     renderNews(entrenos || [], feedbackSet);
   } catch (err) {

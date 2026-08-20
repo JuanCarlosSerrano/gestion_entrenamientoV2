@@ -233,6 +233,26 @@
   padding: 12px;
 }
 
+.today-response-alert-card {
+  align-items: center;
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 14px;
+}
+
+.today-response-alert-card strong {
+  color: #14532d;
+  display: block;
+}
+
+.today-response-alert-card > div {
+  flex: 1;
+}
+
 .today-session strong {
   color: #111827;
   font-size: 1.08rem;
