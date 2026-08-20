@@ -12,6 +12,32 @@ const authHeader = () =>
   "Basic " +
   btoa(`${localStorage.getItem("userEmail")}:${localStorage.getItem("userPassword")}`);
 
+// Los botones de esta pantalla usaban atributos onclick="..." inline
+// dentro del HTML generado por JS (list.innerHTML = `...onclick=...`).
+// La CSP añadida más tarde a toda la app (script-src sin
+// 'unsafe-inline') los bloquea en silencio -- el navegador ni ejecuta
+// el handler ni muestra nada visible al usuario, solo un aviso en la
+// consola: "pincho en Ver/Responder y no hace nada". Esta pantalla era
+// la única en toda la app con este patrón (el resto ya usa
+// addEventListener); se sustituye por atributos data-* + un único
+// listener delegado en document, igual que en el resto del código.
+document.addEventListener("click", (event) => {
+  const abrirBtn = event.target.closest('[data-action="abrir-feedback"]');
+  if (abrirBtn) {
+    window.abrirModalFeedback(Number(abrirBtn.dataset.id));
+    return;
+  }
+  const toggleBtn = event.target.closest('[data-action="toggle-leido"]');
+  if (toggleBtn) {
+    window.toggleLeido(Number(toggleBtn.dataset.id), Number(toggleBtn.dataset.leido));
+    return;
+  }
+  const responderBtn = event.target.closest('[data-action="enviar-respuesta"]');
+  if (responderBtn) {
+    enviarRespuesta(Number(responderBtn.dataset.id));
+  }
+});
+
 const setupTrainerIdentity = () => {
   const nameEl = document.getElementById("sidebar-trainer-name");
   const initialsEl = document.getElementById("sidebar-trainer-initials");
@@ -161,10 +187,10 @@ document.addEventListener("DOMContentLoaded", async () => {
               ` : ''}       
             </div>
             <div class="text-end">
-              <button class="btn ${fb.respuesta ? 'btn-success' : 'btn-outline-primary'} btn-sm mb-1" onclick="abrirModalFeedback(${fb.id})">
+              <button class="btn ${fb.respuesta ? 'btn-success' : 'btn-outline-primary'} btn-sm mb-1" data-action="abrir-feedback" data-id="${fb.id}">
                 Ver / Responder
               </button>
-              <button class="btn btn-outline-secondary btn-sm" onclick="toggleLeido(${fb.id}, ${fb.leido})">
+              <button class="btn btn-outline-secondary btn-sm" data-action="toggle-leido" data-id="${fb.id}" data-leido="${fb.leido ? 1 : 0}">
                 Marcar como ${fb.leido ? 'no leído' : 'leído'}
               </button>
             </div>
@@ -220,7 +246,7 @@ window.abrirModalFeedback = async function (feedbackId) {
             <label for="respuesta" class="form-label">Responder:</label>
             <textarea class="form-control" id="respuesta" rows="3"></textarea>
           </div>
-          <button class="btn btn-primary" onclick="enviarRespuesta(${fb.id})">Enviar respuesta</button>`;
+          <button class="btn btn-primary" data-action="enviar-respuesta" data-id="${fb.id}">Enviar respuesta</button>`;
 
       document.getElementById('modal-feedback-body').innerHTML = `
         <p><strong>Atleta:</strong> ${fb.atleta}</p>
