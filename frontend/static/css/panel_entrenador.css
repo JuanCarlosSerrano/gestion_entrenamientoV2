@@ -211,6 +211,12 @@
   gap: 6px;
 }
 
+.birthdate-select-group {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 1fr 1.4fr 1.2fr;
+}
+
 .config-manual-zones {
   border-top: 1px solid #e3e8f0;
   display: grid;

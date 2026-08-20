@@ -11,8 +11,59 @@ const state = {
   zonesPayload: null,
 };
 
+let athleteFechaPicker = null;
+let newAthleteFechaPicker = null;
+
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+
+const MESES_NACIMIENTO = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];
+
+// Sustituye el <input type="date"> nativo (en tablet solo deja navegar
+// mes a mes desde hoy, muy lento para llegar p.ej. a 1980) por tres
+// <select> día/mes/año: igual de válido por calendario (son las mismas
+// fechas reales) pero much más rápido tanto por teclado (escribir el
+// año salta directo a la opción) como tocando la pantalla.
+function crearSelectorFechaNacimiento({ diaEl, mesEl, anioEl, hiddenEl }) {
+  if (!diaEl || !mesEl || !anioEl || !hiddenEl) return null;
+
+  diaEl.innerHTML =
+    '<option value="">Día</option>' +
+    Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, "0"))
+      .map((d) => `<option value="${d}">${d}</option>`)
+      .join("");
+
+  mesEl.innerHTML =
+    '<option value="">Mes</option>' +
+    MESES_NACIMIENTO.map((nombre, i) => `<option value="${String(i + 1).padStart(2, "0")}">${nombre}</option>`).join("");
+
+  const anioActual = new Date().getFullYear();
+  const anios = [];
+  for (let y = anioActual; y >= anioActual - 100; y--) anios.push(y);
+  anioEl.innerHTML =
+    '<option value="">Año</option>' +
+    anios.map((y) => `<option value="${y}">${y}</option>`).join("");
+
+  const sincronizar = () => {
+    hiddenEl.value = diaEl.value && mesEl.value && anioEl.value
+      ? `${anioEl.value}-${mesEl.value}-${diaEl.value}`
+      : "";
+  };
+  [diaEl, mesEl, anioEl].forEach((el) => el.addEventListener("change", sincronizar));
+
+  return {
+    setValue(iso) {
+      const [anio, mes, dia] = String(iso || "").slice(0, 10).split("-");
+      anioEl.value = anio || "";
+      mesEl.value = mes || "";
+      diaEl.value = dia || "";
+      sincronizar();
+    },
+  };
+}
 
 const escapeHtml = (value) =>
   String(value ?? "")
@@ -153,7 +204,9 @@ const fillAthleteForm = (a) => {
   $("#athlete-apellidos").value = a.apellidos || "";
   $("#athlete-email").value = a.email || "";
   $("#athlete-telefono").value = a.telefono || "";
-  $("#athlete-fecha").value = (a.fecha_nacimiento || "").slice(0, 10);
+  athleteFechaPicker
+    ? athleteFechaPicker.setValue(a.fecha_nacimiento)
+    : ($("#athlete-fecha").value = (a.fecha_nacimiento || "").slice(0, 10));
   $("#athlete-categoria").value = a.categoria || "";
   $("#athlete-grupo").value = a.grupo || "";
   $("#athlete-subgrupo").value = a.subgrupo || "";
@@ -772,6 +825,18 @@ const saveZones = async () => {
 
 document.addEventListener("DOMContentLoaded", () => {
   setupTrainerIdentity();
+  athleteFechaPicker = crearSelectorFechaNacimiento({
+    diaEl: $("#athlete-fecha-dia"),
+    mesEl: $("#athlete-fecha-mes"),
+    anioEl: $("#athlete-fecha-anio"),
+    hiddenEl: $("#athlete-fecha"),
+  });
+  newAthleteFechaPicker = crearSelectorFechaNacimiento({
+    diaEl: $("#new-athlete-fecha-dia"),
+    mesEl: $("#new-athlete-fecha-mes"),
+    anioEl: $("#new-athlete-fecha-anio"),
+    hiddenEl: $("#new-athlete-fecha-hidden"),
+  });
   $$("[data-config-view]").forEach((btn) => btn.addEventListener("click", () => setView(btn.dataset.configView)));
   $("#btn-config-back")?.addEventListener("click", () => setView("home"));
   $("#btn-return-athletes")?.addEventListener("click", () => setView("atletas"));

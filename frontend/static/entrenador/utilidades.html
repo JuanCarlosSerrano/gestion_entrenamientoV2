@@ -97,7 +97,14 @@
               <label>Apellidos<input class="form-control" id="athlete-apellidos" required></label>
               <label>Email<input class="form-control" id="athlete-email" type="email" required></label>
               <label>Teléfono<input class="form-control" id="athlete-telefono"></label>
-              <label>Fecha nacimiento<input class="form-control" id="athlete-fecha" type="date"></label>
+              <label>Fecha nacimiento
+                <span class="birthdate-select-group">
+                  <select class="form-select" id="athlete-fecha-dia" aria-label="Día de nacimiento"></select>
+                  <select class="form-select" id="athlete-fecha-mes" aria-label="Mes de nacimiento"></select>
+                  <select class="form-select" id="athlete-fecha-anio" aria-label="Año de nacimiento"></select>
+                </span>
+                <input type="hidden" id="athlete-fecha">
+              </label>
               <label>Categoría<input class="form-control" id="athlete-categoria"></label>
             </div>
             <div class="config-actions"><button class="btn btn-brand" type="submit">Guardar datos</button></div>
@@ -141,7 +148,14 @@
               <label>Apellidos<input class="form-control" name="apellidos" required></label>
               <label>Email<input class="form-control" name="email" type="email" required></label>
               <label>Teléfono<input class="form-control" name="telefono"></label>
-              <label>Fecha nacimiento<input class="form-control" name="fecha_nacimiento" type="date"></label>
+              <label>Fecha nacimiento
+                <span class="birthdate-select-group">
+                  <select class="form-select" id="new-athlete-fecha-dia" aria-label="Día de nacimiento"></select>
+                  <select class="form-select" id="new-athlete-fecha-mes" aria-label="Mes de nacimiento"></select>
+                  <select class="form-select" id="new-athlete-fecha-anio" aria-label="Año de nacimiento"></select>
+                </span>
+                <input type="hidden" name="fecha_nacimiento" id="new-athlete-fecha-hidden">
+              </label>
             </div></div>
             <div class="config-step d-none" data-step="1"><div class="config-form-grid">
               <label>Categoría<input class="form-control" name="categoria"></label>
