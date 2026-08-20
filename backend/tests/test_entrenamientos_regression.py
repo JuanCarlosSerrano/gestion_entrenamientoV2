@@ -414,6 +414,37 @@ def test_resultados_guardan_km_por_bloque_y_total(client):
     assert rows[0]["km_realizados_total"] == pytest.approx(3.5)
 
 
+def test_resultados_no_duplica_sesion_realizada_al_reenviar(client, tmp_path):
+    # Regresión de un fallo real en producción: el mismo entrenamiento
+    # del atleta aparecía repetido varias veces en su registro. Causa:
+    # sesiones_realizadas.entrenamiento_asignado_id no tenía UNIQUE en
+    # schema.sql/schema_mariadb.sql (sí lo tenía la definición de este
+    # mismo archivo de test, por eso nunca se detectó), así que el
+    # upsert de upsert_sesion_realizada/actualizar_sesion_feedback
+    # (INSERT ... ON DUPLICATE KEY UPDATE / ON CONFLICT) no tenía nada
+    # que hiciera de clave para detectar el duplicado: cada envío
+    # insertaba una fila nueva en vez de actualizar la existente.
+    _set_session(client, user_id=4, rol="atleta")
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+
+    for km in (2.05, 2.5):
+        resp = client.post(
+            "/entrenamientos_asignados/8/resultados",
+            json={"series": [{"paso_detalle_id": 10, "repeticion": 1, "tiempo_real_seg": 600, "km_realizados": km}]},
+            headers={"X-CSRF-Token": token},
+        )
+        assert resp.status_code == 200
+
+    db_path = tmp_path / "test.db"
+    conn = sqlite3.connect(str(db_path))
+    filas = conn.execute(
+        "SELECT km_real FROM sesiones_realizadas WHERE entrenamiento_asignado_id = 8"
+    ).fetchall()
+    conn.close()
+    assert len(filas) == 1
+    assert filas[0][0] == pytest.approx(2.5)
+
+
 def test_feedback_acepta_fatiga_como_texto(client):
     # Regresión de un fallo real en producción: el frontend siempre
     # envía "fatiga" como una etiqueta de texto ("normal", "alta"...),

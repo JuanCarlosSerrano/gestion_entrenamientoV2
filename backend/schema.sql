@@ -292,7 +292,7 @@ CREATE TABLE alertas_reglas (
 
 CREATE TABLE sesiones_realizadas (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    entrenamiento_asignado_id INTEGER NOT NULL,
+    entrenamiento_asignado_id INTEGER NOT NULL UNIQUE,
     atleta_id INTEGER NOT NULL,
     fecha_real TEXT,
     km_real REAL,

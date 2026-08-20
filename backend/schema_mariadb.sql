@@ -280,7 +280,7 @@ CREATE TABLE feedbacks (
 
 CREATE TABLE sesiones_realizadas (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    entrenamiento_asignado_id INT NOT NULL,
+    entrenamiento_asignado_id INT NOT NULL UNIQUE,
     atleta_id INT NOT NULL,
     fecha_real DATETIME,
     km_real DOUBLE,
