@@ -1214,12 +1214,10 @@ function buildStepCard(step, siblings, index) {
         unidadActual,
         (value) => {
           const nuevoTipo = !value ? 'libre' : (value === 'min' || value === 's') ? 'tiempo' : 'distancia';
-          // Solo se borra el valor si cambia de categoría (p.ej. de
-          // tiempo a distancia, o a/desde Libre); entre unidades de la
-          // misma categoría (m<->km, min<->s) se conserva lo escrito.
-          if (nuevoTipo !== step.objetivo_tipo) {
-            step.objetivo_valor = null;
-          }
+          // El valor escrito se conserva siempre al cambiar de unidad
+          // (p.ej. de "10" en min a "10" en km): quien lo escribe es
+          // quien decide si ese número sigue teniendo sentido con la
+          // nueva unidad, no el formulario borrándoselo.
           step.unidad = value || null;
           step.objetivo_tipo = nuevoTipo;
           renderBuilder();
