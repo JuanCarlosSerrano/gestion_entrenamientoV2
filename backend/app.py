@@ -1696,6 +1696,41 @@ def atletas_fuera_de_equipo(atletas_ids, entrenador_id):
         conn.close()
 
 
+def entrenamientos_fuera_de_equipo(entrenamiento_ids, entrenador_id):
+    """
+    Igual que atletas_fuera_de_equipo() pero para plantillas
+    (entrenamientos): devuelve el subconjunto de ids que NO son propias
+    de ese entrenador ni compartidas (creador_id IS NULL). Lista vacía =
+    todas están permitidas.
+
+    /planificacion/biblioteca (el listado que ve el entrenador) ya
+    filtra por "creador_id = ? OR creador_id IS NULL" -- las rutas que
+    asignan/clonan una plantilla a un atleta deben respetar la misma
+    regla antes de escribir, para que un entrenador no pueda usar el id
+    de una plantilla privada de otro entrenador solo por adivinarlo o
+    verlo en la URL.
+    """
+    entrenamiento_ids = sorted({int(e) for e in entrenamiento_ids})
+    if not entrenamiento_ids:
+        return []
+    conn = get_db()
+    cur = conn.cursor()
+    try:
+        placeholders = ",".join(["?"] * len(entrenamiento_ids))
+        cur.execute(
+            f"""
+            SELECT id FROM entrenamientos
+            WHERE (creador_id = ? OR creador_id IS NULL) AND id IN ({placeholders})
+            """,
+            tuple([entrenador_id] + entrenamiento_ids),
+        )
+        permitidos = {row_get(row, "id") for row in cur.fetchall()}
+        return [e for e in entrenamiento_ids if e not in permitidos]
+    finally:
+        cur.close()
+        conn.close()
+
+
 @app.route('/calendario/<int:atleta_id>', methods=['GET'])
 @requires_roles('admin', 'entrenador', 'atleta')
 def get_calendario(current_user, atleta_id):
@@ -2030,6 +2065,8 @@ def crear_entrenamiento_asignado(current_user):
         fuera = atletas_fuera_de_equipo(atletas_ids, current_user["id"])
         if fuera:
             return jsonify({"error": "Hay atletas fuera de tu equipo"}), 403
+        if entrenamientos_fuera_de_equipo([entrenamiento_id], current_user["id"]):
+            return jsonify({"error": "Entrenamiento no encontrado"}), 404
 
     try:
         asignados = asignar_entrenamiento_a_atletas(
@@ -2808,6 +2845,15 @@ def asignar_planificacion_semanal(current_user):
             if permitidos != set(atletas_limpios):
                 return jsonify({"error": "Hay atletas fuera de tu equipo"}), 403
 
+            entrenamiento_ids_semana = []
+            for sesion in sesiones:
+                try:
+                    entrenamiento_ids_semana.append(int(sesion.get("entrenamiento_id")))
+                except Exception:
+                    pass
+            if entrenamientos_fuera_de_equipo(entrenamiento_ids_semana, current_user["id"]):
+                return jsonify({"error": "Hay entrenamientos que no existen o no son tuyos"}), 404
+
         creados = []
         for atleta_id in atletas_limpios:
             for idx, sesion in enumerate(sesiones, start=1):
@@ -2870,6 +2916,16 @@ def guardar_planificacion_como_semana_tipo(current_user):
         return jsonify({"error": "El nombre de la Semana tipo es obligatorio"}), 400
     if not sesiones:
         return jsonify({"error": "Añade al menos una sesión antes de guardar"}), 400
+
+    if current_user["rol"] == "entrenador":
+        entrenamiento_ids_semana = []
+        for sesion in sesiones:
+            try:
+                entrenamiento_ids_semana.append(int(sesion.get("entrenamiento_id")))
+            except Exception:
+                pass
+        if entrenamientos_fuera_de_equipo(entrenamiento_ids_semana, current_user["id"]):
+            return jsonify({"error": "Hay entrenamientos que no existen o no son tuyos"}), 404
 
     conn = get_db()
     cur = conn.cursor()
@@ -3016,6 +3072,8 @@ def agregar_sesion_planificacion_atleta(current_user, atleta_id):
         entrenamiento_id = int(data.get("entrenamiento_id"))
     except Exception:
         return jsonify({"error": "Entrenamiento inválido"}), 400
+    if current_user["rol"] == "entrenador" and entrenamientos_fuera_de_equipo([entrenamiento_id], current_user["id"]):
+        return jsonify({"error": "Entrenamiento no encontrado"}), 404
 
     conn = get_db()
     cur = conn.cursor()
@@ -3395,6 +3453,8 @@ def asignar_entrenamiento_lote(current_user):
         return jsonify({"error": "Lista de atletas inválida"}), 400
     if fuera:
         return jsonify({"error": "Hay atletas fuera de tu equipo"}), 403
+    if entrenamientos_fuera_de_equipo([entrenamiento_id], current_user["id"]):
+        return jsonify({"error": "Entrenamiento no encontrado"}), 404
 
     try:
         asignados = asignar_entrenamiento_a_atletas(

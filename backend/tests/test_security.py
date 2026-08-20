@@ -931,6 +931,84 @@ def test_entrenador_no_puede_asignar_por_lote_a_atleta_ajeno(client):
     assert resp.status_code == 403
 
 
+# --- Regresión: rutas que asignan/clonan una plantilla (entrenamiento)
+# a un atleta comprobaban que el atleta fuera del entrenador, pero no
+# que la propia plantilla lo fuera (o compartida, creador_id NULL) --
+# encontrado en la auditoría de 2026-08-20 al revisar todas las rutas
+# de escritura tras dos incidentes reales del mismo día
+# (responder_feedback sin comprobación de propiedad). Entrenamiento id=1
+# es del entrenador 1 (Coach Uno); el atleta id=4 es del entrenador 2
+# (Coach Dos) -- en todos estos tests el atleta SÍ es suyo, solo la
+# plantilla no lo es, para aislar exactamente lo que se arregló. ---
+
+
+def test_entrenador_no_puede_asignar_plantilla_ajena(client):
+    _set_session(client, user_id=2, rol="entrenador")
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+
+    resp = client.post(
+        "/entrenamientos_asignados",
+        json={"atletas_ids": [4], "entrenamiento_id": 1, "fecha": "2024-01-05"},
+        headers={"X-CSRF-Token": token},
+    )
+    assert resp.status_code == 404
+
+
+def test_entrenador_no_puede_asignar_por_lote_plantilla_ajena(client):
+    _set_session(client, user_id=2, rol="entrenador")
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+
+    resp = client.post(
+        "/asignar_entrenamiento_lote",
+        json={"atletas_ids": [4], "entrenamiento_id": 1, "fecha": "2024-01-05"},
+        headers={"X-CSRF-Token": token},
+    )
+    assert resp.status_code == 404
+
+
+def test_entrenador_no_puede_anadir_sesion_con_plantilla_ajena(client):
+    _set_session(client, user_id=2, rol="entrenador")
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+
+    resp = client.post(
+        "/planificacion/atleta/4/sesiones",
+        json={"fecha": "2024-01-05", "entrenamiento_id": 1},
+        headers={"X-CSRF-Token": token},
+    )
+    assert resp.status_code == 404
+
+
+def test_entrenador_no_puede_asignar_semana_con_plantilla_ajena(client):
+    _set_session(client, user_id=2, rol="entrenador")
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+
+    resp = client.post(
+        "/planificacion/semanal/asignar",
+        json={
+            "fecha_inicio": "2024-01-08",
+            "atletas_ids": [4],
+            "sesiones": [{"entrenamiento_id": 1, "dia_semana": 1, "franja": "manana"}],
+        },
+        headers={"X-CSRF-Token": token},
+    )
+    assert resp.status_code == 404
+
+
+def test_entrenador_no_puede_guardar_semana_tipo_con_plantilla_ajena(client):
+    _set_session(client, user_id=2, rol="entrenador")
+    token = client.get("/csrf-token").get_json()["csrf_token"]
+
+    resp = client.post(
+        "/planificacion/semanal/guardar_semana_tipo",
+        json={
+            "nombre": "Semana copiada",
+            "sesiones": [{"entrenamiento_id": 1, "dia_semana": 1, "franja": "manana"}],
+        },
+        headers={"X-CSRF-Token": token},
+    )
+    assert resp.status_code == 404
+
+
 def test_entrenador_no_puede_leer_historial_de_atleta_ajeno(client):
     _set_session(client, user_id=1, rol="entrenador")
     resp = client.get("/entrenamientos_asignados/4")
