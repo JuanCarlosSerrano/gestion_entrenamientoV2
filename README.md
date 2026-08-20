@@ -20,6 +20,7 @@ Repositorio de evolución de la aplicación, aislado de v1.
   - `ops/db_export.sh`
   - `ops/db_import.sh`
   - `ops/smoke_check.sh`
+- Backup nocturno automático de producción: `ops/nightly_backup.sh` (ver sección propia más abajo)
 
 ## Arranque único (v2)
 ```bash
@@ -52,7 +53,7 @@ SESSION_COOKIE_NAME=my_session_v2
 
 ## Flujo entre dos equipos (código + datos)
 
-> Nota (2026-08-19): actualmente solo existe el entorno de desarrollo local (una máquina, una BD). Este flujo de sincronización queda documentado para cuando exista un segundo equipo/entorno real; hasta entonces no aplica.
+> Nota (2026-08-20): además del entorno de desarrollo local ya existe producción (`gestion_entrenamiento_v2_prod`, puerto 5000, publicado en `https://mind-pace.net`), con su propia BD separada (`gestion_entrenamiento_v2_prod`). Este flujo de sincronización manual está pensado para mover un volcado de BD entre dos carpetas/equipos a mano; para el respaldo automático de producción ver "Backup nocturno (producción)" más abajo.
 
 ### En el equipo origen (antes de cambiar de equipo)
 1. Exportar BD v2:
@@ -78,6 +79,44 @@ git pull
 3. Arrancar:
 ```bash
 ./run_main.sh
+```
+
+## Backup nocturno (producción)
+
+`ops/nightly_backup.sh` vuelca la BD de producción con `mysqldump` (vía
+`docker exec` sobre el contenedor `mindpace-mariadb`), la comprime y la
+guarda con marca de tiempo en `backups/nightly/` — nunca sobrescribe la
+del día anterior. Borra automáticamente lo que tenga más de
+`BACKUP_RETENTION_DAYS` días (14 por defecto; se puede fijar en
+`backend/.env`). Cada ejecución queda registrada en `logs/backup.log`.
+
+Programado como **LaunchAgent** de macOS (`~/Library/LaunchAgents/net.mindpace.backup.plist`,
+copiado desde `ops/net.mindpace.backup.plist`) a las 03:00 cada noche. Es
+LaunchAgent y no LaunchDaemon porque el script depende de que Docker
+Desktop esté en marcha (su socket solo existe con una sesión de usuario
+iniciada); un LaunchDaemon de sistema no tendría acceso a él. Se intentó
+primero un `mysqldump` nativo por TCP (sin pasar por Docker, instalando
+`mysql-client` con Homebrew) precisamente para poder usar un
+LaunchDaemon y no depender de la sesión gráfica, pero el `brew install`
+falló al compilar: macOS 13 ya no es una configuración "Tier 1" de
+Homebrew. **Limitación conocida**: si el Mac reinicia y nadie inicia
+sesión antes de las 03:00, esa noche no habrá backup — hay que
+comprobar `logs/backup.log` de vez en cuando.
+
+Comandos útiles:
+```bash
+# Ejecutar un backup manualmente
+./ops/nightly_backup.sh
+
+# Ver logs
+tail -f logs/backup.log
+
+# Instalar/reinstalar el LaunchAgent
+cp ops/net.mindpace.backup.plist ~/Library/LaunchAgents/
+launchctl load -w ~/Library/LaunchAgents/net.mindpace.backup.plist
+
+# Desactivarlo
+launchctl unload ~/Library/LaunchAgents/net.mindpace.backup.plist
 ```
 
 ## Nota sobre ramas

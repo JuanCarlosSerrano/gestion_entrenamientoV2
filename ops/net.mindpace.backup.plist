@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>net.mindpace.backup</string>
+
+    <!--
+      LaunchAgent (no LaunchDaemon): el backup usa `docker exec` contra
+      MariaDB, y el socket de Docker Desktop solo existe mientras haya
+      una sesión de usuario iniciada con Docker Desktop en marcha. Un
+      LaunchAgent solo corre en esa sesión, así que es la opción
+      correcta aquí -- no necesita sudo para instalarse, pero tampoco
+      se ejecutará si el Mac está en la pantalla de login sin nadie
+      conectado a esa hora. Ver ops/nightly_backup.sh para el porqué no
+      se usó un LaunchDaemon con mysqldump nativo por TCP.
+    -->
+
+    <key>WorkingDirectory</key>
+    <string>/Users/jcserrano/gestion_entrenamiento_v2_prod</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/Users/jcserrano/gestion_entrenamiento_v2_prod/ops/nightly_backup.sh</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+      <key>Hour</key>
+      <integer>3</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/jcserrano/gestion_entrenamiento_v2_prod/logs/backup.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/jcserrano/gestion_entrenamiento_v2_prod/logs/backup.err.log</string>
+  </dict>
+</plist>
