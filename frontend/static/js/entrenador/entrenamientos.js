@@ -78,13 +78,6 @@ const STEP_TYPES = [
   { value: 'custom', label: 'Libre' }
 ];
 
-const OBJETIVO_TIPOS = [
-  { value: 'distancia', label: 'Distancia' },
-  { value: 'tiempo', label: 'Tiempo' },
-  { value: 'ritmo', label: 'Ritmo' },
-  { value: 'libre', label: 'Libre' }
-];
-
 const UNIDADES = ['', 'm', 'km', 'min', 's'];
 const ZONA_OPTIONS = [
   { value: '', label: 'Sin zona' },
@@ -1176,56 +1169,20 @@ function buildStepCard(step, siblings, index) {
     );
     body.appendChild(rowTop);
   } else {
-    rowTop.appendChild(
-      buildSelectField(
-        'Objetivo',
-        OBJETIVO_TIPOS,
-        step.objetivo_tipo || 'distancia',
-        (value) => {
-          step.objetivo_tipo = value;
-          if (!value || value === 'libre') {
-            step.unidad = null;
-            step.objetivo_valor = null;
-          } else if (value === 'distancia') {
-            step.unidad = 'm';
-            if (typeof step.objetivo_valor !== 'number') {
-              step.objetivo_valor = null;
-            }
-          } else if (value === 'tiempo') {
-            step.unidad = 'min';
-            step.objetivo_valor = null;
-          }
-          renderBuilder();
-        },
-        'distancia',
-        'col-md-6'
-      )
-    );
     body.appendChild(rowTop);
 
     const rowValues = document.createElement('div');
     rowValues.className = 'row g-2 builder-row';
-    if (step.objetivo_tipo === 'distancia') {
-      rowValues.appendChild(
-        buildNumberField(
-          'Valor',
-          step.objetivo_valor ?? '',
-          (value) => {
-            step.objetivo_valor = value === null ? null : value;
-          },
-          'col-md-3',
-          { step: 1, min: 0 }
-        )
-      );
-    } else if (step.objetivo_tipo === 'tiempo') {
-      // Campo numérico simple, igual que en "distancia": el valor se
-      // interpreta en la unidad elegida al lado (min o s). Antes este
-      // campo era de texto con autoformato "mm:ss", pero el backend
-      // interpreta un valor con ":" como minutos:segundos y lo convierte
-      // a segundos totales -- con una unidad "s" ya explícita, escribir
-      // p.ej. "150" (150 segundos) se autoformateaba a "1:50" y se
-      // guardaba como 110, no 150. El campo numérico evita esa doble
-      // conversión.
+    // Antes había que elegir primero "Objetivo" (Distancia/Tiempo/Libre)
+    // para que "Unidad" desbloqueara las opciones de ese tipo -- así,
+    // un rodaje (que empieza en "Tiempo") solo dejaba elegir min/s y
+    // había que cambiar el Objetivo aparte para llegar a km/m. Ahora
+    // "Unidad" ofrece directamente las cuatro opciones (m, km, min, s)
+    // más "Libre" (sin unidad, para bloques de texto); el tipo de
+    // objetivo se deduce de la unidad elegida, en un único paso.
+    const esUnidadNumerica = (u) => ['m', 'km', 'min', 's'].includes(u);
+    const unidadActual = step.objetivo_tipo === 'libre' ? '' : (step.unidad || '');
+    if (esUnidadNumerica(unidadActual)) {
       rowValues.appendChild(
         buildNumberField(
           'Valor',
@@ -1250,37 +1207,27 @@ function buildStepCard(step, siblings, index) {
         )
       );
     }
-    // Las unidades disponibles dependen del tipo de objetivo: un bloque de
-    // tiempo (calentamiento, recuperación dentro de series, etc.) puede
-    // medirse en minutos o en segundos -- una recuperación de "90" suele
-    // ser 90 segundos, no 90 minutos -- así que el selector debe permitir
-    // elegir entre ambos en vez de forzar "min" y bloquearlo.
-    const unidadesPorTipo = {
-      tiempo: ['min', 's'],
-      distancia: ['m', 'km'],
-    };
-    const unidadOpciones = unidadesPorTipo[step.objetivo_tipo] || UNIDADES;
-    const unidadDefault = unidadOpciones[0] || 'm';
-    const unidadField = buildSelectField(
-      'Unidad',
-      unidadOpciones.map((u) => ({ value: u, label: u || '-' })),
-      step.unidad || '',
-      (value) => {
-        step.unidad = value || null;
-      },
-      unidadDefault,
-      'col-md-3'
+    rowValues.appendChild(
+      buildSelectField(
+        'Unidad',
+        UNIDADES.map((u) => ({ value: u, label: u || 'Libre' })),
+        unidadActual,
+        (value) => {
+          const nuevoTipo = !value ? 'libre' : (value === 'min' || value === 's') ? 'tiempo' : 'distancia';
+          // Solo se borra el valor si cambia de categoría (p.ej. de
+          // tiempo a distancia, o a/desde Libre); entre unidades de la
+          // misma categoría (m<->km, min<->s) se conserva lo escrito.
+          if (nuevoTipo !== step.objetivo_tipo) {
+            step.objetivo_valor = null;
+          }
+          step.unidad = value || null;
+          step.objetivo_tipo = nuevoTipo;
+          renderBuilder();
+        },
+        'm',
+        'col-md-3'
+      )
     );
-    const unidadSelect = unidadField.querySelector('select');
-    if (unidadSelect) {
-      unidadSelect.disabled = step.objetivo_tipo === 'libre';
-      if (!step.unidad && step.objetivo_tipo !== 'libre') {
-        // Si el paso no traía unidad (p.ej. plantilla nueva), fijamos el
-        // valor por defecto también en el modelo, no solo en el <select>.
-        step.unidad = unidadDefault;
-      }
-    }
-    rowValues.appendChild(unidadField);
     rowValues.appendChild(
       buildSelectField(
         'Zona objetivo',
