@@ -37,7 +37,8 @@ CREATE TABLE usuarios (
     categoria TEXT,
     grupo TEXT,
     subgrupo TEXT,
-    aprobado INTEGER,                -- Solo atletas
+    aprobado INTEGER DEFAULT 0,      -- Solo atletas
+    activo INTEGER DEFAULT 1,
     foto_url TEXT,
     force_password_change INTEGER DEFAULT 0,
     vdot_val REAL,
@@ -89,14 +90,6 @@ CREATE TABLE entrenamientos_asignados (
     atleta_id INTEGER NOT NULL,            -- Hace referencia a usuarios.id
     fecha TEXT NOT NULL,
     nombre TEXT NOT NULL,
-    duracion_valor INTEGER,
-    duracion_tipo TEXT,
-    calentamiento_tipo TEXT,
-    calentamiento_valor INTEGER,
-    bloque_activacion TEXT,
-    bloque_principal TEXT NOT NULL,
-    enfriamiento_tipo TEXT,
-    enfriamiento_valor INTEGER,
     entrenamiento_id INTEGER,
     visible INTEGER DEFAULT 1,
     franja TEXT DEFAULT 'manana',
@@ -164,6 +157,7 @@ CREATE TABLE zonas_entrenamiento (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     atleta_id INTEGER NOT NULL,
     vam REAL NOT NULL,
+    vdot_val REAL,
     z1 REAL,
     z2 REAL,
     z3 REAL,
@@ -231,6 +225,7 @@ CREATE TABLE microciclos_entrenamientos (
     microciclo_id INTEGER NOT NULL,
     dia_relativo INTEGER,
     sesion_indice INTEGER,
+    franja TEXT DEFAULT 'manana',
     entrenamiento_id INTEGER,
     notas TEXT,
     orden INTEGER,
@@ -248,18 +243,6 @@ CREATE TABLE mesociclos_microciclos (
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (mesociclo_id) REFERENCES mesociclos(id) ON DELETE CASCADE,
     FOREIGN KEY (microciclo_id) REFERENCES microciclos(id) ON DELETE CASCADE
-);
-
-CREATE TABLE ciclo_asignaciones (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tipo_ciclo TEXT NOT NULL CHECK (tipo_ciclo IN ('micro','meso','macro')),
-    ciclo_id INTEGER NOT NULL,
-    atleta_id INTEGER NOT NULL,
-    fecha_inicio_real TEXT,
-    notas TEXT,
-    estado TEXT DEFAULT 'planificado',
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (atleta_id) REFERENCES usuarios(id)
 );
 
 CREATE TABLE textos_descriptivos (
