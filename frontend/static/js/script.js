@@ -170,12 +170,29 @@ function attachTrainerNavToggle() {
     });
 }
 
+function attachPasswordToggles() {
+    document.querySelectorAll('.password-toggle').forEach((toggle) => {
+        const input = toggle.previousElementSibling;
+        if (!input || input.tagName !== 'INPUT') return;
+
+        toggle.addEventListener('click', () => {
+            const isHidden = input.type === 'password';
+            input.type = isHidden ? 'text' : 'password';
+            toggle.textContent = isHidden ? '🙈' : '👁';
+            toggle.setAttribute('aria-pressed', String(isHidden));
+            toggle.setAttribute('aria-label', isHidden ? 'Ocultar contraseña' : 'Mostrar contraseña');
+        });
+    });
+}
+
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => {
         attachLogoutHandler();
         attachTrainerNavToggle();
+        attachPasswordToggles();
     });
 } else {
     attachLogoutHandler();
     attachTrainerNavToggle();
+    attachPasswordToggles();
 }

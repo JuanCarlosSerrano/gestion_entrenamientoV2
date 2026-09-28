@@ -13,8 +13,10 @@
     <main class="auth-shell">
       <section class="auth-card" aria-label="Acceso a MindPace">
         <aside class="auth-info">
-          <img src="img/logo_sin_fondo.png" alt="MindPace" class="auth-logo" />
-          <img src="img/letra_sin_fondo.png" alt="MindPace" class="brand-wordmark" />
+          <div class="auth-brand-row">
+            <img src="img/logo_sin_fondo.png" alt="" class="auth-logo" />
+            <span class="auth-brand-name">MindPace</span>
+          </div>
           <h1>Gestión de Entrenamiento</h1>
           <p>
             Centraliza la planificación y seguimiento de tus atletas en una sola plataforma.
@@ -31,7 +33,10 @@
             </div>
             <div class="form-group">
               <label for="password">Contraseña</label>
-              <input type="password" id="password" name="password" required placeholder="••••••••" />
+              <div class="password-field">
+                <input type="password" id="password" name="password" required placeholder="••••••••" />
+                <button type="button" class="password-toggle" id="toggle-password" aria-label="Mostrar contraseña" aria-pressed="false">👁</button>
+              </div>
             </div>
             <button type="submit" class="btn btn-brand w-100">Entrar</button>
           </form>

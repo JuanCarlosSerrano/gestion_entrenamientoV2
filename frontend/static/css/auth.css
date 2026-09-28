@@ -70,6 +70,19 @@ body.auth-page {
   margin-top: 0.5rem;
 }
 
+.auth-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.auth-brand-name {
+  color: #f8fafc;
+  font-size: 1.9rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
 .auth-info h1 {
   margin: 0;
   color: #f8fafc;
@@ -88,18 +101,10 @@ body.auth-page {
 }
 
 .auth-logo {
-  width: 96px;
-  height: 96px;
+  width: 56px;
+  height: 56px;
   object-fit: contain;
-  filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.24));
-}
-
-.auth-info .brand-wordmark {
-  width: min(100%, 250px);
-  height: auto;
-  margin-bottom: 0.3rem;
-  filter: brightness(0) invert(1);
-  opacity: 0.94;
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.24));
 }
 
 .auth-form {
@@ -159,6 +164,37 @@ body.auth-page {
 
 .auth-form input::placeholder {
   color: #94a3b8;
+}
+
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  padding-right: 2.75rem;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0.35rem;
+  transform: translateY(-50%);
+  width: 38px;
+  height: 38px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  color: var(--auth-muted);
+  font-size: 1.05rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.password-toggle:hover,
+.password-toggle:focus-visible {
+  background: rgba(16, 111, 134, 0.1);
+  color: var(--auth-primary);
+  outline: none;
 }
 
 .auth-form button.btn-brand {
@@ -256,47 +292,55 @@ body.auth-page {
   }
 
   .auth-info {
-    align-items: center;
-    text-align: center;
-    gap: 0.5rem;
-    padding: 2rem 1.5rem 1.75rem;
+    align-items: flex-start;
+    text-align: left;
+    gap: 0.35rem;
+    padding: 1.1rem 1.25rem 0.95rem;
   }
 
   .auth-info::after {
-    margin-left: auto;
-    margin-right: auto;
+    display: none;
+  }
+
+  .auth-brand-row {
+    gap: 0.5rem;
   }
 
   .auth-logo {
-    width: 52px;
-    height: 52px;
+    width: 32px;
+    height: 32px;
   }
 
-  .auth-info .brand-wordmark {
-    width: 150px;
-    margin-bottom: 0.35rem;
+  .auth-brand-name {
+    font-size: 1.1rem;
   }
 
   .auth-info h1 {
-    font-size: 1.5rem;
+    font-size: 1.05rem;
+    line-height: 1.3;
   }
 
   .auth-info p {
-    font-size: 0.92rem;
-    max-width: 26rem;
+    font-size: 0.8rem;
+    line-height: 1.4;
+    max-width: none;
   }
 
   .auth-form {
-    padding: 2rem 1.5rem 2.5rem;
+    padding: 1.5rem 1.25rem 1.75rem;
     justify-content: flex-start;
   }
 
   .auth-eyebrow {
-    margin-top: 0.25rem;
+    margin-top: 0;
   }
 
   .auth-form h2 {
-    margin-bottom: 1.75rem;
-    font-size: 1.7rem;
+    margin-bottom: 1.25rem;
+    font-size: 1.5rem;
+  }
+
+  .auth-form .form-group {
+    margin-bottom: 0.85rem;
   }
 }
