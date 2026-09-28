@@ -27,6 +27,9 @@
             if (typeof attachLogoutHandler === 'function') {
               attachLogoutHandler();
             }
+            if (typeof attachAthleteNavToggle === 'function') {
+              attachAthleteNavToggle();
+            }
             markActiveNav(el, el.dataset.navActive);
           }
         } catch (err) {

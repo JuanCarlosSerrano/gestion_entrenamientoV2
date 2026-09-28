@@ -140,16 +140,18 @@ function attachLogoutHandler() {
 
 // El menú del entrenador está duplicado en varias páginas HTML (sin
 // partial compartido), así que el botón para colapsarlo en móvil se
-// inyecta aquí una sola vez en vez de repetirlo en cada archivo.
-function attachTrainerNavToggle() {
-    const nav = document.querySelector('.trainer-nav');
-    const brand = document.querySelector('.trainer-brand');
-    if (!nav || !brand || document.getElementById('trainer-nav-toggle')) return;
+// inyecta aquí en vez de repetirlo en cada archivo. El del atleta sí
+// viene de un partial (header_atleta.html), pero se resuelve con la
+// misma función para no duplicar la lógica del desplegable.
+function attachCollapsibleNav(navSelector, brandSelector, toggleId, linkSelector) {
+    const nav = document.querySelector(navSelector);
+    const brand = document.querySelector(brandSelector);
+    if (!nav || !brand || document.getElementById(toggleId)) return;
 
     const toggle = document.createElement('button');
     toggle.type = 'button';
-    toggle.id = 'trainer-nav-toggle';
-    toggle.className = 'trainer-nav-toggle';
+    toggle.id = toggleId;
+    toggle.className = `${navSelector.slice(1)}-toggle`;
     toggle.setAttribute('aria-label', 'Abrir menú');
     toggle.setAttribute('aria-expanded', 'false');
     toggle.textContent = '☰';
@@ -161,13 +163,21 @@ function attachTrainerNavToggle() {
         toggle.textContent = isOpen ? '✕' : '☰';
     });
 
-    nav.querySelectorAll('.trainer-nav__link').forEach((link) => {
+    nav.querySelectorAll(linkSelector).forEach((link) => {
         link.addEventListener('click', () => {
             nav.classList.remove('is-open');
             toggle.setAttribute('aria-expanded', 'false');
             toggle.textContent = '☰';
         });
     });
+}
+
+function attachTrainerNavToggle() {
+    attachCollapsibleNav('.trainer-nav', '.trainer-brand', 'trainer-nav-toggle', '.trainer-nav__link');
+}
+
+function attachAthleteNavToggle() {
+    attachCollapsibleNav('.athlete-nav', '.athlete-brand', 'athlete-nav-toggle', '.athlete-nav__link');
 }
 
 function attachPasswordToggles() {
