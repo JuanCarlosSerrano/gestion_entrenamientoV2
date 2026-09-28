@@ -23,21 +23,6 @@
         </div>
       </header>
 
-      <section class="athlete-card">
-        <div class="athlete-week-header mb-3">
-          <div>
-            <p class="athlete-eyebrow" id="week-label">Semana</p>
-            <h2 class="h4 mb-0" id="week-range">Cargando...</h2>
-          </div>
-          <div class="d-flex flex-wrap gap-2">
-            <button class="btn btn-outline-brand" id="prev-week" type="button">Anterior</button>
-            <button class="btn btn-outline-brand" id="current-week" type="button">Actual</button>
-            <button class="btn btn-outline-brand" id="next-week" type="button">Siguiente</button>
-          </div>
-        </div>
-        <div class="athlete-week-grid" id="week-grid"></div>
-      </section>
-
       <section class="athlete-detail-layout">
         <article class="athlete-card athlete-detail-panel">
           <div>
@@ -69,6 +54,21 @@
             <a class="athlete-primary-btn w-100 mt-2" href="index.html">Volver al inicio</a>
           </div>
         </aside>
+      </section>
+
+      <section class="athlete-card" id="week-section">
+        <div class="athlete-week-header mb-3">
+          <div>
+            <p class="athlete-eyebrow" id="week-label">Semana</p>
+            <h2 class="h4 mb-0" id="week-range">Cargando...</h2>
+          </div>
+          <div class="d-flex flex-wrap gap-2">
+            <button class="btn btn-outline-brand" id="prev-week" type="button">Anterior</button>
+            <button class="btn btn-outline-brand" id="current-week" type="button">Actual</button>
+            <button class="btn btn-outline-brand" id="next-week" type="button">Siguiente</button>
+          </div>
+        </div>
+        <div class="athlete-week-grid" id="week-grid"></div>
       </section>
     </main>
   </div>

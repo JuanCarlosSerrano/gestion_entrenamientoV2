@@ -352,7 +352,16 @@ const init = async () => {
   state.byId = new Map(state.entrenos.map((ent) => [Number(ent.id), ent]));
   renderWeek();
   const hash = window.location.hash.match(/entreno-(\d+)/);
-  if (hash) selectTraining(Number(hash[1]));
+  if (hash) {
+    // Viene de un enlace directo a un entrenamiento concreto (p. ej.
+    // "Ver entrenamiento" desde Inicio): el detalle ya está arriba en
+    // el HTML, así que no hace falta desplazar nada.
+    selectTraining(Number(hash[1]));
+  } else {
+    // Navegación normal a "Mi planificación": el detalle vacío ya no
+    // es lo primero que interesa ver, así que bajamos a la semana.
+    $("#week-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 };
 
 $("#prev-week")?.addEventListener("click", () => {
