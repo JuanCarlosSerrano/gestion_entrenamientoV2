@@ -101,19 +101,62 @@ Gestionado por `launchd` como `LaunchDaemon`
 `ops/net.mindpace.gunicorn.plist` en el clon de producción): se
 reinicia solo si el proceso muere o si el Mac reinicia.
 
+### Modelo de ramas: `main` (desarrollo) vs `production` (lo que está en vivo)
+
+> Actualización 2026-09-28: antes, el clon de producción seguía
+> directamente `main`, la misma rama de trabajo diario — "desplegar"
+> era simplemente `git pull origin main` en el momento en que se
+> decidía. Funcionaba, pero no dejaba en git ningún registro de qué
+> commit exacto estaba realmente en `mind-pace.net` en cada momento, ni
+> una forma clara de volver atrás. Ahora hay una rama `production`
+> aparte: el clon de producción la sigue a ella, no a `main`, y cada
+> despliegue queda marcado con una etiqueta (`vYYYY.MM.DD`).
+
+- `main`: trabajo diario, se puede subir en cualquier momento aunque
+  todavía no esté listo para producción.
+- `production`: solo avanza cuando se decide desplegar de verdad.
+  Siempre es un fast-forward desde algún commit de `main` — nunca
+  diverge, nunca se le hacen cambios propios.
+- Cada vez que `production` avanza, se le pone una etiqueta con la
+  fecha (`v2026.08.20` es la primera, creada retroactivamente sobre el
+  commit que ya estaba en vivo cuando se adoptó este modelo).
+
 Desplegar un cambio a producción:
 ```bash
-# en el clon de desarrollo
-git push origin main
+# en el clon de desarrollo: llevar production al punto de main que se
+# quiere publicar (fast-forward, nunca un merge con conflictos)
+git checkout production
+git merge --ff-only main
+git tag -a v2026.09.28 -m "Descripción breve de qué se publica"
+git push origin production
+git push origin v2026.09.28
+git checkout main
 
 # en el clon de producción
-git pull origin main
+git pull origin production
 # si cambió algún .py del backend, hace falta reiniciar gunicorn:
 pkill -f "gestion_entrenamiento_v2_prod/backend/.venv/bin/gunicorn"
 # launchd lo relanza solo en segundos (KeepAlive)
 ```
 Los cambios de solo frontend (HTML/CSS/JS) no necesitan reinicio:
 Flask los sirve directamente desde disco en cada petición.
+
+Volver atrás ante un problema en producción:
+```bash
+# en el clon de desarrollo: mover production a la etiqueta anterior
+git checkout production
+git reset --hard v2026.08.20   # la etiqueta buena conocida
+git push --force origin production
+git checkout main
+
+# en el clon de producción
+git fetch origin
+git reset --hard origin/production
+pkill -f "gestion_entrenamiento_v2_prod/backend/.venv/bin/gunicorn"
+```
+`--force`/`--hard` son seguros aquí porque `production` nunca lleva
+commits propios que se puedan perder — solo apunta a commits que ya
+existen en `main`.
 
 ## Backup nocturno (producción)
 
@@ -155,4 +198,5 @@ launchctl unload ~/Library/LaunchAgents/net.mindpace.backup.plist
 
 ## Nota sobre ramas
 - La evolución funcional debe ir sobre `main`.
+- `production` solo se mueve mediante fast-forward desde `main` en el momento de desplegar (ver "Modelo de ramas" más arriba) — nunca se trabaja directamente sobre ella.
 - `run_dev.sh` y `run_pre.sh` se eliminaron intencionalmente para evitar entornos duplicados.
