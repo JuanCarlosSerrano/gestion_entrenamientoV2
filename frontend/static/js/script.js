@@ -138,8 +138,44 @@ function attachLogoutHandler() {
     });
 }
 
+// El menú del entrenador está duplicado en varias páginas HTML (sin
+// partial compartido), así que el botón para colapsarlo en móvil se
+// inyecta aquí una sola vez en vez de repetirlo en cada archivo.
+function attachTrainerNavToggle() {
+    const nav = document.querySelector('.trainer-nav');
+    const brand = document.querySelector('.trainer-brand');
+    if (!nav || !brand || document.getElementById('trainer-nav-toggle')) return;
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.id = 'trainer-nav-toggle';
+    toggle.className = 'trainer-nav-toggle';
+    toggle.setAttribute('aria-label', 'Abrir menú');
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.textContent = '☰';
+    brand.insertAdjacentElement('afterend', toggle);
+
+    toggle.addEventListener('click', () => {
+        const isOpen = nav.classList.toggle('is-open');
+        toggle.setAttribute('aria-expanded', String(isOpen));
+        toggle.textContent = isOpen ? '✕' : '☰';
+    });
+
+    nav.querySelectorAll('.trainer-nav__link').forEach((link) => {
+        link.addEventListener('click', () => {
+            nav.classList.remove('is-open');
+            toggle.setAttribute('aria-expanded', 'false');
+            toggle.textContent = '☰';
+        });
+    });
+}
+
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', attachLogoutHandler);
+    document.addEventListener('DOMContentLoaded', () => {
+        attachLogoutHandler();
+        attachTrainerNavToggle();
+    });
 } else {
     attachLogoutHandler();
+    attachTrainerNavToggle();
 }

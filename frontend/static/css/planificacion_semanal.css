@@ -10,6 +10,9 @@
   position: sticky;
   top: 0;
   z-index: 20;
+  background: #f4f7fb;
+  padding-bottom: 0.6rem;
+  box-shadow: 0 8px 12px -8px rgba(5, 26, 48, 0.15);
 }
 
 .week-picker {
@@ -345,5 +348,38 @@
   .planner-step__header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .weekly-topbar {
+    position: static;
+    box-shadow: none;
+  }
+
+  .week-board-wrap {
+    padding: 0.75rem;
+  }
+
+  .week-board {
+    grid-template-columns: repeat(7, minmax(94px, 1fr));
+    gap: 0.4rem;
+  }
+
+  .day-column {
+    min-width: 94px;
+  }
+
+  .day-title {
+    font-size: 0.74rem;
+    padding: 0.4rem;
+  }
+
+  .slot {
+    min-height: 92px;
+    padding: 0.4rem;
+  }
+
+  .slot-label {
+    font-size: 0.64rem;
+    margin-bottom: 0.3rem;
   }
 }

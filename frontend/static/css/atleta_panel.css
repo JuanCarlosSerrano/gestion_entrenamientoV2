@@ -651,7 +651,15 @@
   }
 
   .athlete-sidebar__footer {
-    display: none;
+    display: block;
+    margin-top: 8px;
+    padding-top: 0;
+  }
+
+  .athlete-logout {
+    min-height: 34px;
+    padding: 0 14px;
+    font-size: 0.82rem;
   }
 
   .athlete-nav {
