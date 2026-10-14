@@ -17,13 +17,13 @@ def create_admin_users_blueprint(
     @bp.route('/usuarios', methods=['GET'])
     @requires_roles('admin')
     def get_all_users(current_user):
-        users = query_db('SELECT id, nombre, apellidos, email, rol FROM usuarios')
+        users = query_db('SELECT id, nombre, apellidos, email, rol, entrenador_id FROM usuarios')
         return jsonify([dict(user) for user in users])
 
     @bp.route('/usuarios/<int:id>', methods=['GET'])
     @requires_roles('admin')
     def get_user(current_user, id):
-        user = query_db('SELECT id, nombre, apellidos, email, rol FROM usuarios WHERE id = ?', (id,), one=True)
+        user = query_db('SELECT id, nombre, apellidos, email, rol, entrenador_id FROM usuarios WHERE id = ?', (id,), one=True)
         if not user:
             return jsonify({'error': 'Usuario no encontrado'}), 404
         return jsonify(dict(user))
@@ -76,6 +76,7 @@ def create_admin_users_blueprint(
         email = data.get('email')
         rol = data.get('rol')
         password = data.get('password')
+        entrenador_id = data.get('entrenador_id')
 
         if not nombre or not apellidos or not email or not rol:
             return jsonify({'error': 'Todos los campos son obligatorios'}), 400
@@ -83,16 +84,23 @@ def create_admin_users_blueprint(
         if rol not in ('admin', 'entrenador', 'atleta'):
             return jsonify({'error': 'Rol inválido'}), 400
 
+        if rol == 'atleta' and entrenador_id is not None:
+            try:
+                entrenador_id = int(entrenador_id)
+            except (TypeError, ValueError):
+                return jsonify({'error': 'Entrenador inválido'}), 400
+        entrenador_id = entrenador_id if rol == 'atleta' else None
+
         if password:
             password_temporal = generar_password_temporal()
             password_hash = crear_hash_password(password_temporal)
             execute_db(
                 '''
                 UPDATE usuarios
-                SET nombre = ?, apellidos = ?, email = ?, rol = ?, password_hash = ?, force_password_change = 1
+                SET nombre = ?, apellidos = ?, email = ?, rol = ?, entrenador_id = ?, password_hash = ?, force_password_change = 1
                 WHERE id = ?
                 ''',
-                (nombre, apellidos, email, rol, password_hash, id),
+                (nombre, apellidos, email, rol, entrenador_id, password_hash, id),
             )
             return jsonify({
                 'message': 'Usuario actualizado exitosamente',
@@ -100,8 +108,8 @@ def create_admin_users_blueprint(
             }), 200
 
         execute_db(
-            'UPDATE usuarios SET nombre = ?, apellidos = ?, email = ?, rol = ? WHERE id = ?',
-            (nombre, apellidos, email, rol, id),
+            'UPDATE usuarios SET nombre = ?, apellidos = ?, email = ?, rol = ?, entrenador_id = ? WHERE id = ?',
+            (nombre, apellidos, email, rol, entrenador_id, id),
         )
         return jsonify({'message': 'Usuario actualizado exitosamente'}), 200
 

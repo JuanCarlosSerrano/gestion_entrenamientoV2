@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const cancelBtn = document.getElementById('cancel-btn');
 
     let editingUserId = null;
+    let lastUsers = [];
     const API_BASE =
         window.API_BASE ||
         (window.location && window.location.origin ? window.location.origin : 'http://127.0.0.1:5000');
@@ -53,6 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const users = await response.json();
+            lastUsers = users;
             displayUsers(users);
         } catch (error) {
             console.error('Error:', error);
@@ -126,6 +128,24 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function updateEntrenadorFieldForRol(selectedEntrenadorId) {
+        const wrap = document.getElementById('entrenador-field-wrap');
+        const select = document.getElementById('entrenador_id');
+        const rol = document.getElementById('rol').value;
+
+        if (rol !== 'atleta') {
+            wrap.classList.add('d-none');
+            select.value = '';
+            return;
+        }
+
+        wrap.classList.remove('d-none');
+        const entrenadores = lastUsers.filter((user) => user.rol === 'entrenador');
+        select.innerHTML = '<option value="">Sin entrenador (no aparecerá en ninguna planificación)</option>'
+            + entrenadores.map((entrenador) => `<option value="${entrenador.id}">${entrenador.nombre} ${entrenador.apellidos}</option>`).join('');
+        select.value = selectedEntrenadorId ? String(selectedEntrenadorId) : '';
+    }
+
     // --------------------------------------------------
     // Rellenar formulario al editar
     // --------------------------------------------------
@@ -154,6 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             editingUserId = userId;
             updatePasswordFieldForMode();
+            updateEntrenadorFieldForRol(user.entrenador_id);
         } catch (error) {
             console.error('Error:', error);
             alert('Error al obtener los datos del usuario. Consulta la consola.');
@@ -172,8 +193,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const email = document.getElementById('email').value.trim();
         const resetPassword = document.getElementById('reset-password').checked;
         const rol = document.getElementById('rol').value;
+        const entrenadorIdValue = document.getElementById('entrenador_id').value;
 
         const userData = { nombre, apellidos, email, rol };
+        if (rol === 'atleta') {
+            userData.entrenador_id = entrenadorIdValue ? Number(entrenadorIdValue) : null;
+        }
         if (resetPassword) {
             // El backend siempre genera su propia contraseña temporal
             // aleatoria; este valor solo actúa como bandera "sí, cambia la
@@ -279,9 +304,11 @@ document.addEventListener('DOMContentLoaded', () => {
         editingUserId = null;
         showUserForm();
         updatePasswordFieldForMode();
+        updateEntrenadorFieldForRol(null);
     });
     cancelBtn.addEventListener('click', hideUserForm);
     userForm.addEventListener('submit', saveUser);
+    document.getElementById('rol').addEventListener('change', () => updateEntrenadorFieldForRol());
     document.getElementById('btn-copy-temp-password')?.addEventListener('click', () => {
         navigator.clipboard?.writeText(document.getElementById('temp-password-value').textContent || '');
     });

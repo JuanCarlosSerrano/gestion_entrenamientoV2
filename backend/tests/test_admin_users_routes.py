@@ -145,6 +145,71 @@ def test_admin_actualiza_usuario(client):
         conn.close()
 
 
+def test_admin_crea_atleta_con_entrenador_queda_asignado(client):
+    # Bug real: el admin podía crear un atleta sin que el formulario
+    # (ni la API, hasta este cambio) permitiera asignarle entrenador,
+    # y ese atleta no aparecía en ninguna planificación.
+    client, db_path = client
+    _set_session(client, 1, "admin")
+
+    response = client.post(
+        "/usuarios",
+        json={
+            "nombre": "Atleta",
+            "apellidos": "Nuevo",
+            "email": "atleta-nuevo@example.com",
+            "rol": "atleta",
+            "entrenador_id": 2,
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+    assert response.status_code == 201
+
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT entrenador_id FROM usuarios WHERE email = 'atleta-nuevo@example.com'"
+        ).fetchone()
+        assert row == (2,)
+    finally:
+        conn.close()
+
+
+def test_admin_get_usuario_incluye_entrenador_id(client):
+    client, _ = client
+    _set_session(client, 1, "admin")
+
+    response = client.get("/usuarios/3")
+
+    assert response.status_code == 200
+    assert response.get_json()["entrenador_id"] == 2
+
+
+def test_admin_actualiza_atleta_puede_cambiar_entrenador(client):
+    client, db_path = client
+    _set_session(client, 1, "admin")
+
+    response = client.put(
+        "/usuarios/3",
+        json={
+            "nombre": "Atleta",
+            "apellidos": "Demo",
+            "email": "athlete@example.com",
+            "rol": "atleta",
+            "entrenador_id": None,
+        },
+        headers={"X-CSRF-Token": _csrf(client)},
+    )
+
+    assert response.status_code == 200
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute("SELECT entrenador_id FROM usuarios WHERE id = 3").fetchone()
+        assert row == (None,)
+    finally:
+        conn.close()
+
+
 def test_admin_elimina_usuario_sin_historial(client):
     client, db_path = client
     _set_session(client, 1, "admin")
