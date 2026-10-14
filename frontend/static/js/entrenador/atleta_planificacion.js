@@ -200,6 +200,7 @@ function sessionCard(session) {
       <div class="session-card-actions" hidden>
         <button class="btn btn-sm btn-outline-secondary" data-action="view" data-session-id="${session.id}" type="button">Ver</button>
         <button class="btn btn-sm btn-primary" data-action="edit" data-session-id="${session.id}" type="button">Editar</button>
+        <button class="btn btn-sm btn-outline-primary" data-action="customize" data-session-id="${session.id}" type="button">Personalizar entrenamiento</button>
         <button class="btn btn-sm btn-outline-danger" data-action="delete" data-session-id="${session.id}" type="button">Eliminar</button>
         <button class="btn btn-sm btn-outline-secondary" data-action="duplicate" data-session-id="${session.id}" type="button">Duplicar</button>
         <button class="btn btn-sm btn-outline-primary" data-action="toggle-slot" data-session-id="${session.id}" type="button">
@@ -262,6 +263,14 @@ async function handleSessionAction(action, id, sessions) {
   if (!session) return;
   if (action === "view" || action === "edit") {
     openEditSession(session);
+    return;
+  }
+  if (action === "customize") {
+    // "Editar" aquí solo cambia metadatos de la sesión (fecha, franja,
+    // visibilidad, publicación) -- para tocar los bloques/pasos del
+    // entrenamiento en sí hace falta el editor de bloques, que vive en
+    // otra página (no hay forma de incrustarlo aquí sin duplicarlo).
+    window.location.href = `entrenamiento_asignado_editor.html?asignadoId=${id}`;
     return;
   }
   try {
