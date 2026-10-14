@@ -1,5 +1,5 @@
 // === CONFIG BÁSICA ===
-const API_BASE = window.location.origin;
+// API_BASE ya lo declara js/script.js (cargado antes que este archivo).
 
 let asignadoId = null;
 let entrenamiento = null;
@@ -36,8 +36,27 @@ function getBlockClass(tipo) {
   return `builder-step-card--${tipo || "custom"}`;
 }
 
+function setupTrainerIdentity() {
+  const nameEl = document.getElementById("sidebar-trainer-name");
+  const initialsEl = document.getElementById("sidebar-trainer-initials");
+  if (!nameEl || !initialsEl) return;
+  const storedName = localStorage.getItem("userName") || localStorage.getItem("userEmail") || "Entrenador";
+  const displayName = storedName.includes("@") ? storedName.split("@")[0] : storedName;
+  const initials = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+  nameEl.textContent = displayName;
+  initialsEl.textContent = initials || "E";
+}
+
 // === CARGA INICIAL ===
 document.addEventListener("DOMContentLoaded", async () => {
+  setupTrainerIdentity();
+
   asignadoId = getParam("asignadoId");
   if (!asignadoId) {
     alert("No se proporcionó un ID de entrenamiento asignado");
