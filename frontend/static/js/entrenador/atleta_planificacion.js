@@ -200,7 +200,6 @@ function sessionCard(session) {
       <div class="session-card-actions" hidden>
         <button class="btn btn-sm btn-outline-secondary" data-action="view" data-session-id="${session.id}" type="button">Ver</button>
         <button class="btn btn-sm btn-primary" data-action="edit" data-session-id="${session.id}" type="button">Editar</button>
-        <button class="btn btn-sm btn-outline-primary" data-action="customize" data-session-id="${session.id}" type="button">Personalizar entrenamiento</button>
         <button class="btn btn-sm btn-outline-danger" data-action="delete" data-session-id="${session.id}" type="button">Eliminar</button>
         <button class="btn btn-sm btn-outline-secondary" data-action="duplicate" data-session-id="${session.id}" type="button">Duplicar</button>
         <button class="btn btn-sm btn-outline-primary" data-action="toggle-slot" data-session-id="${session.id}" type="button">
@@ -261,15 +260,14 @@ function toggleSessionActions(card) {
 async function handleSessionAction(action, id, sessions) {
   const session = sessions.find((item) => Number(item.id) === id);
   if (!session) return;
-  if (action === "view" || action === "edit") {
+  if (action === "view") {
     openEditSession(session);
     return;
   }
-  if (action === "customize") {
-    // "Editar" aquí solo cambia metadatos de la sesión (fecha, franja,
-    // visibilidad, publicación) -- para tocar los bloques/pasos del
-    // entrenamiento en sí hace falta el editor de bloques, que vive en
-    // otra página (no hay forma de incrustarlo aquí sin duplicarlo).
+  if (action === "edit") {
+    // El editor de bloques (otra página, no se puede incrustar aquí sin
+    // duplicarlo) ahora cubre también nombre, fecha, franja, notas y
+    // visibilidad -- ya no hace falta el modal aparte para eso.
     window.location.href = `entrenamiento_asignado_editor.html?asignadoId=${id}`;
     return;
   }

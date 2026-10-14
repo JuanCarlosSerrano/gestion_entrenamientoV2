@@ -2185,6 +2185,7 @@ def obtener_entrenamiento_asignado(current_user, id):
                 pasos_raiz.append(paso)  # huérfano, lo ponemos al raíz
 
     data = dict(entrenamiento)
+    data['fecha'] = fecha_iso(data.get('fecha'))
     data['pasos'] = pasos_raiz
 
     return jsonify(data), 200

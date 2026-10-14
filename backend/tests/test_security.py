@@ -1113,6 +1113,11 @@ def test_editar_entrenamiento_asignado_sin_mandar_visible_no_lo_oculta(client):
     data = client.get("/entrenamientos_asignados/uno/10").get_json()
     assert data["nombre"] == "Rodaje editado desde calendario"
     assert data["visible"] == 1
+    # Regresión: en MariaDB esta columna vuelve como datetime.date, no como
+    # texto (a diferencia de SQLite); sin normalizar con fecha_iso() llegaba
+    # al editor de bloques en un formato que <input type="date"> no acepta
+    # y el campo se quedaba vacío.
+    assert data["fecha"] == "2024-01-02"
 
 
 def test_publicar_visibilidad_masiva_genera_envio_whatsapp(client):

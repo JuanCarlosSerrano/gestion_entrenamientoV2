@@ -150,11 +150,28 @@ function buildHierarchyFromFlat(list) {
 
 
 
+// Misma lógica que estado_visibilidad_asignado() en
+// backend/services/publication_service.py, para que el desplegable
+// arranque en el estado real sin tener que pedírselo al servidor aparte.
+function estadoVisibilidad(ent) {
+  if (Number(ent.visible) === 1) return "visible";
+  if (ent.publicar_en) {
+    const publicarDt = new Date(String(ent.publicar_en).replace(" ", "T"));
+    if (!Number.isNaN(publicarDt.getTime()) && publicarDt > new Date()) return "programado";
+  }
+  return "oculto";
+}
+
 // === PINTAR ENTRENAMIENTO EN PANTALLA ===
 function pintarEntrenamiento() {
-  document.getElementById("entreno-nombre").textContent = entrenamiento.nombre;
-  document.getElementById("entreno-fecha").textContent =
-    new Date(entrenamiento.fecha).toLocaleDateString();
+  document.getElementById("entreno-nombre").value = entrenamiento.nombre || "";
+  document.getElementById("entreno-fecha").value = String(entrenamiento.fecha || "").slice(0, 10);
+  document.getElementById("entreno-franja").value = entrenamiento.franja === "tarde" ? "tarde" : "manana";
+  document.getElementById("entreno-notas").value = entrenamiento.notas || "";
+  document.getElementById("entreno-visibilidad").value = estadoVisibilidad(entrenamiento);
+  document.getElementById("entreno-publicar").value = entrenamiento.publicar_en
+    ? String(entrenamiento.publicar_en).replace(" ", "T").slice(0, 16)
+    : "";
 
   const cont = document.getElementById("builder-steps");
   cont.innerHTML = "";
@@ -464,36 +481,68 @@ async function ensureCsrfToken() {
 }
 
 
-// === GUARDAR CAMBIOS ===
-async function guardarCambios() {
-  const rootCards = document.querySelectorAll("#builder-steps > .builder-step-card");
+async function putJson(path, body, csrf) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "PUT",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRF-Token": csrf
+    },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || "No se pudo guardar");
+  }
+}
 
+// === GUARDAR CAMBIOS ===
+// Guarda tanto los datos de la sesión (nombre, fecha, franja, notas,
+// visibilidad) como los bloques del entrenamiento -- antes esta página
+// solo guardaba los bloques, y el modal "Editar" de
+// atleta_planificacion.js era el único sitio que tocaba esos otros
+// campos. Al retirar ese modal, esta página pasa a cubrirlo todo.
+async function guardarCambios() {
+  const nombre = document.getElementById("entreno-nombre").value.trim();
+  const fecha = document.getElementById("entreno-fecha").value;
+  if (!nombre || !fecha) {
+    alert("Nombre y fecha son obligatorios.");
+    return;
+  }
+  const franja = document.getElementById("entreno-franja").value;
+  const notas = document.getElementById("entreno-notas").value;
+  const visibilidad = document.getElementById("entreno-visibilidad").value;
+  const publicarEn = document.getElementById("entreno-publicar").value;
+  if (visibilidad === "programado" && !publicarEn) {
+    alert("Indica fecha y hora de publicación.");
+    return;
+  }
+
+  const rootCards = document.querySelectorAll("#builder-steps > .builder-step-card");
   // Árbol completo (repeat con subpasos)
   const tree = Array.from(rootCards).map((card) => collectStepFromCard(card));
 
-  // 👇 IMPORTANTE: objeto con propiedad "pasos"
-  const payload = { pasos: tree };
+  try {
+    const csrf = await ensureCsrfToken();
+    await putJson(`/planificacion/sesiones/${asignadoId}`, {
+      nombre,
+      fecha,
+      franja,
+      notas,
+      visible: visibilidad === "visible" ? 1 : 0,
+      publicar_en: visibilidad === "programado" ? publicarEn : null,
+    }, csrf);
+    await putJson(`/planificacion/sesiones/${asignadoId}/visibilidad`, {
+      estado: visibilidad,
+      publicar_en: publicarEn,
+    }, csrf);
+    // 👇 IMPORTANTE: objeto con propiedad "pasos"
+    await putJson(`/entrenamientos_asignados/${asignadoId}/detalle`, { pasos: tree }, csrf);
 
-  const csrf = await ensureCsrfToken();
-
-  const res = await fetch(
-    `${API_BASE}/entrenamientos_asignados/${asignadoId}/detalle`,
-    {
-      method: "PUT",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRF-Token": csrf
-      },
-      body: JSON.stringify(payload)
-    }
-  );
-
-  if (res.ok) {
     alert("Entrenamiento actualizado correctamente");
     window.history.back();
-  } else {
-    const data = await res.json().catch(() => ({}));
-    alert(data.error || "Error al guardar");
+  } catch (err) {
+    alert(err.message || "Error al guardar");
   }
 }
